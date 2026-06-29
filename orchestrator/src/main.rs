@@ -168,10 +168,10 @@ fn execute_cell(
     match entry.kind {
         Kind::Throughput => run_throughput(run_id, cell_id, entry, isolation),
         Kind::Latency => run_latency(run_id, cell_id, entry, isolation),
-        Kind::PubSub => run_pubsub(run_id, cell_id, entry, isolation),
-        other => anyhow::bail!(
-            "kind {other:?} not yet implemented in the runnable path (throughput, latency, pubsub)"
-        ),
+        // pubsub and fanout: the producer is the coordinator and binds.
+        Kind::PubSub | Kind::FanOut => run_multipeer(run_id, cell_id, entry, isolation, true),
+        // fanin: the single consumer (the sink) is the coordinator and binds.
+        Kind::FanIn => run_multipeer(run_id, cell_id, entry, isolation, false),
     }
 }
 
@@ -480,18 +480,21 @@ fn run_latency(
     })
 }
 
-/// PUB/SUB throughput (duration-based). One PUB binds and sends forever; `peers`
-/// SUBs connect and count for the window. One SUB is measured (its THROUGHPUT
-/// line is parsed); the rest create real fan-out load. msgs/s is per subscriber.
-/// TCP only for now.
-fn run_pubsub(
+/// Duration-based multi-peer throughput: pubsub, fanout, fanin. One coordinator
+/// binds and accepts `peers` workers; the measured consumer counts for the
+/// window and prints `THROUGHPUT <count> <elapsed>`. For pubsub and fanout the
+/// producer is the coordinator (`producer_binds = true`); for fanin the single
+/// consumer (the sink) is the coordinator (`producer_binds = false`). msgs/s is
+/// per measured consumer. TCP only.
+fn run_multipeer(
     run_id: &str,
     cell_id: &str,
     entry: &MatrixEntry,
     isolation: &Isolation,
+    producer_binds: bool,
 ) -> anyhow::Result<CellRecord> {
     if !matches!(entry.transport, Transport::TcpNetns) {
-        anyhow::bail!("pubsub is supported on tcp only for now");
+        anyhow::bail!("{:?} is supported on tcp only", entry.kind);
     }
     let peers = entry.peers.unwrap_or(1).max(1);
     let duration = entry.duration_secs.unwrap_or(2.0);
@@ -502,55 +505,84 @@ fn run_pubsub(
     let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut publisher = ProcCommand::new(binary)
-        .args(peer_args(entry, "pub", &endpoint, true, duration))
-        .spawn()
-        .with_context(|| format!("spawning PUB {}", binary.display()))?;
-    if let Some(cg) = &pub_cg {
-        let _ = cg.attach(publisher.id());
-    }
-    std::thread::sleep(Duration::from_millis(200));
+    let mut others: Vec<Child> = Vec::new();
+    let measured;
 
-    let mut measured = ProcCommand::new(binary)
-        .args(peer_args(entry, "sub", &endpoint, false, duration))
-        .stdout(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("spawning measured SUB {}", binary.display()))?;
-    if let Some(cg) = &sub_cg {
-        let _ = cg.attach(measured.id());
-    }
-
-    let mut drains: Vec<Child> = Vec::new();
-    for _ in 1..peers {
-        let mut d = ProcCommand::new(binary)
-            .args(peer_args(entry, "sub", &endpoint, false, duration))
-            .stdout(Stdio::null())
+    if producer_binds {
+        // pubsub / fanout: one producer binds and accepts `peers`; the consumers
+        // connect, one measured and the rest draining.
+        let mut prod = ProcCommand::new(binary)
+            .args(peer_args(entry, "pub", &endpoint, true, duration))
             .spawn()
-            .with_context(|| format!("spawning drain SUB {}", binary.display()))?;
-        if let Some(cg) = &sub_cg {
-            let _ = cg.attach(d.id());
+            .with_context(|| format!("spawning producer {}", binary.display()))?;
+        if let Some(cg) = &pub_cg {
+            let _ = cg.attach(prod.id());
         }
-        drains.push(d);
+        others.push(prod);
+        std::thread::sleep(Duration::from_millis(200));
+
+        let mut m = ProcCommand::new(binary)
+            .args(peer_args(entry, "sub", &endpoint, false, duration))
+            .stdout(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("spawning measured consumer {}", binary.display()))?;
+        if let Some(cg) = &sub_cg {
+            let _ = cg.attach(m.id());
+        }
+        for _ in 1..peers {
+            let mut d = ProcCommand::new(binary)
+                .args(peer_args(entry, "sub", &endpoint, false, duration))
+                .stdout(Stdio::null())
+                .spawn()
+                .with_context(|| format!("spawning drain consumer {}", binary.display()))?;
+            if let Some(cg) = &sub_cg {
+                let _ = cg.attach(d.id());
+            }
+            others.push(d);
+        }
+        measured = m;
+    } else {
+        // fanin: the single consumer (sink) binds and accepts `peers`; the
+        // producers connect and send forever.
+        let mut m = ProcCommand::new(binary)
+            .args(peer_args(entry, "sub", &endpoint, true, duration))
+            .stdout(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("spawning measured sink {}", binary.display()))?;
+        if let Some(cg) = &sub_cg {
+            let _ = cg.attach(m.id());
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        for _ in 0..peers {
+            let mut p = ProcCommand::new(binary)
+                .args(peer_args(entry, "pub", &endpoint, false, duration))
+                .spawn()
+                .with_context(|| format!("spawning producer {}", binary.display()))?;
+            if let Some(cg) = &pub_cg {
+                let _ = cg.attach(p.id());
+            }
+            others.push(p);
+        }
+        measured = m;
     }
 
+    let mut measured = measured;
     let budget = Duration::from_secs_f64(duration + 15.0);
     let ok = wait_until(&mut measured, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
     }
-    let _ = publisher.kill();
-    let _ = publisher.wait();
-    for mut d in drains {
-        let _ = d.kill();
-        let _ = d.wait();
+    for mut c in others {
+        let _ = c.kill();
+        let _ = c.wait();
     }
     if !ok {
-        anyhow::bail!("pubsub measured SUB timed out");
+        anyhow::bail!("{:?} measured consumer timed out", entry.kind);
     }
 
     let (count, elapsed) = parse_throughput_line(&out)
-        .ok_or_else(|| anyhow::anyhow!("no THROUGHPUT line from SUB: {out:?}"))?;
+        .ok_or_else(|| anyhow::anyhow!("no THROUGHPUT line from consumer: {out:?}"))?;
     let msgs_per_s = count as f64 / elapsed.max(1e-9);
     let mbps = msgs_per_s * entry.payload_bytes as f64 / 1e6;
 

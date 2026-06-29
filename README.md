@@ -180,16 +180,15 @@ cheating entry fails the cell rather than the review.
 | matrix and record schema | done |
 | CLI, matrix expansion, run loop | done, `--dry-run` works |
 | target CLI contract and roster | done, crate versions verified |
-| libzmq socket loop | PUSH/PULL, PUB/SUB, and REQ/REP latency over the C API |
+| libzmq socket loop | all five kinds (PUSH/PULL, REQ/REP, PUB/SUB, fan-out, fan-in) over the C API |
 | cgroup v2 provisioning | done (std::fs; needs root; compile-pending) |
 | ipc and loopback tcp transport | done; netns isolation still to do |
 | CPU and context-switch capture | done (`getrusage` + `/proc`; compile-pending) |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
-| pub/sub run path | done (duration-based, multi-subscriber; libzmq + monocoque) |
-| fan-out, fan-in run paths | not yet (skipped by the run loop) |
+| pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |
 | eBPF/perf syscall counting | not yet (feature-gated) |
-| monocoque socket loop | throughput (write-coalesced), latency (REQ/REP), pub/sub; TCP and IPC; run-verified locally |
+| monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |

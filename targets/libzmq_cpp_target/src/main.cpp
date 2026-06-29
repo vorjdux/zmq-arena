@@ -158,9 +158,10 @@ void run_latency(void* sock, const Args& a, bool producer) {
     std::cout.flush();
 }
 
-// PUB/SUB duration-based throughput. The PUB sends forever (killed by the
-// orchestrator). The SUB counts received messages for duration_secs, starting
-// the clock on the first message, and prints:
+// Duration-based throughput for the multi-peer kinds (pub/sub, fan-out, fan-in).
+// libzmq PUSH/PULL and PUB/SUB all reduce to: the producer sends forever (killed
+// by the orchestrator), and the consumer counts received messages for
+// duration_secs, starting the clock on the first message, then prints:
 //   THROUGHPUT <count> <elapsed_secs>
 void run_pubsub_loop(void* sock, const Args& a, bool producer) {
     if (producer) {
@@ -215,9 +216,11 @@ int main(int argc, char** argv) {
 
     const bool producer = (a.role == "pub");
 
-    // Bind side: pubsub is told explicitly by the orchestrator (--bind on the
-    // PUB); throughput/latency keep the convention that the consumer binds.
-    const bool do_bind = (a.kind == "pubsub") ? a.bind : !producer;
+    // The duration-based multi-peer kinds let the orchestrator pick the binding
+    // side (--bind on the coordinator); throughput/latency keep the convention
+    // that the consumer binds.
+    const bool multipeer = (a.kind == "pubsub" || a.kind == "fanout" || a.kind == "fanin");
+    const bool do_bind = multipeer ? a.bind : !producer;
     if (do_bind) {
         if (zmq_bind(sock, a.endpoint.c_str()) != 0) die("zmq_bind");
     } else {
@@ -229,7 +232,7 @@ int main(int argc, char** argv) {
 
     if (a.kind == "latency") {
         run_latency(sock, a, producer);
-    } else if (a.kind == "pubsub") {
+    } else if (multipeer) {
         run_pubsub_loop(sock, a, producer);
     } else {
         // Streaming throughput (PUSH/PULL): the producer sends the whole block,

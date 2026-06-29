@@ -141,6 +141,22 @@
       "payload_bytes": 64,
       "messages": 0,
       "warmup_messages": 0
+    },
+    {
+      "target": { "id": "libzmq", "binary": "targets/libzmq_cpp_target/build/libzmq_target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "fanout", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "target": { "id": "monocoque", "binary": "targets/monocoque_target/target/release/monocoque-target", "knobs": {} },
+      "transport": "tcp_netns", "kind": "fanout", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "target": { "id": "libzmq", "binary": "targets/libzmq_cpp_target/build/libzmq_target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "fanin", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "target": { "id": "monocoque", "binary": "targets/monocoque_target/target/release/monocoque-target", "knobs": {} },
+      "transport": "tcp_netns", "kind": "fanin", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
     }
   ]
 }

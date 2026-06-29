@@ -21,7 +21,9 @@ use anyhow::{bail, Result};
 use bytes::Bytes;
 use clap::{Parser, ValueEnum};
 use compio::net::{TcpListener, UnixListener, UnixStream};
-use monocoque::zmq::{PubSocket, PullSocket, PushSocket, RepSocket, ReqSocket, SubSocket};
+use monocoque::zmq::{
+    PubSocket, PullFanIn, PullSocket, PushFanOut, PushSocket, RepSocket, ReqSocket, SubSocket,
+};
 use monocoque::SocketOptions;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -99,7 +101,9 @@ fn main() -> Result<()> {
             "throughput" => run_throughput(role, ep, messages + warmup, &payload).await,
             "latency" => run_latency(role, ep, messages, warmup, &payload).await,
             "pubsub" => run_pubsub(role, ep, peers, duration, &payload).await,
-            other => bail!("monocoque: kind '{other}' not implemented (throughput, latency, pubsub)"),
+            "fanout" => run_fanout(role, ep, peers, duration, &payload).await,
+            "fanin" => run_fanin(role, ep, peers, duration, &payload).await,
+            other => bail!("monocoque: kind '{other}' not implemented"),
         }
     })?;
     Ok(())
@@ -309,6 +313,127 @@ async fn run_pubsub(
             }
             let elapsed = t0.elapsed().as_secs_f64();
             println!("THROUGHPUT {count} {elapsed:.6}");
+        }
+    }
+    Ok(())
+}
+
+// ── fan-out (1 PUSH -> N PULL) ───────────────────────────────────────────────
+
+/// The producer binds a PushFanOut ventilator that accepts `peers` PULL workers
+/// and round-robins forever, flushing every 64 sends per worker. Each consumer
+/// connects a PULL and counts for the window. TCP only.
+async fn run_fanout(
+    role: Role,
+    ep: Endpoint,
+    peers: u32,
+    duration: Duration,
+    payload: &Bytes,
+) -> Result<()> {
+    let addr = match ep {
+        Endpoint::Tcp(a) => a,
+        Endpoint::Ipc(_) => bail!("monocoque fanout: tcp only for now"),
+    };
+    match role {
+        Role::Pub => {
+            let listener = TcpListener::bind(addr).await?;
+            let coalesce = SocketOptions::default().with_write_coalescing(true);
+            let mut fanout = PushFanOut::accept_workers(&listener, peers as usize, coalesce).await?;
+            let flush_every = 64u64 * (peers.max(1) as u64);
+            let mut i = 0u64;
+            loop {
+                let _ = fanout.send(vec![payload.clone()]).await;
+                i += 1;
+                if i % flush_every == 0 {
+                    let _ = fanout.flush().await;
+                }
+            }
+        }
+        Role::Sub => {
+            let mut pull = PullSocket::connect(addr).await?;
+            let mut count: u64 = match pull.recv().await {
+                Ok(Some(_)) => 1,
+                _ => {
+                    println!("THROUGHPUT 0 0.000001");
+                    return Ok(());
+                }
+            };
+            let t0 = Instant::now();
+            let deadline = t0 + duration;
+            while Instant::now() < deadline {
+                match pull.recv().await {
+                    Ok(Some(_)) => count += 1,
+                    _ => break,
+                }
+            }
+            let elapsed = t0.elapsed().as_secs_f64();
+            println!("THROUGHPUT {count} {elapsed:.6}");
+        }
+    }
+    Ok(())
+}
+
+// ── fan-in (N PUSH -> 1 PULL) ────────────────────────────────────────────────
+
+/// The sink binds a PullFanIn that accepts `peers` PUSH workers and counts the
+/// merged stream for the window. Each producer connects a coalesced PUSH and
+/// sends forever. TCP only.
+async fn run_fanin(
+    role: Role,
+    ep: Endpoint,
+    peers: u32,
+    duration: Duration,
+    payload: &Bytes,
+) -> Result<()> {
+    let addr = match ep {
+        Endpoint::Tcp(a) => a,
+        Endpoint::Ipc(_) => bail!("monocoque fanin: tcp only for now"),
+    };
+    match role {
+        Role::Sub => {
+            let listener = TcpListener::bind(addr).await?;
+            let mut sink =
+                PullFanIn::accept_workers(&listener, peers as usize, SocketOptions::default()).await?;
+            let mut count: u64 = match sink.recv().await {
+                Ok(Some(_)) => 1,
+                _ => {
+                    println!("THROUGHPUT 0 0.000001");
+                    return Ok(());
+                }
+            };
+            let t0 = Instant::now();
+            let deadline = t0 + duration;
+            'outer: while Instant::now() < deadline {
+                match sink.recv().await {
+                    Ok(Some(_)) => {
+                        count += 1;
+                        loop {
+                            if Instant::now() >= deadline {
+                                break 'outer;
+                            }
+                            match sink.try_recv() {
+                                Ok(Some(_)) => count += 1,
+                                _ => break,
+                            }
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            let elapsed = t0.elapsed().as_secs_f64();
+            println!("THROUGHPUT {count} {elapsed:.6}");
+        }
+        Role::Pub => {
+            let coalesce = SocketOptions::default().with_write_coalescing(true);
+            let mut push = PushSocket::connect_with_options(addr, coalesce).await?;
+            let mut i = 0u64;
+            loop {
+                let _ = push.send(vec![payload.clone()]).await;
+                i += 1;
+                if i % 64 == 0 {
+                    let _ = push.flush().await;
+                }
+            }
         }
     }
     Ok(())
