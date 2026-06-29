@@ -2,5 +2,5 @@
 # Bumped to a recent stable so the engine's dependency closure builds; the root
 # orchestrator pin does not apply (not a workspace member).
 [toolchain]
-channel = "1.93.0"
+channel = "1.96.0"
 profile = "minimal"

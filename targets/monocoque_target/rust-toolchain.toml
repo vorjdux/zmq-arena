@@ -2,5 +2,5 @@
 # channel than the orchestrator (e.g. a newer edition). The orchestrator's pin
 # does not apply here because this is not a workspace member.
 [toolchain]
-channel = "1.93.0"
+channel = "1.96.0"
 profile = "minimal"

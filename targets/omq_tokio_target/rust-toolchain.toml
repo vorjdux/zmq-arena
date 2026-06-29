@@ -1,5 +1,5 @@
 # omq requires Rust 1.93+ (edition 2024) per its README. Independent pin; the
 # orchestrator's toolchain does not apply (not a workspace member).
 [toolchain]
-channel = "1.93.0"
+channel = "1.96.0"
 profile = "minimal"

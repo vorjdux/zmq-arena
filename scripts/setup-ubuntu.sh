@@ -34,7 +34,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   . "$HOME/.cargo/env"
 fi
 # Each project pins its own channel via rust-toolchain.toml; rustup fetches it
-# on first build. Everything is on edition 2024 and pins Rust 1.93.0.
+# on first build. Everything is on edition 2024 and pins Rust 1.96.0.
 rustup --version || true
 echo "cargo:   $(command -v cargo)"
 
