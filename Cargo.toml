@@ -15,9 +15,9 @@ resolver = "2"
 members = ["orchestrator"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.78"
+rust-version = "1.85"
 repository = "https://github.com/vorj-dux/zmq-arena"
 
 [workspace.dependencies]

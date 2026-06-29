@@ -8,7 +8,7 @@
 [package]
 name = "celerity-target"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "zmq-arena target wrapper: celerity (sans-IO ZMTP 3.1 + Tokio)."
 
