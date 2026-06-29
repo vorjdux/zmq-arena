@@ -89,6 +89,30 @@
       "payload_bytes": 64,
       "messages": 200000,
       "warmup_messages": 20000
+    },
+    {
+      "target": {
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "knobs": {}
+      },
+      "transport": "ipc",
+      "kind": "latency",
+      "payload_bytes": 64,
+      "messages": 20000,
+      "warmup_messages": 2000
+    },
+    {
+      "target": {
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "knobs": {}
+      },
+      "transport": "tcp_netns",
+      "kind": "latency",
+      "payload_bytes": 64,
+      "messages": 20000,
+      "warmup_messages": 2000
     }
   ]
 }

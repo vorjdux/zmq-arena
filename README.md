@@ -188,7 +188,7 @@ cheating entry fails the cell rather than the review.
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | not yet (skipped by the run loop) |
 | eBPF/perf syscall counting | not yet (feature-gated) |
-| monocoque socket loop | throughput (PUSH/PULL, TCP and IPC) over `monocoque-rs`; built and run-verified locally |
+| monocoque socket loop | throughput (PUSH/PULL, write-coalesced) and latency (REQ/REP), TCP and IPC; run-verified locally |
 | zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |
