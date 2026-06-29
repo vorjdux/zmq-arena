@@ -4,7 +4,8 @@
 # caveats that apply when the host is a VM or single-core (e.g. a Linode).
 #
 # Run from the repo root:  bash scripts/setup-ubuntu.sh
-set -euo pipefail
+# POSIX-safe (no pipefail) so it also runs under dash via `sh script`.
+set -eu
 
 say() { printf '\n== %s ==\n' "$1"; }
 warn() { printf 'WARNING: %s\n' "$1" >&2; }

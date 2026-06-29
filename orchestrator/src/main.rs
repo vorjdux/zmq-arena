@@ -20,7 +20,7 @@ mod config;
 mod telemetry;
 
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command as ProcCommand};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -276,7 +276,7 @@ fn run_throughput(
 
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut consumer = Command::new(binary)
+    let mut consumer = ProcCommand::new(binary)
         .args(target_args(entry, "sub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning consumer {}", binary.display()))?;
@@ -287,7 +287,7 @@ fn run_throughput(
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
-    let mut producer = Command::new(binary)
+    let mut producer = ProcCommand::new(binary)
         .args(target_args(entry, "pub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning producer {}", binary.display()))?;
