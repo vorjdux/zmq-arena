@@ -1,34 +1,22 @@
-//! Kernel-boundary telemetry capture.
+//! Per-cell telemetry capture.
 //!
-//! Primary metrics are taken from the kernel, not from user-space timers inside
-//! the target. The orchestrator drives three independent capture paths:
-//!
-//!   1. Latency  : per-message round-trip recorded into an [`HdrLatency`]
-//!                 histogram (p50/p90/p99/p99.9). Timestamps are captured by
-//!                 the orchestrator at the measurement boundary.
-//!   2. Syscalls : exact occurrence counts of `epoll_ctl`, `epoll_wait`,
-//!                 `sendmsg`, `recvmsg`, `io_uring_enter` via eBPF tracepoints
-//!                 (feature `ebpf`) or perf_event_open (feature `perf`).
-//!   3. Scheduling: voluntary / involuntary context switches from
-//!                 `/proc/[pid]/schedstat` or `getrusage`.
-//!
-//! The syscall and perf integrations are feature-gated stubs. Their public
-//! shapes are stable; the capture bodies are left to implementation so the base
-//! build needs no privileged counters. Counter field names below mirror the
-//! kernel tracepoint names exactly to avoid an attribution mismatch.
+//! Three signals are recorded for each cell:
+//!   - CPU and context switches via `getrusage(RUSAGE_CHILDREN)` (accurate, and
+//!     it survives the child's exit).
+//!   - Syscall occurrence counts via `perf_event_open` tracepoint counters
+//!     scoped to the measured PID. These count only when the host permits it
+//!     (root, tracefs mounted, `perf_event_paranoid <= 1`) and degrade to zero
+//!     otherwise.
+//!   - Latency is measured inside the target (REQ/REP) and reported on stdout,
+//!     so the orchestrator only stores the quantiles, not a histogram.
 
 use std::fs;
 
-use hdrhistogram::Histogram;
+use perf_event_open_sys as perf;
 use serde::{Deserialize, Serialize};
 
-/// Kernel USER_HZ. 100 on essentially all Linux builds; used to convert the
-/// clock ticks in /proc/<pid>/stat to seconds. If a host uses a different
-/// CONFIG_HZ, read it via sysconf(_SC_CLK_TCK) instead.
-const USER_HZ: f64 = 100.0;
-
-/// Exact syscall occurrence counts over one measurement block, attributed to a
-/// single target PID (and its children).
+/// Exact syscall occurrence counts over one measurement block, scoped to the
+/// measured PID.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SyscallCounters {
     pub epoll_ctl: u64,
@@ -38,7 +26,7 @@ pub struct SyscallCounters {
     pub io_uring_enter: u64,
 }
 
-/// Context-switch deltas captured across the measurement block.
+/// Context-switch deltas across the measurement block.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SchedCounters {
     /// Voluntary switches: the task blocked (e.g. waiting on a socket).
@@ -48,39 +36,6 @@ pub struct SchedCounters {
     pub involuntary_ctxt_switches: u64,
 }
 
-/// Latency histogram wrapper. Three significant figures gives sub-percent error
-/// out to the p99.9 tail the spec targets.
-pub struct HdrLatency {
-    hist: Histogram<u64>,
-}
-
-impl HdrLatency {
-    pub fn new() -> anyhow::Result<Self> {
-        // sigfig = 3 -> values stored with 0.1% relative quantization error.
-        let hist = Histogram::<u64>::new(3)?;
-        Ok(Self { hist })
-    }
-
-    /// Record one latency sample in nanoseconds.
-    pub fn record_ns(&mut self, ns: u64) -> anyhow::Result<()> {
-        self.hist.record(ns)?;
-        Ok(())
-    }
-
-    /// Snapshot the quantiles of interest into a serializable record.
-    pub fn snapshot(&self) -> LatencySnapshot {
-        LatencySnapshot {
-            count: self.hist.len(),
-            min_ns: self.hist.min(),
-            max_ns: self.hist.max(),
-            p50_ns: self.hist.value_at_quantile(0.50),
-            p90_ns: self.hist.value_at_quantile(0.90),
-            p99_ns: self.hist.value_at_quantile(0.99),
-            p999_ns: self.hist.value_at_quantile(0.999),
-        }
-    }
-}
-
 /// Steady-state throughput over one measurement block.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Throughput {
@@ -88,7 +43,7 @@ pub struct Throughput {
     pub mbps: f64,
 }
 
-/// Serializable latency quantiles for the run record / RANKING.md generator.
+/// Serializable latency quantiles (nanoseconds) for the run record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LatencySnapshot {
     pub count: u64,
@@ -100,80 +55,10 @@ pub struct LatencySnapshot {
     pub p999_ns: u64,
 }
 
-/// Owns the active kernel counters for one measurement block. `start` arms the
-/// probes; `stop` disarms and returns the deltas. The target PID scopes the
-/// attribution so counts from the orchestrator or unrelated processes are
-/// excluded.
-pub struct TelemetrySession {
-    target_pid: u32,
-}
-
-impl TelemetrySession {
-    pub fn start(target_pid: u32) -> anyhow::Result<Self> {
-        // TODO(impl, feature=ebpf): attach tracepoint programs filtered on
-        // target_pid for the five syscalls in SyscallCounters.
-        // TODO(impl, feature=perf): perf_event_open per counter, scoped to pid.
-        Ok(Self { target_pid })
-    }
-
-    /// Disarm and collect. Context switches come from `/proc/<pid>/status`
-    /// (implemented below). Syscall counts still require the eBPF/perf path
-    /// (feature `ebpf`/`perf`); until that is wired they are returned as zero.
-    ///
-    /// Read this before reaping the target: once the process exits, its
-    /// `/proc/<pid>` entry disappears and the counters read back as zero.
-    pub fn stop(self) -> anyhow::Result<(SyscallCounters, SchedCounters)> {
-        // TODO(impl, feature=ebpf/perf): drain the syscall counter maps here.
-        let sched = read_sched(self.target_pid);
-        Ok((SyscallCounters::default(), sched))
-    }
-}
-
-/// Voluntary / involuntary context switches for a live PID, parsed from
-/// `/proc/<pid>/status`. Best-effort: returns zeros if the process is gone or
-/// the fields are missing.
-pub fn read_sched(pid: u32) -> SchedCounters {
-    let mut out = SchedCounters::default();
-    let path = format!("/proc/{pid}/status");
-    let Ok(text) = fs::read_to_string(&path) else {
-        return out;
-    };
-    for line in text.lines() {
-        if let Some(v) = line.strip_prefix("voluntary_ctxt_switches:") {
-            out.voluntary_ctxt_switches = v.trim().parse().unwrap_or(0);
-        } else if let Some(v) = line.strip_prefix("nonvoluntary_ctxt_switches:") {
-            out.involuntary_ctxt_switches = v.trim().parse().unwrap_or(0);
-        }
-    }
-    out
-}
-
-/// CPU seconds (user + system) consumed by a live PID, from the `utime`/`stime`
-/// fields of `/proc/<pid>/stat`. Best-effort: 0.0 if unavailable.
-///
-/// The `comm` field can contain spaces and parentheses, so the numeric fields
-/// are taken after the final ')'. After that, field 3 (state) is index 0, so
-/// utime (field 14) is index 11 and stime (field 15) is index 12.
-pub fn read_cpu_seconds(pid: u32) -> f64 {
-    let path = format!("/proc/{pid}/stat");
-    let Ok(text) = fs::read_to_string(&path) else {
-        return 0.0;
-    };
-    let Some(close) = text.rfind(')') else {
-        return 0.0;
-    };
-    let rest = text[close + 1..].trim_start();
-    let fields: Vec<&str> = rest.split_whitespace().collect();
-    let utime: u64 = fields.get(11).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let stime: u64 = fields.get(12).and_then(|s| s.parse().ok()).unwrap_or(0);
-    (utime + stime) as f64 / USER_HZ
-}
-
 /// Cumulative CPU seconds and context switches across all reaped child
 /// processes, from `getrusage(RUSAGE_CHILDREN)`. Snapshot before and after a
 /// cell and take the delta; only children that have been `wait()`ed are counted,
-/// which `std::process::Child::wait` guarantees. Accurate and survives the
-/// child's exit, unlike the `/proc` reads above.
+/// which `std::process::Child::wait` guarantees.
 pub fn rusage_children() -> (f64, SchedCounters) {
     // SAFETY: getrusage writes into a zeroed, correctly-typed rusage struct.
     unsafe {
@@ -188,5 +73,111 @@ pub fn rusage_children() -> (f64, SchedCounters) {
             involuntary_ctxt_switches: ru.ru_nivcsw.max(0) as u64,
         };
         (cpu, sched)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SyscallKind {
+    EpollWait,
+    EpollCtl,
+    SendMsg,
+    RecvMsg,
+    IoUringEnter,
+}
+
+/// Per-syscall tracepoint counters scoped to one PID. Open it right after
+/// spawning the target, then `read()` before reaping while the fds are open.
+/// Best-effort: counters that cannot be opened (no tracefs, paranoid too high,
+/// not root) are skipped and read back as zero.
+pub struct SyscallProbe {
+    counters: Vec<(SyscallKind, i32)>,
+}
+
+impl SyscallProbe {
+    pub fn open(pid: u32) -> Self {
+        let want = [
+            (SyscallKind::EpollWait, "sys_enter_epoll_wait"),
+            (SyscallKind::EpollCtl, "sys_enter_epoll_ctl"),
+            (SyscallKind::SendMsg, "sys_enter_sendmsg"),
+            (SyscallKind::RecvMsg, "sys_enter_recvmsg"),
+            (SyscallKind::IoUringEnter, "sys_enter_io_uring_enter"),
+        ];
+        let mut counters = Vec::new();
+        for (kind, tp) in want {
+            if let Some(fd) = open_tracepoint(pid, tp) {
+                counters.push((kind, fd));
+            }
+        }
+        SyscallProbe { counters }
+    }
+
+    pub fn read(&self) -> SyscallCounters {
+        let mut c = SyscallCounters::default();
+        for (kind, fd) in &self.counters {
+            let v = read_counter(*fd);
+            match kind {
+                SyscallKind::EpollWait => c.epoll_wait = v,
+                SyscallKind::EpollCtl => c.epoll_ctl = v,
+                SyscallKind::SendMsg => c.sendmsg = v,
+                SyscallKind::RecvMsg => c.recvmsg = v,
+                SyscallKind::IoUringEnter => c.io_uring_enter = v,
+            }
+        }
+        c
+    }
+}
+
+impl Drop for SyscallProbe {
+    fn drop(&mut self) {
+        for (_, fd) in &self.counters {
+            // SAFETY: fd is a perf_event fd we opened and still own.
+            unsafe {
+                libc::close(*fd);
+            }
+        }
+    }
+}
+
+fn tracepoint_id(name: &str) -> Option<u64> {
+    for base in [
+        "/sys/kernel/tracing/events/syscalls/",
+        "/sys/kernel/debug/tracing/events/syscalls/",
+    ] {
+        let path = format!("{base}{name}/id");
+        if let Ok(s) = fs::read_to_string(&path) {
+            if let Ok(id) = s.trim().parse::<u64>() {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+fn open_tracepoint(pid: u32, name: &str) -> Option<i32> {
+    let id = tracepoint_id(name)?;
+    // SAFETY: a zeroed perf_event_attr is a valid struct; we set only the
+    // documented fields and leave the rest zero.
+    let mut attr: perf::bindings::perf_event_attr = unsafe { std::mem::zeroed() };
+    attr.type_ = 2; // PERF_TYPE_TRACEPOINT
+    attr.size = std::mem::size_of::<perf::bindings::perf_event_attr>() as u32;
+    attr.config = id;
+    // SAFETY: attr is fully initialized; pid scoping with cpu=-1 counts the task
+    // across all CPUs. Returns a non-negative fd on success.
+    let fd = unsafe { perf::perf_event_open(&mut attr, pid as i32, -1, -1, 0) };
+    if fd < 0 {
+        None
+    } else {
+        Some(fd)
+    }
+}
+
+fn read_counter(fd: i32) -> u64 {
+    let mut v: u64 = 0;
+    // SAFETY: a perf_event counter fd yields a u64 count on read.
+    let n = unsafe { libc::read(fd, (&mut v as *mut u64).cast::<libc::c_void>(), 8) };
+    if n == 8 {
+        v
+    } else {
+        0
     }
 }

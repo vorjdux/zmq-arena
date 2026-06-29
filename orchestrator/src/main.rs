@@ -336,6 +336,7 @@ fn run_throughput(
     if let Some(cg) = &sub_cg {
         let _ = cg.attach(consumer.id());
     }
+    let syscall_probe = crate::telemetry::SyscallProbe::open(consumer.id());
     std::thread::sleep(Duration::from_millis(150)); // let the consumer bind
 
     let total = entry.messages + entry.warmup_messages;
@@ -351,6 +352,7 @@ fn run_throughput(
     let budget = Duration::from_secs((total / 50_000).max(10));
     let consumer_ok = wait_until(&mut consumer, Instant::now() + budget);
     let elapsed = t0.elapsed();
+    let syscalls = syscall_probe.read();
     let _ = wait_until(&mut producer, Instant::now() + Duration::from_secs(5));
 
     if let Some(p) = ipc_path {
@@ -389,8 +391,7 @@ fn run_throughput(
         },
         throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
-        // Syscall counts still require the eBPF/perf path.
-        syscalls: SyscallCounters::default(),
+        syscalls,
         sched,
         peak_memory_bytes,
     })
@@ -431,9 +432,11 @@ fn run_latency(
     if let Some(cg) = &pub_cg {
         let _ = cg.attach(client.id());
     }
+    let syscall_probe = crate::telemetry::SyscallProbe::open(client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
     let ok = wait_until(&mut client, Instant::now() + budget);
+    let syscalls = syscall_probe.read();
     let mut out = String::new();
     if let Some(mut so) = client.stdout.take() {
         let _ = so.read_to_string(&mut out);
@@ -474,7 +477,7 @@ fn run_latency(
         // Throughput is not measured for latency cells; render emits null.
         throughput: Throughput::default(),
         cpu_seconds: (cpu1 - cpu0).max(0.0),
-        syscalls: SyscallCounters::default(),
+        syscalls,
         sched,
         peak_memory_bytes,
     })
@@ -511,7 +514,7 @@ fn run_multipeer(
     if producer_binds {
         // pubsub / fanout: one producer binds and accepts `peers`; the consumers
         // connect, one measured and the rest draining.
-        let mut prod = ProcCommand::new(binary)
+        let prod = ProcCommand::new(binary)
             .args(peer_args(entry, "pub", &endpoint, true, duration))
             .spawn()
             .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -521,7 +524,7 @@ fn run_multipeer(
         others.push(prod);
         std::thread::sleep(Duration::from_millis(200));
 
-        let mut m = ProcCommand::new(binary)
+        let m = ProcCommand::new(binary)
             .args(peer_args(entry, "sub", &endpoint, false, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -530,7 +533,7 @@ fn run_multipeer(
             let _ = cg.attach(m.id());
         }
         for _ in 1..peers {
-            let mut d = ProcCommand::new(binary)
+            let d = ProcCommand::new(binary)
                 .args(peer_args(entry, "sub", &endpoint, false, duration))
                 .stdout(Stdio::null())
                 .spawn()
@@ -544,7 +547,7 @@ fn run_multipeer(
     } else {
         // fanin: the single consumer (sink) binds and accepts `peers`; the
         // producers connect and send forever.
-        let mut m = ProcCommand::new(binary)
+        let m = ProcCommand::new(binary)
             .args(peer_args(entry, "sub", &endpoint, true, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -554,7 +557,7 @@ fn run_multipeer(
         }
         std::thread::sleep(Duration::from_millis(200));
         for _ in 0..peers {
-            let mut p = ProcCommand::new(binary)
+            let p = ProcCommand::new(binary)
                 .args(peer_args(entry, "pub", &endpoint, false, duration))
                 .spawn()
                 .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -567,12 +570,14 @@ fn run_multipeer(
     }
 
     let mut measured = measured;
+    let syscall_probe = crate::telemetry::SyscallProbe::open(measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
     let ok = wait_until(&mut measured, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
     }
+    let syscalls = syscall_probe.read();
     for mut c in others {
         let _ = c.kill();
         let _ = c.wait();
@@ -609,7 +614,7 @@ fn run_multipeer(
         },
         throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
-        syscalls: SyscallCounters::default(),
+        syscalls,
         sched,
         peak_memory_bytes,
     })

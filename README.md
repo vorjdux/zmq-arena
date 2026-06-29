@@ -181,13 +181,13 @@ cheating entry fails the cell rather than the review.
 | CLI, matrix expansion, run loop | done, `--dry-run` works |
 | target CLI contract and roster | done, crate versions verified |
 | libzmq socket loop | all five kinds (PUSH/PULL, REQ/REP, PUB/SUB, fan-out, fan-in) over the C API |
-| cgroup v2 provisioning | done (std::fs; needs root; compile-pending) |
+| cgroup v2 provisioning | done (std::fs; needs root) |
 | ipc and loopback tcp transport | done; netns isolation still to do |
-| CPU and context-switch capture | done (`getrusage` + `/proc`; compile-pending) |
+| CPU and context-switch capture | done (`getrusage` deltas) |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |
-| eBPF/perf syscall counting | not yet (feature-gated) |
+| perf syscall counting | done (`perf_event_open` tracepoints; needs root + tracefs + `perf_event_paranoid <= 1`, else 0) |
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |

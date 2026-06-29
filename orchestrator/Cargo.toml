@@ -16,10 +16,13 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-hdrhistogram.workspace = true
 # Accurate per-cell CPU and context-switch capture via getrusage(RUSAGE_CHILDREN),
 # which counts reaped children and survives process exit.
 libc = "0.2"
+# Raw perf_event_open bindings for syscall tracepoint counters. Counts only when
+# the host allows it (root, tracefs mounted, perf_event_paranoid <= 1); degrades
+# to zero otherwise.
+perf-event-open-sys = "4"
 
 [features]
 default = []
