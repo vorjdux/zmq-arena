@@ -85,6 +85,7 @@
     <option value="engine">engine</option>
     <option value="io">io model</option>
     <option value="threading">threading</option>
+    <option value="language">language</option>
     <option value="variant">variant</option>
   </select></div>
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
@@ -197,7 +198,7 @@ async function load(){
   for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
   DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading,language:r.language||(r.engine==="libzmq"?"C++":"Rust")};
   const order=Object.keys(VARIANT_LABEL);
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort((a,b)=>{
     const ia=order.indexOf(a),ib=order.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b); });
@@ -262,7 +263,7 @@ function buildChips(){
     const c=document.createElement("span");
     c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
     c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[VARMETA[v].engine]||"#888"}"></span>`+
-      `${VARIANT_LABEL[v]||v} <small>${VARMETA[v].io}·${VARMETA[v].threading}</small>`;
+      `${VARIANT_LABEL[v]||v} <small>${VARMETA[v].language}·${VARMETA[v].io}·${VARMETA[v].threading}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
     box.appendChild(c);
@@ -373,7 +374,7 @@ function renderRanking(){
     if(best){ const ratio=m.better==="lower"?r.x/best:best/r.x; rel=i===0?"best":"×"+ratio.toFixed(2); }
     const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
-      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.io}·${meta.threading}</small></td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.language}·${meta.io}·${meta.threading}</small></td>`+
       `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td></tr>`;
   });
   html+="</tbody></table>";

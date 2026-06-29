@@ -33,15 +33,15 @@ harness, where each bench peer is a separate build unit.
 
 ## Targets
 
-| directory | engine | crate or source | model |
-|-----------|--------|-----------------|-------|
-| `libzmq_cpp_target` | libzmq | system `libzmq` via CMake (C) | epoll, the C reference |
-| `zeromq_rs_target` | zmq.rs | `zeromq = "0.6"` | epoll + tokio |
-| `omq_tokio_target` | omq-tokio | git `paddor/omq.rs` | mio, tokio |
-| `omq_compio_target` | omq-compio | git `paddor/omq.rs` | io_uring, single-thread, Linux 6.0+ |
-| `rzmq_target` | rzmq | `rzmq = "0.5.21"` | io_uring + TCP_CORK, Linux |
-| `celerity_target` | celerity | `celerity = "0.2.0"` | sans-IO ZMTP 3.1 + tokio |
-| `monocoque_target` | monocoque | `monocoque-rs = "0.1.5"` | io_uring/compio, ZMTP 3.1 |
+| directory | engine | language | crate or source | model |
+|-----------|--------|----------|-----------------|-------|
+| `libzmq_cpp_target` | libzmq | C++ | system `libzmq` via CMake | epoll, the reference |
+| `zeromq_rs_target` | zmq.rs | Rust | `zeromq = "0.6"` | epoll + tokio |
+| `omq_tokio_target` | omq-tokio | Rust | git `paddor/omq.rs` | mio, tokio |
+| `omq_compio_target` | omq-compio | Rust | git `paddor/omq.rs` | io_uring, single-thread, Linux 6.0+ |
+| `rzmq_target` | rzmq | Rust | `rzmq = "0.5.21"` | io_uring + TCP_CORK, Linux |
+| `celerity_target` | celerity | Rust | `celerity = "0.2.0"` | sans-IO ZMTP 3.1 + tokio |
+| `monocoque_target` | monocoque | Rust | `monocoque-rs = "0.1.5"` | io_uring/compio, ZMTP 3.1 |
 
 libzmq runs throughput, pub/sub, and latency; monocoque runs throughput. The
 other Rust socket loops are stubs until each is written against its engine's

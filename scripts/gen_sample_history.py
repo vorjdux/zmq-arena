@@ -102,9 +102,12 @@ def telemetry(rng, v, payload):
 
 
 def base_record(vid, v, kind, transport, payload, peers):
+    # libzmq (the ZeroMQ core) is C++; every other engine here is Rust.
+    language = "C++" if v["engine"] == "libzmq" else "Rust"
     return {
         "variant": vid, "engine": v["engine"], "io": v["io"],
-        "threading": v["threading"], "kind": kind, "transport": transport,
+        "threading": v["threading"], "language": language,
+        "kind": kind, "transport": transport,
         "payload_bytes": payload, "peers": peers,
     }
 

@@ -76,8 +76,11 @@ def to_archive_record(cell: dict) -> dict:
 
     sysc = cell.get("syscalls") or {}
     sched = cell.get("sched") or {}
+    # libzmq (the ZeroMQ core) is C++; every other engine here is Rust.
+    language = "C++" if m["engine"] == "libzmq" else "Rust"
     return {
         "variant": vkey, "engine": m["engine"], "io": m["io"], "threading": m["threading"],
+        "language": language,
         "kind": kind, "transport": entry["transport"],
         "payload_bytes": entry["payload_bytes"], "peers": entry.get("peers"),
         "latency_ns": latency_ns, "throughput": throughput,
