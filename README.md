@@ -96,6 +96,12 @@ own invocation so per-target lockfiles and toolchains are honored.
 
 ## Running it
 
+A `Makefile` wraps the usual flow: `make build` compiles the control plane and
+the runnable targets, `make run` runs the matrix and renders the result into
+`docs/`, and `make` does both. `make run-root` runs under sudo so cgroup pinning
+applies. `make help` lists the rest. The commands below are what those targets
+run.
+
 Show the expanded plan without spawning anything:
 
 ```

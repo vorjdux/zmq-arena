@@ -536,6 +536,7 @@ fn run_multipeer(
             let d = ProcCommand::new(binary)
                 .args(peer_args(entry, "sub", &endpoint, false, duration))
                 .stdout(Stdio::null())
+                .stderr(Stdio::null()) // non-measured peers do not spam stderr
                 .spawn()
                 .with_context(|| format!("spawning drain consumer {}", binary.display()))?;
             if let Some(cg) = &sub_cg {
@@ -559,6 +560,7 @@ fn run_multipeer(
         for _ in 0..peers {
             let p = ProcCommand::new(binary)
                 .args(peer_args(entry, "pub", &endpoint, false, duration))
+                .stderr(Stdio::null()) // non-measured peers do not spam stderr
                 .spawn()
                 .with_context(|| format!("spawning producer {}", binary.display()))?;
             if let Some(cg) = &pub_cg {
