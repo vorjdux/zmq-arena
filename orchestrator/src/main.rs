@@ -21,6 +21,7 @@ mod telemetry;
 
 use std::path::PathBuf;
 use std::process::{Child, Command as ProcCommand};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -248,10 +249,15 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
 /// Best-effort cgroup leaf. Returns None (with a one-line warning) when
 /// provisioning fails, e.g. when not root. The arena then runs without
 /// isolation, which is fine for functional tests on a dev VM.
+static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
+
 fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup> {
     let cg = Cgroup::new(run_id, leaf, isolation.clone());
     if let Err(e) = cg.create().and_then(|_| cg.apply_limits()) {
-        eprintln!("  cgroup unavailable for {leaf} ({e}); running without isolation");
+        // Warn once per run, not once per leaf.
+        if !CGROUP_WARNED.swap(true, Ordering::Relaxed) {
+            eprintln!("  cgroups unavailable ({e}); running without isolation (run as root for pinning)");
+        }
         return None;
     }
     Some(cg)

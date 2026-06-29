@@ -130,6 +130,11 @@ impl Cgroup {
 
 impl Drop for Cgroup {
     fn drop(&mut self) {
+        // Nothing to tear down if the leaf was never created (e.g. provisioning
+        // failed because we are not root). Avoids a spurious ENOENT.
+        if !self.path.exists() {
+            return;
+        }
         // rmdir fails with EBUSY if the cgroup still holds tasks; the caller is
         // responsible for reaping the target first. Teardown errors are logged,
         // not propagated, because Drop cannot return Result.
