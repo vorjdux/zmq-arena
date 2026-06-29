@@ -1,15 +1,17 @@
-//! zmq-arena target wrapper: monocoque (io_uring + thread-per-core).
+//! zmq-arena target wrapper: monocoque (monocoque-rs, ZMTP on io_uring/compio).
 //!
-//! Parses the unified target CLI (see ../../README.md) and dispatches to the
-//! publisher or subscriber role. The socket loop is left to the maintainer; the
-//! CLI contract, knob parsing, and role dispatch are complete so the harness
-//! can spawn this binary and the maintainer fills in exactly one function per
-//! role.
-
-use std::collections::BTreeMap;
+//! Implements the throughput kind (PUSH/PULL) against the monocoque-rs `zmq`
+//! API: the producer connects a PUSH socket and sends the whole block, the
+//! consumer binds a PULL socket and receives it. The orchestrator times the
+//! consumer externally. Other kinds bail and are skipped by the run loop.
+//!
+//! The runtime is compio (io_uring), so `main` runs under `#[compio::main]`. If
+//! that attribute is unavailable in your compio version, wrap the body in
+//! `compio::runtime::Runtime::new()?.block_on(async { ... })` instead.
 
 use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
+use monocoque::zmq::{PullSocket, PushSocket};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Role {
@@ -17,27 +19,16 @@ enum Role {
     Sub,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Pattern {
-    PubSub,
-    PushPull,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Transport {
-    Tcp,
-    Ipc,
-}
-
 #[derive(Parser, Debug)]
 #[command(name = "monocoque-target", version, about = "zmq-arena monocoque wrapper")]
 struct Cli {
     #[arg(long, value_enum)]
     role: Role,
-    #[arg(long, value_enum)]
-    pattern: Pattern,
-    #[arg(long, value_enum)]
-    transport: Transport,
+    #[arg(long, default_value = "throughput")]
+    kind: String,
+    /// Accepted; the endpoint already carries the transport scheme.
+    #[arg(long)]
+    transport: String,
     #[arg(long)]
     endpoint: String,
     #[arg(long)]
@@ -46,52 +37,46 @@ struct Cli {
     messages: u64,
     #[arg(long, default_value_t = 0)]
     warmup: u64,
-    /// Repeatable maintainer-owned tuning, key=value.
-    /// Benchmark kind: throughput | latency | pubsub | fanout | fanin.
-    #[arg(long, default_value = "throughput")]
-    kind: String,
-    /// Subscriber/pusher count (pubsub/fanout/fanin); omitted otherwise.
     #[arg(long)]
     peers: Option<u32>,
-    /// Runtime variant selector (engine-specific, e.g. "multi_thread").
     #[arg(long, default_value = "default")]
     variant: String,
-    #[arg(long = "knob", value_parser = parse_knob)]
-    knobs: Vec<(String, String)>,
+    /// Accepted and currently ignored; monocoque tuning knobs are not wired yet.
+    #[arg(long = "knob")]
+    knobs: Vec<String>,
 }
 
-fn parse_knob(s: &str) -> Result<(String, String), String> {
-    match s.split_once('=') {
-        Some((k, v)) => Ok((k.trim().to_string(), v.trim().to_string())),
-        None => Err(format!("knob must be key=value, got `{s}`")),
-    }
-}
-
-fn main() -> Result<()> {
+#[compio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
-
     eprintln!(
-        "monocoque-target: role={:?} pattern={:?} transport={:?} endpoint={} payload={}B msgs={} warmup={} knobs={:?}",
-        cli.role, cli.pattern, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, knobs
+        "monocoque-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={} variant={}",
+        cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
     );
 
-    match cli.role {
-        Role::Pub => run_publisher(&cli, &knobs),
-        Role::Sub => run_subscriber(&cli, &knobs),
+    match cli.kind.as_str() {
+        "throughput" => run_throughput(&cli).await,
+        other => bail!("monocoque: kind '{other}' not implemented yet (only throughput)"),
     }
 }
 
-/// TODO(maintainer): open the monocoque PUSH/PUB socket on `cli.endpoint`,
-/// apply known knobs (`sq_depth`, `batch_size`, `sndhwm`), send `warmup` then
-/// `messages` payloads of `payload_bytes`. No data dropping on push_pull.
-fn run_publisher(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
-    bail!("monocoque publisher loop not implemented");
-}
+async fn run_throughput(cli: &Cli) -> Result<()> {
+    let total = cli.messages + cli.warmup;
+    let payload = vec![0u8; cli.payload_bytes as usize];
 
-/// TODO(maintainer): open the monocoque PULL/SUB socket, drain `warmup` then
-/// receive exactly `messages` payloads. The harness measures latency at the
-/// boundary; the wrapper must not elide the round-trip.
-fn run_subscriber(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
-    bail!("monocoque subscriber loop not implemented");
+    match cli.role {
+        Role::Pub => {
+            let mut push = PushSocket::connect(&cli.endpoint).await?;
+            for _ in 0..total {
+                push.send(vec![payload.clone().into()]).await?;
+            }
+        }
+        Role::Sub => {
+            let mut pull = PullSocket::bind(&cli.endpoint).await?;
+            for _ in 0..total {
+                let _ = pull.recv().await?;
+            }
+        }
+    }
+    Ok(())
 }

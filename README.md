@@ -41,12 +41,13 @@ harness, where each bench peer is a separate build unit.
 | `omq_compio_target` | omq-compio | git `paddor/omq.rs` | io_uring, single-thread, Linux 6.0+ |
 | `rzmq_target` | rzmq | `rzmq = "0.5.21"` | io_uring + TCP_CORK, Linux |
 | `celerity_target` | celerity | `celerity = "0.2.0"` | sans-IO ZMTP 3.1 + tokio |
-| `monocoque_target` | monocoque | unverified | placeholder from the original spec |
+| `monocoque_target` | monocoque | `monocoque-rs = "0.1.5"` | io_uring/compio, ZMTP 3.1 |
 
-libzmq is the only target with a working socket loop today. The crate identities
-and versions are verified against crates.io and the upstream repos; the Rust
-socket loops are stubs until each is written against the real engine API. See
-`targets/README.md` for the command-line contract and how to add a target.
+libzmq runs throughput, pub/sub, and latency; monocoque runs throughput. The
+other Rust socket loops are stubs until each is written against its engine's
+API. Crate identities and versions are verified against crates.io and the
+upstream repos. See `targets/README.md` for the command-line contract and how to
+add a target.
 
 ## Benchmarks and variants
 
@@ -69,7 +70,7 @@ separate series you can compare directly.
 | `omq_compio_st` | omq_compio_target | omq | io_uring | single-thread | `--variant single_thread` |
 | `rzmq` | rzmq_target | rzmq | io_uring | tokio | only variant |
 | `celerity` | celerity_target | celerity | epoll | tokio | only variant |
-| `monocoque` | monocoque_target | monocoque | io_uring | thread-per-core | placeholder |
+| `monocoque` | monocoque_target | monocoque | io_uring | compio | only variant |
 
 Each record carries the variant's category tags (engine, io model, threading),
 which is what lets the dashboard group and compare by category.
@@ -187,7 +188,8 @@ cheating entry fails the cell rather than the review.
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | not yet (skipped by the run loop) |
 | eBPF/perf syscall counting | not yet (feature-gated) |
-| Rust engine socket loops | stubs, pending each engine's API |
+| monocoque socket loop | throughput (PUSH/PULL) over `monocoque-rs` |
+| zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |
 
