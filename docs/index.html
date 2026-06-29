@@ -181,7 +181,7 @@ const el = id => document.getElementById(id);
 const val = id => el(id).value;
 
 // ── load ──────────────────────────────────────────────────────────
-async function fetchJSON(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
+async function fetchJSON(u){ const bust=u+(u.includes("?")?"&":"?")+"_="+Date.now(); const r=await fetch(bust,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
 async function loadFrom(base){
   const m=await fetchJSON(base+"index.json");
   if(!m.runs||!m.runs.length) throw new Error("empty manifest");
@@ -222,7 +222,7 @@ function kindsPresent(){ const order=["throughput","latency","pubsub","fanout","
   return order.filter(k=>RECORDS.some(r=>r.kind===k)); }
 
 function initControls(){
-  fill(el("kind"), kindsPresent(), k=>KIND_LABEL[k]||k, "latency");
+  fill(el("kind"), kindsPresent(), k=>KIND_LABEL[k]||k, kindsPresent()[0]);
   fill(el("run"), DATES, null, DATES[DATES.length-1]);
   el("controls").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false;
   el("kind").addEventListener("change", ()=>{ refreshKindDependent(); render(); });
