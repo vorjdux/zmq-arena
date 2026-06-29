@@ -21,8 +21,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 # Verified on crates.io: monocoque-rs 0.1.5 (lib name `monocoque`), MIT.
 monocoque-rs = { version = "0.1.5", features = ["zmq"] }
-# monocoque runs on the compio io_uring runtime.
-compio = { version = "0.13", features = ["runtime", "macros"] }
+# Must match the compio version monocoque-rs 0.1.5 uses (0.10), or the TcpStream
+# types do not unify across the dependency graph.
+compio = { version = "0.10", features = ["runtime", "macros"] }
+bytes = "1"
 
 [profile.release]
 opt-level = 3

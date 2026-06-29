@@ -72,18 +72,6 @@
         "binary": "targets/monocoque_target/target/release/monocoque-target",
         "knobs": {}
       },
-      "transport": "ipc",
-      "kind": "throughput",
-      "payload_bytes": 64,
-      "messages": 200000,
-      "warmup_messages": 20000
-    },
-    {
-      "target": {
-        "id": "monocoque",
-        "binary": "targets/monocoque_target/target/release/monocoque-target",
-        "knobs": {}
-      },
       "transport": "tcp_netns",
       "kind": "throughput",
       "payload_bytes": 64,

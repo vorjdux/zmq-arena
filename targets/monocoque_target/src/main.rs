@@ -1,16 +1,20 @@
 //! zmq-arena target wrapper: monocoque (monocoque-rs, ZMTP on io_uring/compio).
 //!
-//! Implements the throughput kind (PUSH/PULL) against the monocoque-rs `zmq`
-//! API: the producer connects a PUSH socket and sends the whole block, the
-//! consumer binds a PULL socket and receives it. The orchestrator times the
-//! consumer externally. Other kinds bail and are skipped by the run loop.
+//! Implements the throughput kind (PUSH/PULL) over TCP against monocoque-rs.
+//! The producer connects a PUSH socket and sends the whole block; the consumer
+//! binds a TcpListener, accepts one connection, wraps it as a PULL socket, and
+//! drains the block. The orchestrator times the consumer externally. Other
+//! kinds and non-tcp transports bail and are skipped by the run loop.
 //!
-//! The runtime is compio (io_uring), so `main` runs under `#[compio::main]`. If
-//! that attribute is unavailable in your compio version, wrap the body in
-//! `compio::runtime::Runtime::new()?.block_on(async { ... })` instead.
+//! monocoque runs on the compio io_uring runtime, driven here via
+//! `compio::runtime::Runtime::block_on`.
 
-use anyhow::{bail, Result};
+use std::net::SocketAddr;
+
+use anyhow::{bail, Context, Result};
+use bytes::Bytes;
 use clap::{Parser, ValueEnum};
+use compio::net::{TcpListener, TcpStream};
 use monocoque::zmq::{PullSocket, PushSocket};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -26,7 +30,6 @@ struct Cli {
     role: Role,
     #[arg(long, default_value = "throughput")]
     kind: String,
-    /// Accepted; the endpoint already carries the transport scheme.
     #[arg(long)]
     transport: String,
     #[arg(long)]
@@ -46,37 +49,50 @@ struct Cli {
     knobs: Vec<String>,
 }
 
-#[compio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
     eprintln!(
         "monocoque-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={} variant={}",
         cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
     );
 
-    match cli.kind.as_str() {
-        "throughput" => run_throughput(&cli).await,
-        other => bail!("monocoque: kind '{other}' not implemented yet (only throughput)"),
+    if cli.kind != "throughput" {
+        bail!("monocoque: kind '{}' not implemented yet (only throughput)", cli.kind);
     }
-}
+    let Some(addr_str) = cli.endpoint.strip_prefix("tcp://") else {
+        bail!("monocoque target currently supports only tcp endpoints, got {}", cli.endpoint);
+    };
+    let addr: SocketAddr = addr_str
+        .parse()
+        .with_context(|| format!("parsing tcp address from {}", cli.endpoint))?;
 
-async fn run_throughput(cli: &Cli) -> Result<()> {
     let total = cli.messages + cli.warmup;
-    let payload = vec![0u8; cli.payload_bytes as usize];
+    let payload = Bytes::from(vec![0u8; cli.payload_bytes as usize]);
+    let role = cli.role;
 
-    match cli.role {
-        Role::Pub => {
-            let mut push = PushSocket::connect(&cli.endpoint).await?;
-            for _ in 0..total {
-                push.send(vec![payload.clone().into()]).await?;
+    compio::runtime::Runtime::new()?.block_on(async move {
+        match role {
+            Role::Sub => {
+                let listener = TcpListener::bind(addr).await?;
+                let (stream, _) = listener.accept().await?;
+                let mut pull = PullSocket::from_tcp(stream).await?;
+                let mut got: u64 = 0;
+                while got < total {
+                    match pull.recv().await? {
+                        Some(_) => got += 1,
+                        None => break,
+                    }
+                }
+            }
+            Role::Pub => {
+                let mut push = PushSocket::<TcpStream>::connect(addr).await?;
+                for _ in 0..total {
+                    push.send(vec![payload.clone()]).await?;
+                }
             }
         }
-        Role::Sub => {
-            let mut pull = PullSocket::bind(&cli.endpoint).await?;
-            for _ in 0..total {
-                let _ = pull.recv().await?;
-            }
-        }
-    }
+        Ok::<(), anyhow::Error>(())
+    })?;
+
     Ok(())
 }
