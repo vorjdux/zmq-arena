@@ -179,12 +179,13 @@ cheating entry fails the cell rather than the review.
 | matrix and record schema | done |
 | CLI, matrix expansion, run loop | done, `--dry-run` works |
 | target CLI contract and roster | done, crate versions verified |
-| libzmq socket loop | basic PUSH/PULL and PUB/SUB over the C API |
+| libzmq socket loop | PUSH/PULL, PUB/SUB, and REQ/REP latency over the C API |
 | cgroup v2 provisioning | done (std::fs; needs root; compile-pending) |
 | ipc and loopback tcp transport | done; netns isolation still to do |
 | CPU and context-switch capture | done (`getrusage` + `/proc`; compile-pending) |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
-| latency, pub/sub, fan-out, fan-in run paths | not yet (skipped by the run loop) |
+| latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
+| pub/sub, fan-out, fan-in run paths | not yet (skipped by the run loop) |
 | eBPF/perf syscall counting | not yet (feature-gated) |
 | Rust engine socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |

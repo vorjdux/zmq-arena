@@ -41,6 +41,30 @@
       "payload_bytes": 1024,
       "messages": 200000,
       "warmup_messages": 20000
+    },
+    {
+      "target": {
+        "id": "libzmq",
+        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1" }
+      },
+      "transport": "ipc",
+      "kind": "latency",
+      "payload_bytes": 64,
+      "messages": 20000,
+      "warmup_messages": 2000
+    },
+    {
+      "target": {
+        "id": "libzmq",
+        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1" }
+      },
+      "transport": "tcp_netns",
+      "kind": "latency",
+      "payload_bytes": 64,
+      "messages": 20000,
+      "warmup_messages": 2000
     }
   ]
 }

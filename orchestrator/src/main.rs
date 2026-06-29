@@ -19,8 +19,9 @@ mod cgroups;
 mod config;
 mod telemetry;
 
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Child, Command as ProcCommand};
+use std::process::{Child, Command as ProcCommand, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -166,10 +167,32 @@ fn execute_cell(
 ) -> anyhow::Result<CellRecord> {
     match entry.kind {
         Kind::Throughput => run_throughput(run_id, cell_id, entry, isolation),
+        Kind::Latency => run_latency(run_id, cell_id, entry, isolation),
         other => anyhow::bail!(
-            "kind {other:?} not yet implemented in the runnable path (only throughput)"
+            "kind {other:?} not yet implemented in the runnable path (throughput, latency)"
         ),
     }
+}
+
+/// Parse the REQ client's `LATENCY <count> <min> <p50> <p90> <p99> <p999> <max>`
+/// line (nanoseconds) into a snapshot.
+fn parse_latency(out: &str) -> Option<LatencySnapshot> {
+    for line in out.lines() {
+        let t: Vec<&str> = line.split_whitespace().collect();
+        if t.len() >= 8 && t[0] == "LATENCY" {
+            let n = |i: usize| t[i].parse::<u64>().ok();
+            return Some(LatencySnapshot {
+                count: n(1)?,
+                min_ns: n(2)?,
+                p50_ns: n(3)?,
+                p90_ns: n(4)?,
+                p99_ns: n(5)?,
+                p999_ns: n(6)?,
+                max_ns: n(7)?,
+            });
+        }
+    }
+    None
 }
 
 /// Build the CLI args every wrapper accepts, for one role and endpoint.
@@ -343,6 +366,90 @@ fn run_throughput(
         throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
         // Syscall counts still require the eBPF/perf path.
+        syscalls: SyscallCounters::default(),
+        sched,
+        peak_memory_bytes,
+    })
+}
+
+/// REQ/REP latency. Spawn the REP server (binds, echoes), then the REQ client
+/// (connects), which times each round-trip and prints the quantiles. Read the
+/// client's stdout, parse it, then kill the server. CPU and context switches
+/// come from getrusage deltas; memory from the cgroup when available.
+fn run_latency(
+    run_id: &str,
+    cell_id: &str,
+    entry: &MatrixEntry,
+    isolation: &Isolation,
+) -> anyhow::Result<CellRecord> {
+    let (endpoint, ipc_path) = make_endpoint(entry, cell_id)?;
+    let binary = &entry.target.binary;
+
+    let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
+    let pub_cg = try_cgroup(run_id, &format!("{cell_id}-pub"), isolation);
+
+    let (cpu0, sched0) = crate::telemetry::rusage_children();
+
+    let mut server = ProcCommand::new(binary)
+        .args(target_args(entry, "sub", &endpoint))
+        .spawn()
+        .with_context(|| format!("spawning REP server {}", binary.display()))?;
+    if let Some(cg) = &sub_cg {
+        let _ = cg.attach(server.id());
+    }
+    std::thread::sleep(Duration::from_millis(150)); // let the server bind
+
+    let mut client = ProcCommand::new(binary)
+        .args(target_args(entry, "pub", &endpoint))
+        .stdout(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("spawning REQ client {}", binary.display()))?;
+    if let Some(cg) = &pub_cg {
+        let _ = cg.attach(client.id());
+    }
+
+    let budget = Duration::from_secs((entry.messages / 20_000).max(15));
+    let ok = wait_until(&mut client, Instant::now() + budget);
+    let mut out = String::new();
+    if let Some(mut so) = client.stdout.take() {
+        let _ = so.read_to_string(&mut out);
+    }
+    let _ = server.kill();
+    let _ = server.wait();
+    if let Some(p) = ipc_path {
+        let _ = std::fs::remove_file(p);
+    }
+    if !ok {
+        anyhow::bail!("latency cell timed out after {budget:?}");
+    }
+
+    let latency = match parse_latency(&out) {
+        Some(l) => l,
+        None => anyhow::bail!("no LATENCY line in client output: {out:?}"),
+    };
+
+    let (cpu1, sched1) = crate::telemetry::rusage_children();
+    let sched = SchedCounters {
+        voluntary_ctxt_switches: sched1
+            .voluntary_ctxt_switches
+            .saturating_sub(sched0.voluntary_ctxt_switches),
+        involuntary_ctxt_switches: sched1
+            .involuntary_ctxt_switches
+            .saturating_sub(sched0.involuntary_ctxt_switches),
+    };
+    let peak_memory_bytes = pub_cg
+        .as_ref()
+        .and_then(|cg| cg.peak_memory_bytes().ok())
+        .unwrap_or(0);
+
+    Ok(CellRecord {
+        run_id: run_id.to_string(),
+        cell_id: cell_id.to_string(),
+        entry: entry.clone(),
+        latency,
+        // Throughput is not measured for latency cells; render emits null.
+        throughput: Throughput::default(),
+        cpu_seconds: (cpu1 - cpu0).max(0.0),
         syscalls: SyscallCounters::default(),
         sched,
         peak_memory_bytes,

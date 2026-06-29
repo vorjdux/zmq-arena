@@ -2,9 +2,10 @@
 //
 // Implements the unified target CLI (see ../../README.md) over the stable
 // libzmq C API. The producer ("pub" role) and consumer ("sub" role) run as
-// distinct processes spawned by the orchestrator. Latency is measured by the
-// harness at the boundary; this wrapper is responsible only for honoring the
-// pattern, payload size, message count, and the knobs it understands.
+// distinct processes spawned by the orchestrator. For throughput and pub/sub
+// the orchestrator times the run externally. For the latency kind the REQ
+// client times each round-trip itself and prints the quantiles to stdout, which
+// the orchestrator parses.
 //
 // Knob handling:
 //   sndhwm / rcvhwm  -> ZMQ_SNDHWM / ZMQ_RCVHWM (applied below)
@@ -14,9 +15,11 @@
 
 #include <zmq.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <map>
 #include <string>
@@ -93,10 +96,60 @@ void apply_hwm(void* sock, int opt, const Args& a, const char* key) {
 
 int socket_type(const Args& a) {
     const bool producer = (a.role == "pub");
-    // pubsub uses PUB/SUB; throughput/fanout/fanin use PUSH/PULL. latency
-    // (REQ/REP) is not yet driven by the orchestrator's runnable path.
+    if (a.kind == "latency") return producer ? ZMQ_REQ : ZMQ_REP;
     if (a.kind == "pubsub") return producer ? ZMQ_PUB : ZMQ_SUB;
+    // throughput, fanout, fanin
     return producer ? ZMQ_PUSH : ZMQ_PULL;
+}
+
+int64_t now_ns() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
+}
+
+// REQ/REP latency. The REP server (consumer) echoes forever and is killed by
+// the orchestrator. The REQ client (producer) times each round-trip and prints
+// one line the orchestrator parses:
+//   LATENCY <count> <min> <p50> <p90> <p99> <p999> <max>   (all nanoseconds)
+void run_latency(void* sock, const Args& a, bool producer) {
+    std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
+    std::vector<char> rx(buf.size());
+
+    if (!producer) {
+        for (;;) {
+            if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv (rep)");
+            if (zmq_send(sock, rx.data(), a.payload_bytes, 0) < 0) die("zmq_send (rep)");
+        }
+    }
+
+    for (uint64_t n = 0; n < a.warmup; ++n) {
+        if (zmq_send(sock, buf.data(), a.payload_bytes, 0) < 0) die("zmq_send (warmup)");
+        if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv (warmup)");
+    }
+
+    std::vector<int64_t> lat;
+    lat.reserve(a.messages);
+    for (uint64_t n = 0; n < a.messages; ++n) {
+        int64_t t0 = now_ns();
+        if (zmq_send(sock, buf.data(), a.payload_bytes, 0) < 0) die("zmq_send (req)");
+        if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv (req)");
+        lat.push_back(now_ns() - t0);
+    }
+
+    if (lat.empty()) {
+        std::cout << "LATENCY 0 0 0 0 0 0 0\n";
+        return;
+    }
+    std::sort(lat.begin(), lat.end());
+    auto q = [&](double p) {
+        size_t idx = static_cast<size_t>(p * static_cast<double>(lat.size() - 1));
+        return lat[idx];
+    };
+    std::cout << "LATENCY " << lat.size() << " " << lat.front() << " "
+              << q(0.50) << " " << q(0.90) << " " << q(0.99) << " "
+              << q(0.999) << " " << lat.back() << "\n";
+    std::cout.flush();
 }
 
 }  // namespace
@@ -128,19 +181,20 @@ int main(int argc, char** argv) {
         }
     }
 
-    const uint64_t total = a.warmup + a.messages;
-    std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
-
-    if (producer) {
-        for (uint64_t n = 0; n < total; ++n) {
-            int rc = zmq_send(sock, buf.data(), a.payload_bytes, 0);
-            if (rc < 0) die("zmq_send");
-        }
+    if (a.kind == "latency") {
+        run_latency(sock, a, producer);
     } else {
-        std::vector<char> rx(buf.size());
-        for (uint64_t n = 0; n < total; ++n) {
-            int rc = zmq_recv(sock, rx.data(), rx.size(), 0);
-            if (rc < 0) die("zmq_recv");
+        // Streaming throughput (PUSH/PULL, PUB/SUB): the producer sends the
+        // whole block, the consumer receives it; the orchestrator times it.
+        const uint64_t total = a.warmup + a.messages;
+        std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
+        if (producer) {
+            for (uint64_t n = 0; n < total; ++n)
+                if (zmq_send(sock, buf.data(), a.payload_bytes, 0) < 0) die("zmq_send");
+        } else {
+            std::vector<char> rx(buf.size());
+            for (uint64_t n = 0; n < total; ++n)
+                if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv");
         }
     }
 
