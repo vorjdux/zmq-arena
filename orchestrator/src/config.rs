@@ -76,6 +76,10 @@ pub struct MatrixEntry {
     /// Subscriber/pusher count for pubsub/fanout/fanin; None for the others.
     #[serde(default)]
     pub peers: Option<u32>,
+    /// Measurement window in seconds for the duration-based kinds (pubsub,
+    /// fanout, fanin). Ignored by throughput/latency, which are message-counted.
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
     /// Fixed payload size in bytes.
     pub payload_bytes: u32,
     /// Number of messages in the steady-state measurement block.

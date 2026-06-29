@@ -113,6 +113,34 @@
       "payload_bytes": 64,
       "messages": 20000,
       "warmup_messages": 2000
+    },
+    {
+      "target": {
+        "id": "libzmq",
+        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1" }
+      },
+      "transport": "tcp_netns",
+      "kind": "pubsub",
+      "peers": 8,
+      "duration_secs": 2.0,
+      "payload_bytes": 64,
+      "messages": 0,
+      "warmup_messages": 0
+    },
+    {
+      "target": {
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "knobs": {}
+      },
+      "transport": "tcp_netns",
+      "kind": "pubsub",
+      "peers": 8,
+      "duration_secs": 2.0,
+      "payload_bytes": 64,
+      "messages": 0,
+      "warmup_messages": 0
     }
   ]
 }

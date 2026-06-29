@@ -186,9 +186,10 @@ cheating entry fails the cell rather than the review.
 | CPU and context-switch capture | done (`getrusage` + `/proc`; compile-pending) |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
-| pub/sub, fan-out, fan-in run paths | not yet (skipped by the run loop) |
+| pub/sub run path | done (duration-based, multi-subscriber; libzmq + monocoque) |
+| fan-out, fan-in run paths | not yet (skipped by the run loop) |
 | eBPF/perf syscall counting | not yet (feature-gated) |
-| monocoque socket loop | throughput (PUSH/PULL, write-coalesced) and latency (REQ/REP), TCP and IPC; run-verified locally |
+| monocoque socket loop | throughput (write-coalesced), latency (REQ/REP), pub/sub; TCP and IPC; run-verified locally |
 | zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |

@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -37,6 +38,8 @@ struct Args {
     uint32_t peers = 0;     // accepted; used by pubsub/fanout/fanin
     uint64_t messages = 0;
     uint64_t warmup = 0;
+    bool bind = false;      // set on the binding side of a multi-peer kind
+    double duration_secs = 0.0;  // measurement window for duration-based kinds
     std::map<std::string, std::string> knobs;
 };
 
@@ -61,6 +64,9 @@ Args parse(int argc, char** argv) {
         else if (f == "--variant") a.variant = take_value(i, argc, argv, "--variant");
         else if (f == "--peers")
             a.peers = static_cast<uint32_t>(std::stoul(take_value(i, argc, argv, "--peers")));
+        else if (f == "--bind") a.bind = true;
+        else if (f == "--duration-secs")
+            a.duration_secs = std::stod(take_value(i, argc, argv, "--duration-secs"));
         else if (f == "--transport") a.transport = take_value(i, argc, argv, "--transport");
         else if (f == "--endpoint") a.endpoint = take_value(i, argc, argv, "--endpoint");
         else if (f == "--payload-bytes")
@@ -152,6 +158,45 @@ void run_latency(void* sock, const Args& a, bool producer) {
     std::cout.flush();
 }
 
+// PUB/SUB duration-based throughput. The PUB sends forever (killed by the
+// orchestrator). The SUB counts received messages for duration_secs, starting
+// the clock on the first message, and prints:
+//   THROUGHPUT <count> <elapsed_secs>
+void run_pubsub_loop(void* sock, const Args& a, bool producer) {
+    if (producer) {
+        std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
+        for (;;) {
+            zmq_send(sock, buf.data(), a.payload_bytes, 0);  // ignore transient errors
+        }
+    }
+
+    // A receive timeout keeps the SUB from blocking past the window.
+    int timeo_ms = 200;
+    zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeo_ms, sizeof(timeo_ms));
+    std::vector<char> rx(a.payload_bytes ? a.payload_bytes : 1);
+
+    // Wait (bounded) for the first message, then start the clock.
+    int64_t wait_start = now_ns();
+    for (;;) {
+        if (zmq_recv(sock, rx.data(), rx.size(), 0) >= 0) break;
+        if (now_ns() - wait_start > 10LL * 1000000000LL) {
+            std::printf("THROUGHPUT 0 0.000001\n");
+            std::fflush(stdout);
+            return;
+        }
+    }
+    uint64_t count = 1;
+    int64_t t0 = now_ns();
+    int64_t deadline = t0 + static_cast<int64_t>(a.duration_secs * 1e9);
+    while (now_ns() < deadline) {
+        if (zmq_recv(sock, rx.data(), rx.size(), 0) >= 0) ++count;
+        // a timeout (rc < 0) falls through to the deadline check
+    }
+    double elapsed = static_cast<double>(now_ns() - t0) / 1e9;
+    std::printf("THROUGHPUT %llu %.6f\n", static_cast<unsigned long long>(count), elapsed);
+    std::fflush(stdout);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -170,22 +215,25 @@ int main(int argc, char** argv) {
 
     const bool producer = (a.role == "pub");
 
-    // Consumer binds, producer connects. Binding the receiver keeps the stable
-    // endpoint on the measured side; either side may bind, this is a convention.
-    if (producer) {
-        if (zmq_connect(sock, a.endpoint.c_str()) != 0) die("zmq_connect");
-    } else {
+    // Bind side: pubsub is told explicitly by the orchestrator (--bind on the
+    // PUB); throughput/latency keep the convention that the consumer binds.
+    const bool do_bind = (a.kind == "pubsub") ? a.bind : !producer;
+    if (do_bind) {
         if (zmq_bind(sock, a.endpoint.c_str()) != 0) die("zmq_bind");
-        if (a.kind == "pubsub") {
-            if (zmq_setsockopt(sock, ZMQ_SUBSCRIBE, "", 0) != 0) die("subscribe");
-        }
+    } else {
+        if (zmq_connect(sock, a.endpoint.c_str()) != 0) die("zmq_connect");
+    }
+    if (a.kind == "pubsub" && !producer) {
+        if (zmq_setsockopt(sock, ZMQ_SUBSCRIBE, "", 0) != 0) die("subscribe");
     }
 
     if (a.kind == "latency") {
         run_latency(sock, a, producer);
+    } else if (a.kind == "pubsub") {
+        run_pubsub_loop(sock, a, producer);
     } else {
-        // Streaming throughput (PUSH/PULL, PUB/SUB): the producer sends the
-        // whole block, the consumer receives it; the orchestrator times it.
+        // Streaming throughput (PUSH/PULL): the producer sends the whole block,
+        // the consumer receives it; the orchestrator times it.
         const uint64_t total = a.warmup + a.messages;
         std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
         if (producer) {

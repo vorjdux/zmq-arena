@@ -168,10 +168,34 @@ fn execute_cell(
     match entry.kind {
         Kind::Throughput => run_throughput(run_id, cell_id, entry, isolation),
         Kind::Latency => run_latency(run_id, cell_id, entry, isolation),
+        Kind::PubSub => run_pubsub(run_id, cell_id, entry, isolation),
         other => anyhow::bail!(
-            "kind {other:?} not yet implemented in the runnable path (throughput, latency)"
+            "kind {other:?} not yet implemented in the runnable path (throughput, latency, pubsub)"
         ),
     }
+}
+
+/// Args for a multi-peer cell: the unified set plus the bind side and the
+/// duration window the duration-based kinds use.
+fn peer_args(entry: &MatrixEntry, role: &str, endpoint: &str, bind: bool, duration: f64) -> Vec<String> {
+    let mut a = target_args(entry, role, endpoint);
+    if bind {
+        a.push("--bind".into());
+    }
+    a.push("--duration-secs".into());
+    a.push(format!("{duration}"));
+    a
+}
+
+/// Parse a `THROUGHPUT <count> <elapsed_secs>` line from a measured consumer.
+fn parse_throughput_line(out: &str) -> Option<(u64, f64)> {
+    for line in out.lines() {
+        let t: Vec<&str> = line.split_whitespace().collect();
+        if t.len() >= 3 && t[0] == "THROUGHPUT" {
+            return Some((t[1].parse().ok()?, t[2].parse().ok()?));
+        }
+    }
+    None
 }
 
 /// Parse the REQ client's `LATENCY <count> <min> <p50> <p90> <p99> <p999> <max>`
@@ -449,6 +473,109 @@ fn run_latency(
         latency,
         // Throughput is not measured for latency cells; render emits null.
         throughput: Throughput::default(),
+        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        syscalls: SyscallCounters::default(),
+        sched,
+        peak_memory_bytes,
+    })
+}
+
+/// PUB/SUB throughput (duration-based). One PUB binds and sends forever; `peers`
+/// SUBs connect and count for the window. One SUB is measured (its THROUGHPUT
+/// line is parsed); the rest create real fan-out load. msgs/s is per subscriber.
+/// TCP only for now.
+fn run_pubsub(
+    run_id: &str,
+    cell_id: &str,
+    entry: &MatrixEntry,
+    isolation: &Isolation,
+) -> anyhow::Result<CellRecord> {
+    if !matches!(entry.transport, Transport::TcpNetns) {
+        anyhow::bail!("pubsub is supported on tcp only for now");
+    }
+    let peers = entry.peers.unwrap_or(1).max(1);
+    let duration = entry.duration_secs.unwrap_or(2.0);
+    let (endpoint, _ipc) = make_endpoint(entry, cell_id)?;
+    let binary = &entry.target.binary;
+
+    let pub_cg = try_cgroup(run_id, &format!("{cell_id}-pub"), isolation);
+    let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
+    let (cpu0, sched0) = crate::telemetry::rusage_children();
+
+    let mut publisher = ProcCommand::new(binary)
+        .args(peer_args(entry, "pub", &endpoint, true, duration))
+        .spawn()
+        .with_context(|| format!("spawning PUB {}", binary.display()))?;
+    if let Some(cg) = &pub_cg {
+        let _ = cg.attach(publisher.id());
+    }
+    std::thread::sleep(Duration::from_millis(200));
+
+    let mut measured = ProcCommand::new(binary)
+        .args(peer_args(entry, "sub", &endpoint, false, duration))
+        .stdout(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("spawning measured SUB {}", binary.display()))?;
+    if let Some(cg) = &sub_cg {
+        let _ = cg.attach(measured.id());
+    }
+
+    let mut drains: Vec<Child> = Vec::new();
+    for _ in 1..peers {
+        let mut d = ProcCommand::new(binary)
+            .args(peer_args(entry, "sub", &endpoint, false, duration))
+            .stdout(Stdio::null())
+            .spawn()
+            .with_context(|| format!("spawning drain SUB {}", binary.display()))?;
+        if let Some(cg) = &sub_cg {
+            let _ = cg.attach(d.id());
+        }
+        drains.push(d);
+    }
+
+    let budget = Duration::from_secs_f64(duration + 15.0);
+    let ok = wait_until(&mut measured, Instant::now() + budget);
+    let mut out = String::new();
+    if let Some(mut so) = measured.stdout.take() {
+        let _ = so.read_to_string(&mut out);
+    }
+    let _ = publisher.kill();
+    let _ = publisher.wait();
+    for mut d in drains {
+        let _ = d.kill();
+        let _ = d.wait();
+    }
+    if !ok {
+        anyhow::bail!("pubsub measured SUB timed out");
+    }
+
+    let (count, elapsed) = parse_throughput_line(&out)
+        .ok_or_else(|| anyhow::anyhow!("no THROUGHPUT line from SUB: {out:?}"))?;
+    let msgs_per_s = count as f64 / elapsed.max(1e-9);
+    let mbps = msgs_per_s * entry.payload_bytes as f64 / 1e6;
+
+    let (cpu1, sched1) = crate::telemetry::rusage_children();
+    let sched = SchedCounters {
+        voluntary_ctxt_switches: sched1
+            .voluntary_ctxt_switches
+            .saturating_sub(sched0.voluntary_ctxt_switches),
+        involuntary_ctxt_switches: sched1
+            .involuntary_ctxt_switches
+            .saturating_sub(sched0.involuntary_ctxt_switches),
+    };
+    let peak_memory_bytes = sub_cg
+        .as_ref()
+        .and_then(|cg| cg.peak_memory_bytes().ok())
+        .unwrap_or(0);
+
+    Ok(CellRecord {
+        run_id: run_id.to_string(),
+        cell_id: cell_id.to_string(),
+        entry: entry.clone(),
+        latency: LatencySnapshot {
+            count: 0, min_ns: 0, max_ns: 0, p50_ns: 0, p90_ns: 0, p99_ns: 0, p999_ns: 0,
+        },
+        throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
         syscalls: SyscallCounters::default(),
         sched,

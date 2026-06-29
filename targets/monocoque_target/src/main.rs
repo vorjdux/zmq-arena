@@ -15,13 +15,13 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use bytes::Bytes;
 use clap::{Parser, ValueEnum};
 use compio::net::{TcpListener, UnixListener, UnixStream};
-use monocoque::zmq::{PullSocket, PushSocket, RepSocket, ReqSocket};
+use monocoque::zmq::{PubSocket, PullSocket, PushSocket, RepSocket, ReqSocket, SubSocket};
 use monocoque::SocketOptions;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -68,6 +68,12 @@ struct Cli {
     peers: Option<u32>,
     #[arg(long, default_value = "default")]
     variant: String,
+    /// Present on the binding side of a multi-peer kind.
+    #[arg(long)]
+    bind: bool,
+    /// Measurement window for duration-based kinds (pubsub/fanout/fanin).
+    #[arg(long, default_value_t = 0.0)]
+    duration_secs: f64,
     /// Accepted and currently ignored; monocoque tuning knobs are not wired yet.
     #[arg(long = "knob")]
     knobs: Vec<String>,
@@ -85,12 +91,15 @@ fn main() -> Result<()> {
     let role = cli.role;
     let kind = cli.kind.clone();
     let (messages, warmup) = (cli.messages, cli.warmup);
+    let peers = cli.peers.unwrap_or(1).max(1);
+    let duration = Duration::from_secs_f64(cli.duration_secs);
 
     compio::runtime::Runtime::new()?.block_on(async move {
         match kind.as_str() {
             "throughput" => run_throughput(role, ep, messages + warmup, &payload).await,
             "latency" => run_latency(role, ep, messages, warmup, &payload).await,
-            other => bail!("monocoque: kind '{other}' not implemented (throughput, latency)"),
+            "pubsub" => run_pubsub(role, ep, peers, duration, &payload).await,
+            other => bail!("monocoque: kind '{other}' not implemented (throughput, latency, pubsub)"),
         }
     })?;
     Ok(())
@@ -250,5 +259,57 @@ where
         q(0.999),
         rtts[rtts.len() - 1]
     );
+    Ok(())
+}
+
+// ── pub/sub (PUB/SUB) ───────────────────────────────────────────────────────
+
+/// PUB binds, accepts `peers` subscribers, then broadcasts forever (killed by
+/// the orchestrator). SUB connects, subscribes, and counts for `duration`,
+/// starting the timer on the first message to skip the accept ramp, then prints
+/// `THROUGHPUT <count> <elapsed>`. TCP only for now.
+async fn run_pubsub(
+    role: Role,
+    ep: Endpoint,
+    peers: u32,
+    duration: Duration,
+    payload: &Bytes,
+) -> Result<()> {
+    let addr = match ep {
+        Endpoint::Tcp(a) => a,
+        Endpoint::Ipc(_) => bail!("monocoque pubsub: tcp only for now"),
+    };
+    match role {
+        Role::Pub => {
+            let mut publisher = PubSocket::bind(&addr.to_string()).await?;
+            for _ in 0..peers {
+                publisher.accept_subscriber().await?;
+            }
+            loop {
+                let _ = publisher.send(vec![payload.clone()]).await;
+            }
+        }
+        Role::Sub => {
+            let mut sub = SubSocket::connect(&addr.to_string()).await?;
+            sub.subscribe(b"").await?;
+            let mut count: u64 = match sub.recv().await {
+                Ok(Some(_)) => 1,
+                _ => {
+                    println!("THROUGHPUT 0 0.000001");
+                    return Ok(());
+                }
+            };
+            let t0 = Instant::now();
+            let deadline = t0 + duration;
+            while Instant::now() < deadline {
+                match sub.recv().await {
+                    Ok(Some(_)) => count += 1,
+                    _ => break,
+                }
+            }
+            let elapsed = t0.elapsed().as_secs_f64();
+            println!("THROUGHPUT {count} {elapsed:.6}");
+        }
+    }
     Ok(())
 }
