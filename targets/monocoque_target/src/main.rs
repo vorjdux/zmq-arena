@@ -1,26 +1,44 @@
 //! zmq-arena target wrapper: monocoque (monocoque-rs, ZMTP on io_uring/compio).
 //!
-//! Implements the throughput kind (PUSH/PULL) over TCP against monocoque-rs.
-//! The producer connects a PUSH socket and sends the whole block; the consumer
-//! binds a TcpListener, accepts one connection, wraps it as a PULL socket, and
-//! drains the block. The orchestrator times the consumer externally. Other
-//! kinds and non-tcp transports bail and are skipped by the run loop.
+//! Implements the throughput kind (PUSH/PULL) over TCP and IPC against
+//! monocoque-rs. The producer connects a PUSH socket and sends the whole block;
+//! the consumer binds a listener, accepts one connection, wraps it as a PULL
+//! socket, and drains the block. The orchestrator times the consumer
+//! externally. Other kinds bail and are skipped by the run loop.
 //!
-//! monocoque runs on the compio io_uring runtime, driven here via
+//! monocoque runs on the compio io_uring runtime, driven via
 //! `compio::runtime::Runtime::block_on`.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use bytes::Bytes;
 use clap::{Parser, ValueEnum};
-use compio::net::{TcpListener, TcpStream};
+use compio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use monocoque::zmq::{PullSocket, PushSocket};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Role {
     Pub,
     Sub,
+}
+
+enum Transport {
+    Tcp(SocketAddr),
+    Ipc(PathBuf),
+}
+
+fn parse_endpoint(ep: &str) -> Result<Transport> {
+    if let Some(a) = ep.strip_prefix("tcp://") {
+        Ok(Transport::Tcp(
+            a.parse().with_context(|| format!("parsing tcp address {a}"))?,
+        ))
+    } else if let Some(p) = ep.strip_prefix("ipc://") {
+        Ok(Transport::Ipc(PathBuf::from(p)))
+    } else {
+        bail!("unsupported endpoint (need tcp:// or ipc://): {ep}")
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -59,20 +77,14 @@ fn main() -> Result<()> {
     if cli.kind != "throughput" {
         bail!("monocoque: kind '{}' not implemented yet (only throughput)", cli.kind);
     }
-    let Some(addr_str) = cli.endpoint.strip_prefix("tcp://") else {
-        bail!("monocoque target currently supports only tcp endpoints, got {}", cli.endpoint);
-    };
-    let addr: SocketAddr = addr_str
-        .parse()
-        .with_context(|| format!("parsing tcp address from {}", cli.endpoint))?;
-
+    let transport = parse_endpoint(&cli.endpoint)?;
     let total = cli.messages + cli.warmup;
     let payload = Bytes::from(vec![0u8; cli.payload_bytes as usize]);
     let role = cli.role;
 
     compio::runtime::Runtime::new()?.block_on(async move {
-        match role {
-            Role::Sub => {
+        match (role, transport) {
+            (Role::Sub, Transport::Tcp(addr)) => {
                 let listener = TcpListener::bind(addr).await?;
                 let (stream, _) = listener.accept().await?;
                 let mut pull = PullSocket::from_tcp(stream).await?;
@@ -84,8 +96,27 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            Role::Pub => {
+            (Role::Pub, Transport::Tcp(addr)) => {
                 let mut push = PushSocket::<TcpStream>::connect(addr).await?;
+                for _ in 0..total {
+                    push.send(vec![payload.clone()]).await?;
+                }
+            }
+            (Role::Sub, Transport::Ipc(path)) => {
+                let listener = UnixListener::bind(&path).await?;
+                let (stream, _) = listener.accept().await?;
+                let mut pull = PullSocket::from_unix_stream(stream).await?;
+                let mut got: u64 = 0;
+                while got < total {
+                    match pull.recv().await? {
+                        Some(_) => got += 1,
+                        None => break,
+                    }
+                }
+            }
+            (Role::Pub, Transport::Ipc(path)) => {
+                let stream = UnixStream::connect(&path).await?;
+                let mut push = PushSocket::from_unix_stream(stream).await?;
                 for _ in 0..total {
                     push.send(vec![payload.clone()]).await?;
                 }
