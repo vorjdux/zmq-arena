@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sample": false,
+  "note": "Real weekly-grid runs. Populated by the CI render step. Until the first run lands, the dashboard falls back to docs/sample/.",
+  "runs": []
+}

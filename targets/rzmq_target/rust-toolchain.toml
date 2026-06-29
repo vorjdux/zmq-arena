@@ -1,0 +1,4 @@
+# rzmq is edition 2024 (requires Rust 1.85+). Pinned newer for headroom.
+[toolchain]
+channel = "1.93.0"
+profile = "minimal"

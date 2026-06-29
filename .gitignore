@@ -1,0 +1,17 @@
+# Build artifacts. Each project has its own target/ dir.
+/target
+**/target
+
+# C++ target build artifacts
+targets/libzmq_cpp_target/build/
+*.o
+*.obj
+
+# Local run scratch (raw telemetry before archival)
+/scratch/
+*.hgrm
+*.profraw
+
+# Cargo.lock is intentionally NOT ignored. Every project here is a binary, and
+# the arena requires deterministic builds: the orchestrator and each standalone
+# target commit their lockfiles so a grid run is reproducible.

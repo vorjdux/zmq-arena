@@ -1,0 +1,4 @@
+# Independent pin. A newer stable builds celerity's edition without issue.
+[toolchain]
+channel = "1.93.0"
+profile = "minimal"

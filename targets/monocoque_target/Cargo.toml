@@ -1,0 +1,37 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build independently: `cd targets/monocoque_target && cargo build --release`.
+# Owns its dependency closure, release profile, lockfile, and toolchain pin so
+# the engine is benchmarked exactly as it ships.
+# Empty [workspace] table makes this its own workspace root. Without it, Cargo
+# walks up, finds the orchestrator's root Cargo.toml, and refuses to build
+# because this package is not one of its members. This is the documented way to
+# nest an independent project inside another workspace's directory tree.
+[workspace]
+
+[package]
+name = "monocoque-target"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: monocoque (io_uring + thread-per-core)."
+
+[[bin]]
+name = "monocoque-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+
+# NOTE: the `monocoque` engine dependency is wired in by the maintainer
+# implementing the socket loop. Omitted here so the scaffold builds without
+# pinning an API this scaffold cannot verify.
+
+# Profile is local to this project. The maintainer tunes it to match how the
+# engine actually ships (lto strength, codegen-units, etc.).
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

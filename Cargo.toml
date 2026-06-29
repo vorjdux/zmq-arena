@@ -1,0 +1,38 @@
+# Workspace root for the CONTROL PLANE only.
+#
+# Targets are deliberately NOT members of this workspace. Each target is a
+# standalone project with its own Cargo.toml, Cargo.lock, [profile.release], and
+# toolchain pin (Rust targets) or build system (libzmq_cpp_target uses CMake).
+#
+# Rationale: a shared workspace resolves one dependency graph, one lockfile, one
+# global release profile, and one toolchain across all members. That would
+# benchmark each implementation against the resolver's unified versions and
+# features rather than the closure it actually ships with, which biases the
+# comparison. The integration contract between harness and target is the spawned
+# process CLI (see targets/README.md), not a shared Rust crate.
+[workspace]
+resolver = "2"
+members = ["orchestrator"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.78"
+repository = "https://github.com/vorj-dux/zmq-arena"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hdrhistogram = "7"
+
+# Release profile for the orchestrator. Targets define their own; this does not
+# reach them.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true

@@ -1,0 +1,31 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build: `cd targets/omq_compio_target && cargo build --release` (Linux 6.0+).
+#
+# Engine: omq-compio (paddor/omq.rs), single-thread io_uring backend. Not on
+# crates.io (experimental), so it must be a git dependency. Pin a rev before a
+# grid run.
+[workspace]
+
+[package]
+name = "omq-compio-target"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: omq-compio (io_uring, single-thread)."
+
+[[bin]]
+name = "omq-compio-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# Verified crate identity. Pin a rev/tag before a grid run.
+omq-compio = { git = "https://github.com/paddor/omq.rs", package = "omq-compio" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,32 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build: `cd targets/omq_tokio_target && cargo build --release`.
+#
+# Engine: omq-tokio (paddor/omq.rs), pure-Rust ZMTP, multi-thread tokio + mio.
+# omq-tokio is published on crates.io, but pinning by git rev keeps the grid
+# reproducible against an exact commit. Replace `rev` with the commit you certify.
+[workspace]
+
+[package]
+name = "omq-tokio-target"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: omq-tokio (epoll/mio, multi-thread tokio)."
+
+[[bin]]
+name = "omq-tokio-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# Verified crate identity. Pin a rev/tag before a grid run.
+omq-tokio = { git = "https://github.com/paddor/omq.rs", package = "omq-tokio" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

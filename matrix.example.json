@@ -1,0 +1,119 @@
+{
+  "isolation": {
+    "cpuset_cpus": "2-3",
+    "cpuset_mems": "0",
+    "memory_max_bytes": 536870912
+  },
+  "entries": [
+    {
+      "target": {
+        "id": "libzmq_cpp",
+        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "tcp_nodelay": "1", "io_threads": "1" }
+      },
+      "transport": "tcp_netns",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "zeromq_rs",
+        "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000" }
+      },
+      "transport": "ipc",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "knobs": { "sq_depth": "256", "batch_size": "32" }
+      },
+      "transport": "ipc",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "omq_tokio",
+        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000" }
+      },
+      "transport": "tcp_netns",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "omq_compio",
+        "binary": "targets/omq_compio_target/target/release/omq-compio-target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000" }
+      },
+      "transport": "ipc",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "rzmq",
+        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000" }
+      },
+      "transport": "ipc",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "celerity",
+        "binary": "targets/celerity_target/target/release/celerity-target",
+        "knobs": {}
+      },
+      "transport": "tcp_netns",
+      "kind": "throughput",
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    },
+    {
+      "target": {
+        "id": "omq_tokio",
+        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "variant": "multi_thread",
+        "knobs": {}
+      },
+      "transport": "ipc",
+      "kind": "latency",
+      "payload_bytes": 64,
+      "messages": 100000,
+      "warmup_messages": 10000
+    },
+    {
+      "target": {
+        "id": "omq_compio",
+        "binary": "targets/omq_compio_target/target/release/omq-compio-target",
+        "knobs": { "sndhwm": "1000", "rcvhwm": "1000" }
+      },
+      "transport": "tcp_netns",
+      "kind": "pubsub",
+      "peers": 8,
+      "payload_bytes": 64,
+      "messages": 1000000,
+      "warmup_messages": 100000
+    }
+  ]
+}

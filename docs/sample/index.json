@@ -1,0 +1,31 @@
+{
+  "schema": 2,
+  "sample": true,
+  "note": "Synthetic sample data for dashboard preview. Not measurements.",
+  "runs": [
+    {
+      "date": "2026-05-04",
+      "file": "2026-05-04-run.json"
+    },
+    {
+      "date": "2026-05-11",
+      "file": "2026-05-11-run.json"
+    },
+    {
+      "date": "2026-05-18",
+      "file": "2026-05-18-run.json"
+    },
+    {
+      "date": "2026-05-25",
+      "file": "2026-05-25-run.json"
+    },
+    {
+      "date": "2026-06-01",
+      "file": "2026-06-01-run.json"
+    },
+    {
+      "date": "2026-06-08",
+      "file": "2026-06-08-run.json"
+    }
+  ]
+}

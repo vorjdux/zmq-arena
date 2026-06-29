@@ -1,0 +1,31 @@
+[package]
+name = "zmq-arena-orchestrator"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Control plane for zmq-arena: cgroup v2 provisioning, target spawn isolation, and kernel-boundary telemetry capture."
+
+[[bin]]
+name = "zmq-arena"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hdrhistogram.workspace = true
+# Accurate per-cell CPU and context-switch capture via getrusage(RUSAGE_CHILDREN),
+# which counts reaped children and survives process exit.
+libc = "0.2"
+
+[features]
+default = []
+# Kernel-boundary syscall counting via eBPF tracepoints (aya or libbpf-rs).
+# Gated off the default build so a developer workstation does not need libbpf
+# headers or CAP_BPF to compile the orchestrator.
+ebpf = []
+# perf_event_open path for hardware/software counters.
+perf = []

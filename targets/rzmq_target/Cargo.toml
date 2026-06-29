@@ -1,0 +1,30 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build: `cd targets/rzmq_target && cargo build --release` (Linux for io-uring).
+#
+# Engine: rzmq (excsn/rzmq), pure-Rust ZeroMQ with io_uring + TCP_CORK on Linux.
+[workspace]
+
+[package]
+name = "rzmq-target"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: rzmq (io_uring + TCP_CORK)."
+
+[[bin]]
+name = "rzmq-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# Verified on crates.io: latest 0.5.21, edition 2024, MPL-2.0.
+rzmq = { version = "0.5.21", features = ["io-uring", "curve"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

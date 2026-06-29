@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zmq-arena · results</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b21; --panel2:#1d2229; --line:#2a313a;
+    --fg:#e6e9ee; --muted:#9aa4b2; --accent:#4f9cf9; --warn:#f59e0b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#e2e6eb;
+            --fg:#161a1e; --muted:#5b6573; --accent:#2563eb; --warn:#b45309; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 24px 6px; }
+  h1 { margin:0; font-size:20px; }
+  .sub { color:var(--muted); margin-top:4px; }
+  .sub code { color:var(--fg); }
+  .banner { margin:12px 24px 0; padding:8px 12px; border-radius:8px;
+    background:color-mix(in srgb,var(--warn) 18%,transparent);
+    border:1px solid var(--warn); font-size:13px; }
+  .banner.hidden { display:none; }
+  .controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap;
+    gap:13px 16px; padding:13px 24px; margin-top:12px;
+    background:color-mix(in srgb,var(--bg) 90%,transparent);
+    backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+  .ctl { display:flex; flex-direction:column; gap:4px; }
+  .ctl label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:7px; padding:7px 9px; font-size:13px; min-width:128px; }
+  .toggle { display:inline-flex; align-items:center; gap:7px; cursor:pointer; user-select:none; font-size:13px; }
+  .toggle input { accent-color:var(--accent); }
+  .variants { padding:12px 24px 0; }
+  .variants .head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+  .variants .head .ttl { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  .preset { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
+    border-radius:999px; padding:3px 11px; font-size:12px; cursor:pointer; }
+  .preset:hover { color:var(--fg); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
+    border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
+    background:var(--panel); user-select:none; opacity:.45; }
+  .chip.on { opacity:1; }
+  .chip .sw { width:10px; height:10px; border-radius:50%; }
+  .chip small { color:var(--muted); }
+  main { padding:10px 24px 48px; display:grid; gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card h2 { margin:0 0 2px; font-size:14px; }
+  .card .hint { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  .chart { width:100%; height:430px; }
+  .row2 { display:grid; gap:18px; grid-template-columns:1.5fr 1fr; }
+  @media (max-width:980px){ .row2{ grid-template-columns:1fr; } }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:right; padding:6px 10px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  .sw2 { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+  .best { color:var(--accent); font-weight:600; }
+  td small { color:var(--muted); }
+  .err { padding:24px; color:var(--warn); }
+  footer { color:var(--muted); padding:0 24px 32px; font-size:12px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>zmq-arena · ZMTP benchmark results</h1>
+  <div class="sub" id="dataSource">loading…</div>
+</header>
+<div class="banner hidden" id="sampleBanner"></div>
+
+<div class="controls" id="controls" hidden>
+  <div class="ctl"><label for="kind">Benchmark</label><select id="kind"></select></div>
+  <div class="ctl"><label for="metric">Metric</label><select id="metric"></select></div>
+  <div class="ctl"><label for="transport">Transport</label><select id="transport"></select></div>
+  <div class="ctl" id="peersWrap"><label for="peers">Peers</label><select id="peers"></select></div>
+  <div class="ctl"><label for="payload">Payload</label><select id="payload"></select></div>
+  <div class="ctl"><label for="run">Run (comparison)</label><select id="run"></select></div>
+  <div class="ctl"><label for="colorby">Color by</label><select id="colorby">
+    <option value="engine">engine</option>
+    <option value="io">io model</option>
+    <option value="threading">threading</option>
+    <option value="variant">variant</option>
+  </select></div>
+  <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
+</div>
+
+<div class="variants" id="variantsBox" hidden>
+  <div class="head">
+    <span class="ttl">Variants (engine · runtime)</span>
+    <span class="preset" data-preset="all">all</span>
+    <span class="preset" data-preset="none">none</span>
+    <span class="preset" data-preset="io_uring">io_uring</span>
+    <span class="preset" data-preset="epoll">epoll</span>
+    <span class="preset" data-preset="single">single-thread</span>
+    <span class="preset" data-preset="multi">multi-thread</span>
+    <span class="preset" data-preset="omq">omq family</span>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<main id="main" hidden>
+  <section class="card">
+    <h2 id="evoTitle">Evolution over time</h2>
+    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category.</div>
+    <div id="evoChart" class="chart"></div>
+  </section>
+  <div class="row2">
+    <section class="card">
+      <h2 id="sweepTitle">Payload size sweep</h2>
+      <div class="hint" id="sweepHint"></div>
+      <div id="sweepChart" class="chart" style="height:380px"></div>
+    </section>
+    <section class="card">
+      <h2 id="rankTitle">Ranking</h2>
+      <div class="hint" id="rankHint"></div>
+      <div id="rankTable"></div>
+    </section>
+  </div>
+</main>
+
+<div class="err" id="err" hidden></div>
+<footer id="footer"></footer>
+
+<script>
+"use strict";
+
+// ── presentation registries ───────────────────────────────────────
+const VARIANT_LABEL = {
+  "libzmq":"libzmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio",
+  "omq_compio_st":"omq-compio (ST)", "rzmq":"rzmq", "celerity":"celerity",
+  "monocoque":"monocoque",
+};
+const ENGINE_COLOR = {
+  "libzmq":"#eab308", "zmq.rs":"#2563eb", "omq":"#7c3aed",
+  "rzmq":"#16a34a", "celerity":"#db2777", "monocoque":"#0d9488",
+};
+// Generic palette for color-by dimensions that aren't engine.
+const PALETTE = ["#4f9cf9","#7c3aed","#16a34a","#eab308","#db2777","#06b6d4","#f97316","#64748b","#a855f7"];
+const DASHES = [undefined, [6,4], [2,3], [9,3,2,3]];  // solid, dashed, dotted, dash-dot
+
+// ── benchmark kinds & metrics ─────────────────────────────────────
+const HAS_PEERS = k => k === "pubsub" || k === "fanout" || k === "fanin";
+const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
+  pubsub:"PUB/SUB throughput", fanout:"Fan-out (1→N)", fanin:"Fan-in (N→1)" };
+
+const SHARED_METRICS = [
+  {key:"cpu",   label:"CPU time",          unit:"s",     better:"lower",  get:r=>r.cpu_seconds},
+  {key:"invol", label:"Involuntary ctx-sw",unit:"count", better:"lower",  get:r=>r.sched.involuntary},
+  {key:"iosys", label:"I/O syscalls",      unit:"count", better:"lower",  get:r=>r.syscalls.sendmsg+r.syscalls.recvmsg+r.syscalls.io_uring_enter},
+  {key:"mem",   label:"Peak memory",       unit:"MB",    better:"lower",  get:r=>r.peak_memory_bytes/1e6},
+];
+const LATENCY_METRICS = [
+  {key:"p999", label:"Latency p99.9", unit:"µs", better:"lower", get:r=>r.latency_ns.p999/1000},
+  {key:"p99",  label:"Latency p99",   unit:"µs", better:"lower", get:r=>r.latency_ns.p99/1000},
+  {key:"p90",  label:"Latency p90",   unit:"µs", better:"lower", get:r=>r.latency_ns.p90/1000},
+  {key:"p50",  label:"Latency p50",   unit:"µs", better:"lower", get:r=>r.latency_ns.p50/1000},
+];
+const TPUT_METRICS = [
+  {key:"msgs", label:"Throughput", unit:"Mmsg/s", better:"higher", get:r=>r.throughput.msgs_per_s/1e6},
+  {key:"mbps", label:"Throughput", unit:"MB/s",   better:"higher", get:r=>r.throughput.mbps},
+];
+const metricsForKind = k => (k==="latency" ? LATENCY_METRICS : TPUT_METRICS).concat(SHARED_METRICS);
+
+function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
+function fmtVal(v,unit){ if(v==null||Number.isNaN(v))return"n/a";
+  return unit==="count"?v.toFixed(0):v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2); }
+
+// ── state ─────────────────────────────────────────────────────────
+let RECORDS=[], DATES=[], VARIANTS=[], VARMETA={};
+let selected=new Set();
+let evoChart, sweepChart;
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const el = id => document.getElementById(id);
+const val = id => el(id).value;
+
+// ── load ──────────────────────────────────────────────────────────
+async function fetchJSON(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
+async function loadFrom(base){
+  const m=await fetchJSON(base+"index.json");
+  if(!m.runs||!m.runs.length) throw new Error("empty manifest");
+  const runs=await Promise.all(m.runs.map(async run=>({date:run.date,data:await fetchJSON(base+run.file)})));
+  return runs;
+}
+async function load(){
+  let runs, isSample=false;
+  try { runs=await loadFrom("history/"); }
+  catch(e){ runs=await loadFrom("sample/"); isSample=true; }
+  runs.sort((a,b)=>a.date.localeCompare(b.date));
+  RECORDS=[];
+  for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
+  DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
+  VARMETA={};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
+  const order=Object.keys(VARIANT_LABEL);
+  VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort((a,b)=>{
+    const ia=order.indexOf(a),ib=order.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b); });
+  selected=new Set(VARIANTS);
+
+  const latest=runs[runs.length-1].data, hw=latest.hardware||{};
+  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} variants · ${DATES.length} runs · `+
+    `${DATES[0]} → ${DATES[DATES.length-1]} · <code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
+  if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
+    b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }
+
+  initControls(); buildChips(); buildCharts(); refreshKindDependent(); render();
+}
+
+// ── controls ──────────────────────────────────────────────────────
+function fill(sel,items,labeler,value){ sel.innerHTML="";
+  for(const it of items){ const o=document.createElement("option"); o.value=it;
+    o.textContent=labeler?labeler(it):it; sel.appendChild(o); }
+  if(value!==undefined && items.includes(value)) sel.value=value; }
+
+function kindsPresent(){ const order=["throughput","latency","pubsub","fanout","fanin"];
+  return order.filter(k=>RECORDS.some(r=>r.kind===k)); }
+
+function initControls(){
+  fill(el("kind"), kindsPresent(), k=>KIND_LABEL[k]||k, "latency");
+  fill(el("run"), DATES, null, DATES[DATES.length-1]);
+  el("controls").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false;
+  el("kind").addEventListener("change", ()=>{ refreshKindDependent(); render(); });
+  for(const id of ["metric","transport","peers","payload","run","colorby","logscale"])
+    el(id).addEventListener("change", render);
+  document.querySelectorAll(".preset").forEach(p=>p.addEventListener("click",()=>applyPreset(p.dataset.preset)));
+  window.addEventListener("resize",()=>{ evoChart&&evoChart.resize(); sweepChart&&sweepChart.resize(); });
+}
+
+// repopulate metric/transport/peers/payload for the current kind, keeping value if valid
+function refreshKindDependent(){
+  const kind=val("kind");
+  const metrics=metricsForKind(kind);
+  fill(el("metric"), metrics.map(m=>m.key), k=>{ const m=metrics.find(x=>x.key===k); return `${m.label} (${m.unit})`; },
+       metrics.some(m=>m.key===val("metric"))?val("metric"):metrics[0].key);
+  const rs=RECORDS.filter(r=>r.kind===kind);
+  fill(el("transport"), [...new Set(rs.map(r=>r.transport))].sort(), null,
+       val("transport"));
+  if(!el("transport").value) el("transport").selectedIndex=0;
+  const payloads=[...new Set(rs.map(r=>r.payload_bytes))].sort((a,b)=>a-b);
+  fill(el("payload"), payloads, fmtPayload, +val("payload")||payloads[0]);
+  const peersWrap=el("peersWrap");
+  if(HAS_PEERS(kind)){
+    peersWrap.style.display="";
+    const peers=[...new Set(rs.map(r=>r.peers))].filter(p=>p!=null).sort((a,b)=>a-b);
+    fill(el("peers"), peers, p=>p+" sub"+(p>1?"s":""), +val("peers")||peers[0]);
+  } else { peersWrap.style.display="none"; }
+}
+
+function currentPeers(){ return HAS_PEERS(val("kind")) ? +val("peers") : null; }
+function metricDef(){ return metricsForKind(val("kind")).find(m=>m.key===val("metric")) || metricsForKind(val("kind"))[0]; }
+
+// ── variant chips & presets ───────────────────────────────────────
+function buildChips(){
+  const box=el("chips"); box.innerHTML="";
+  for(const v of VARIANTS){
+    const c=document.createElement("span");
+    c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
+    c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[VARMETA[v].engine]||"#888"}"></span>`+
+      `${VARIANT_LABEL[v]||v} <small>${VARMETA[v].io}·${VARMETA[v].threading}</small>`;
+    c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
+      c.classList.toggle("on"); render(); });
+    box.appendChild(c);
+  }
+}
+function setSelected(vs){ selected=new Set(vs);
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v))); render(); }
+function applyPreset(p){
+  if(p==="all")   return setSelected(VARIANTS);
+  if(p==="none")  return setSelected([]);
+  if(p==="omq")   return setSelected(VARIANTS.filter(v=>VARMETA[v].engine==="omq"));
+  if(p==="io_uring"||p==="epoll") return setSelected(VARIANTS.filter(v=>VARMETA[v].io===p));
+  if(p==="single") return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="single"));
+  if(p==="multi")  return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="multi"||VARMETA[v].threading==="native"));
+}
+
+// ── series styling (color by category, dash within group) ─────────
+function catValue(v,dim){ return dim==="variant" ? v : VARMETA[v][dim]; }
+function styleMap(vlist){
+  const dim=val("colorby"); const groups={};
+  vlist.forEach(v=>{ const k=catValue(v,dim); (groups[k]=groups[k]||[]).push(v); });
+  const keys=Object.keys(groups); const map={};
+  keys.forEach((k,gi)=>{
+    groups[k].forEach((v,mi)=>{
+      const color = dim==="engine" ? (ENGINE_COLOR[k]||PALETTE[gi%PALETTE.length]) : PALETTE[gi%PALETTE.length];
+      map[v]={color, dash:DASHES[mi%DASHES.length], group:k};
+    });
+  });
+  return map;
+}
+
+// ── charts ────────────────────────────────────────────────────────
+function buildCharts(){ evoChart=echarts.init(el("evoChart")); sweepChart=echarts.init(el("sweepChart")); }
+function axisType(){ return el("logscale").checked?"log":"value"; }
+function baseOption(yName){
+  return {
+    textStyle:{ color:css("--fg"), fontFamily:"system-ui,sans-serif" },
+    grid:{ left:62, right:18, top:18, bottom:70 },
+    tooltip:{ trigger:"axis", backgroundColor:css("--panel2"), borderColor:css("--line"),
+      textStyle:{ color:css("--fg") }, order:"valueDesc" },
+    legend:{ type:"scroll", bottom:0, textStyle:{ color:css("--muted") } },
+    yAxis:{ type:axisType(), name:yName, nameTextStyle:{ color:css("--muted") },
+      axisLabel:{ color:css("--muted") }, splitLine:{ lineStyle:{ color:css("--line") } } },
+  };
+}
+function mkSeries(v,data,style){
+  return { name:VARIANT_LABEL[v]||v, type:"line", data, connectNulls:false,
+    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" },
+    lineStyle:{ width:2, color:style.color, type:style.dash },
+    itemStyle:{ color:style.color } };
+}
+
+function vlist(){ return VARIANTS.filter(v=>selected.has(v)); }
+
+function renderEvolution(){
+  const m=metricDef(), kind=val("kind"), tr=val("transport"), pay=+val("payload"), pe=currentPeers();
+  const vs=vlist(), sm=styleMap(vs);
+  const series=vs.map(v=>{
+    const data=DATES.map(d=>{
+      const rec=RECORDS.find(r=>r.date===d&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===pay&&r.peers===pe);
+      const val_=rec?m.get(rec):null; return val_==null||Number.isNaN(val_)?null:+val_.toFixed(3);
+    });
+    return mkSeries(v,data,sm[v]);
+  });
+  const opt=baseOption(`${m.label} (${m.unit})`);
+  opt.xAxis={ type:"category", data:DATES, boundaryGap:false,
+    axisLabel:{ color:css("--muted") }, axisLine:{ lineStyle:{ color:css("--line") } } };
+  opt.dataZoom=[{ type:"slider", bottom:32, height:16, borderColor:css("--line"), textStyle:{ color:css("--muted") } },{ type:"inside" }];
+  opt.series=series;
+  evoChart.setOption(opt,true);
+  el("evoTitle").textContent=`Evolution · ${KIND_LABEL[kind]} · ${m.label} · ${tr}`+(pe?` · ${pe} peers`:"")+` · ${fmtPayload(pay)}`;
+}
+
+function renderSweep(){
+  const m=metricDef(), kind=val("kind"), tr=val("transport"), run=val("run"), pe=currentPeers();
+  const payloads=[...new Set(RECORDS.filter(r=>r.kind===kind).map(r=>r.payload_bytes))].sort((a,b)=>a-b);
+  const vs=vlist(), sm=styleMap(vs);
+  const series=vs.map(v=>{
+    const data=payloads.map(p=>{
+      const rec=RECORDS.find(r=>r.date===run&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===p&&r.peers===pe);
+      const val_=rec?m.get(rec):null; return [p, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3)];
+    });
+    return mkSeries(v,data,sm[v]);
+  });
+  const opt=baseOption(`${m.label} (${m.unit})`);
+  opt.xAxis={ type:"log", name:"payload (bytes)", nameLocation:"middle", nameGap:30,
+    nameTextStyle:{ color:css("--muted") }, axisLabel:{ color:css("--muted"), formatter:v=>fmtPayload(v) },
+    axisLine:{ lineStyle:{ color:css("--line") } } };
+  opt.series=series;
+  sweepChart.setOption(opt,true);
+  el("sweepTitle").textContent=`Size sweep · ${m.label} · ${tr}`;
+  el("sweepHint").textContent=`Run ${run}${pe?` · ${pe} peers`:""}. Log x-axis. ${m.better==="lower"?"Lower":"Higher"} is better.`;
+}
+
+function renderRanking(){
+  const m=metricDef(), kind=val("kind"), tr=val("transport"), pay=+val("payload"), run=val("run"), pe=currentPeers();
+  const rows=vlist().map(v=>{
+    const rec=RECORDS.find(r=>r.date===run&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===pay&&r.peers===pe);
+    const x=rec?m.get(rec):null; return (x==null||Number.isNaN(x))?null:{v,x};
+  }).filter(Boolean);
+  rows.sort((a,b)=>m.better==="lower"?a.x-b.x:b.x-a.x);
+  const best=rows.length?rows[0].x:null;
+  el("rankTitle").textContent=`Ranking · ${m.label}`;
+  el("rankHint").textContent=`Run ${run} · ${KIND_LABEL[kind]} · ${tr}${pe?` · ${pe} peers`:""} · ${fmtPayload(pay)} · ${m.better==="lower"?"lower":"higher"} is better`;
+  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>${m.label} (${m.unit})</th><th>vs best</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    let rel="n/a";
+    if(best){ const ratio=m.better==="lower"?r.x/best:best/r.x; rel=i===0?"best":"×"+ratio.toFixed(2); }
+    const meta=VARMETA[r.v];
+    html+=`<tr><td>${i+1}</td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.io}·${meta.threading}</small></td>`+
+      `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td></tr>`;
+  });
+  html+="</tbody></table>";
+  if(!rows.length) html=`<div class="hint">No data for this combination.</div>`;
+  el("rankTable").innerHTML=html;
+}
+
+function render(){ renderEvolution(); renderSweep(); renderRanking(); }
+
+// ── boot ──────────────────────────────────────────────────────────
+el("footer").innerHTML='zmq-arena · interactive results · data under <code>docs/history/</code> (real) and <code>docs/sample/</code> (preview) · charts via <a href="https://echarts.apache.org">Apache ECharts</a> · benchmark design inspired by <a href="https://github.com/paddor/omq.rs">omq.rs</a>';
+load().catch(e=>{ el("dataSource").textContent="failed to load data";
+  const err=el("err"); err.hidden=false;
+  err.textContent="Could not load results: "+e.message+". Serve this folder over HTTP (e.g. `python3 -m http.server` in docs/). Browser file:// fetches are blocked."; });
+</script>
+</body>
+</html>

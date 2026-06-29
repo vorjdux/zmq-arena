@@ -1,0 +1,33 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build independently: `cd targets/zeromq_rs_target && cargo build --release`.
+# Owns its dependency closure, release profile, lockfile, and toolchain pin so
+# the engine is benchmarked exactly as it ships.
+# Empty [workspace] table makes this its own workspace root. Without it, Cargo
+# walks up, finds the orchestrator's root Cargo.toml, and refuses to build
+# because this package is not one of its members.
+[workspace]
+
+[package]
+name = "zeromq-rs-target"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: zmq.rs (the `zeromq` crate, epoll + Tokio)."
+
+[[bin]]
+name = "zeromq-rs-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# zmq.rs, the canonical pure-Rust ZeroMQ. Verified crate identity from the
+# omq comparison harness: `zeromq = "0.6"` with the IPC transport feature.
+zeromq = { version = "0.6", features = ["ipc-transport"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

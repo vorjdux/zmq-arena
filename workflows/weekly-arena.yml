@@ -1,0 +1,79 @@
+# Weekly grid run.
+#
+# Place at .github/workflows/weekly-arena.yml to activate. It lives under
+# workflows/ in the scaffold so the repository layout matches the spec without
+# the cron firing before the bare-metal runner is registered.
+#
+# Execution environment requirements (enforced on the runner, not here):
+#   - Bare-metal instance (e.g. AWS *.metal) or dedicated bare-metal CI runner.
+#   - Intel Turbo Boost / AMD CPB disabled.
+#   - C-states locked (e.g. intel_idle.max_cstate=1 / processor.max_cstate=1).
+#   - cpufreq governor = performance.
+# These remove frequency-scaling artifacts from the p99/p99.9 distribution. A
+# shared cloud runner will not produce admissible tail numbers; the job asserts
+# the runner label before measuring.
+
+name: weekly-arena
+
+on:
+  schedule:
+    # 04:00 UTC every Monday. Once per week, deterministic slot.
+    - cron: "0 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # required to commit RANKING.md and the /history archive
+
+concurrency:
+  group: weekly-arena
+  cancel-in-progress: false
+
+jobs:
+  grid:
+    # Self-hosted bare-metal runner with these labels. Do not fall back to
+    # GitHub-hosted runners: shared vCPUs invalidate the tail latency.
+    runs-on: [self-hosted, bare-metal, perf-locked]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert performance-locked host
+        run: |
+          set -euo pipefail
+          # Fail fast if turbo / C-states are not locked. Adjust paths per host.
+          gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor || echo "unknown")
+          echo "governor=$gov"
+          test "$gov" = "performance" || { echo "governor must be 'performance'"; exit 1; }
+
+      - name: Build orchestrator + every target (each in its own invocation)
+        # build-targets.sh builds the control plane and each standalone target
+        # separately so per-target lockfiles and toolchain pins are honored. No
+        # --workspace build of the targets, by design.
+        run: ./scripts/build-targets.sh
+
+      - name: Run the matrix
+        run: |
+          RUN_ID=$(date -u +%F)
+          ./target/release/zmq-arena run \
+            --matrix matrix.example.json \
+            --run-id "$RUN_ID" \
+            --out "scratch/$RUN_ID"
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+
+      - name: Generate ledger + dashboard archive
+        run: |
+          # Reads scratch/$RUN_ID/*.json (orchestrator CellRecords) and writes
+          # RANKING.md, docs/history/$RUN_ID-run.json, and docs/history/index.json.
+          python3 scripts/render_results.py \
+            --scratch "scratch/$RUN_ID" \
+            --run-id "$RUN_ID" \
+            --hardware-cpu "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ *//')" \
+            --hardware-note "turbo off, C-states locked, performance governor"
+
+      - name: Commit results
+        run: |
+          git config user.name "arena-bot"
+          git config user.email "arena-bot@users.noreply.github.com"
+          git add RANKING.md "docs/history/${RUN_ID}-run.json" docs/history/index.json || true
+          git commit -m "weekly grid: ${RUN_ID}" || echo "nothing to commit"
+          git push || echo "push skipped"

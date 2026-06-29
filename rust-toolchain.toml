@@ -1,0 +1,7 @@
+# Pin the toolchain so the weekly grid is reproducible across runner refreshes.
+# Bump deliberately; an implicit toolchain bump is a confounding variable in the
+# p99.9 distribution.
+[toolchain]
+channel = "1.78.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
