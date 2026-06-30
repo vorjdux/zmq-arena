@@ -235,7 +235,7 @@ cheating entry fails the cell rather than the review.
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |
-| perf syscall counting | done (`perf_event_open` tracepoints opened per-thread across `/proc/<pid>/task` plus `inherit`, so the io_threads and runtime workers that do the actual socket I/O are counted, not just the first thread; needs root + tracefs + `perf_event_paranoid <= 1`, else 0 with a one-time note) |
+| perf syscall counting | done (`perf_event_open` tracepoints, cgroup-scoped via `PERF_FLAG_PID_CGROUP` when run as root so every thread in the leaf is counted, including the io_threads and runtime workers that do the actual socket I/O; per-thread fallback otherwise; needs root + tracefs + `perf_event_paranoid <= 1`, else 0 with a one-time note) |
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
 | rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |

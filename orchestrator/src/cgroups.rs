@@ -113,6 +113,13 @@ impl Cgroup {
         write_file(&self.path.join("cgroup.procs"), &pid.to_string())
     }
 
+    /// The leaf cgroup directory, used to scope perf counters to every task in
+    /// this cgroup (the robust way to count syscalls across all of a target's
+    /// threads, regardless of when each thread is created).
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// High-water memory for the run record. Prefers `memory.peak` (newer
     /// kernels); falls back to `memory.current`.
     pub fn peak_memory_bytes(&self) -> Result<u64> {

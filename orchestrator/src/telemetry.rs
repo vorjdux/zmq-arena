@@ -6,12 +6,15 @@
 //!   - Peak memory via the measured process's `VmHWM` (`peak_rss_bytes`), which
 //!     is unprivileged and works on any host; the caller prefers the cgroup
 //!     high-water mark when it has root.
-//!   - Syscall occurrence counts via `perf_event_open` tracepoint counters
-//!     opened per-thread across `/proc/<pid>/task` (plus `inherit`), so the
-//!     target's io_threads and runtime workers that do the actual socket I/O are
-//!     counted, not just its first thread. These count only when the host permits
-//!     it (root or CAP_PERFMON, tracefs mounted, `perf_event_paranoid <= 1`) and
-//!     degrade to zero with a one-time note.
+//!   - Syscall occurrence counts via `perf_event_open` tracepoint counters. When
+//!     a cgroup is available (run as root), the counters are cgroup-scoped
+//!     (`PERF_FLAG_PID_CGROUP`, one per CPU in the cpuset), which counts every
+//!     task in the leaf regardless of which thread makes the syscall or when it is
+//!     created. That captures the io_threads and runtime workers that do the
+//!     actual socket I/O, which per-thread enumeration missed. Without a cgroup it
+//!     falls back to per-thread counters across `/proc/<pid>/task`. Both need
+//!     perf (root or CAP_PERFMON, tracefs, `perf_event_paranoid <= 1`) and degrade
+//!     to zero with a one-time note.
 //!   - Latency is measured inside the target (REQ/REP) and reported on stdout,
 //!     so the orchestrator only stores the quantiles, not a histogram.
 
@@ -128,18 +131,49 @@ pub struct SyscallProbe {
     counters: Vec<(SyscallKind, i32)>,
 }
 
+const WANT: [(SyscallKind, &str); 5] = [
+    (SyscallKind::EpollWait, "sys_enter_epoll_wait"),
+    (SyscallKind::EpollCtl, "sys_enter_epoll_ctl"),
+    (SyscallKind::SendMsg, "sys_enter_sendmsg"),
+    (SyscallKind::RecvMsg, "sys_enter_recvmsg"),
+    (SyscallKind::IoUringEnter, "sys_enter_io_uring_enter"),
+];
+
 impl SyscallProbe {
+    /// Scope counters to a cgroup with `PERF_FLAG_PID_CGROUP`. This is the robust
+    /// path: a cgroup-scoped counter counts every task in the cgroup (all threads,
+    /// however and whenever they are created), so it captures the syscalls that
+    /// libzmq's io_threads and the async runtimes' workers make, which per-thread
+    /// enumeration kept missing. cgroup mode requires a per-CPU counter, so one is
+    /// opened per CPU in the cell's cpuset and summed. Falls back to the per-thread
+    /// path if the cgroup counters cannot be opened.
+    pub fn open_cgroup(cgroup_path: &std::path::Path, cpus: &[u32], pid: u32) -> Self {
+        let mut counters = Vec::new();
+        if let Some(cgfd) = open_cgroup_fd(cgroup_path) {
+            for &cpu in cpus {
+                for (kind, tp) in WANT {
+                    if let Some(fd) = open_tracepoint_cgroup(cgfd, cpu, tp) {
+                        counters.push((kind, fd));
+                    }
+                }
+            }
+            // SAFETY: cgfd is an fd we opened; the perf events keep their own
+            // reference to the cgroup, so closing the directory fd is safe.
+            unsafe {
+                libc::close(cgfd);
+            }
+        }
+        if !counters.is_empty() {
+            return SyscallProbe { counters };
+        }
+        // cgroup scoping unavailable; fall back to per-thread enumeration.
+        Self::open(pid)
+    }
+
     pub fn open(pid: u32) -> Self {
-        let want = [
-            (SyscallKind::EpollWait, "sys_enter_epoll_wait"),
-            (SyscallKind::EpollCtl, "sys_enter_epoll_ctl"),
-            (SyscallKind::SendMsg, "sys_enter_sendmsg"),
-            (SyscallKind::RecvMsg, "sys_enter_recvmsg"),
-            (SyscallKind::IoUringEnter, "sys_enter_io_uring_enter"),
-        ];
         let mut counters = Vec::new();
         for tid in thread_ids(pid) {
-            for (kind, tp) in want {
+            for (kind, tp) in WANT {
                 if let Some(fd) = open_tracepoint(tid, tp) {
                     counters.push((kind, fd));
                 }
@@ -238,6 +272,39 @@ fn open_tracepoint(pid: u32, name: &str) -> Option<i32> {
     } else {
         Some(fd)
     }
+}
+
+/// Open the cgroup leaf directory so it can be passed as the "pid" argument of a
+/// cgroup-scoped perf event.
+fn open_cgroup_fd(path: &std::path::Path) -> Option<i32> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: c is a valid NUL-terminated path.
+    let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY) };
+    if fd < 0 { None } else { Some(fd) }
+}
+
+/// Open a tracepoint counter scoped to a cgroup on one CPU: pid is the cgroup fd,
+/// cpu is a real CPU, and the cgroup flag selects cgroup scoping. No `inherit`,
+/// since the cgroup already covers every task.
+fn open_tracepoint_cgroup(cgroup_fd: i32, cpu: u32, name: &str) -> Option<i32> {
+    let id = tracepoint_id(name)?;
+    // SAFETY: a zeroed perf_event_attr is valid; we set only documented fields.
+    let mut attr: perf::bindings::perf_event_attr = unsafe { std::mem::zeroed() };
+    attr.type_ = 2; // PERF_TYPE_TRACEPOINT
+    attr.size = std::mem::size_of::<perf::bindings::perf_event_attr>() as u32;
+    attr.config = id;
+    // SAFETY: attr is initialized; cgroup_fd is a directory fd; cpu is valid.
+    let fd = unsafe {
+        perf::perf_event_open(
+            &mut attr,
+            cgroup_fd,
+            cpu as i32,
+            -1,
+            perf::bindings::PERF_FLAG_PID_CGROUP as u64,
+        )
+    };
+    if fd < 0 { None } else { Some(fd) }
 }
 
 fn read_counter(fd: i32) -> u64 {

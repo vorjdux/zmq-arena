@@ -417,6 +417,43 @@ fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup>
     Some(cg)
 }
 
+/// Parse a cpuset spec ("0", "0-3", "0,2,4") into the list of CPU numbers, used to
+/// open a cgroup-scoped perf counter per CPU.
+fn parse_cpus(spec: &str) -> Vec<u32> {
+    let mut cpus = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        match part.split_once('-') {
+            Some((a, b)) => {
+                if let (Ok(a), Ok(b)) = (a.parse::<u32>(), b.parse::<u32>()) {
+                    cpus.extend(a..=b);
+                }
+            }
+            None => {
+                if let Ok(c) = part.parse::<u32>() {
+                    cpus.push(c);
+                }
+            }
+        }
+    }
+    cpus
+}
+
+/// Open the syscall probe for the measured process: cgroup-scoped (counts every
+/// task in the leaf, the robust path) when the cgroup and cpuset are available,
+/// otherwise per-thread enumeration on the pid.
+fn open_syscall_probe(cg: &Option<Cgroup>, cpus: &[u32], pid: u32) -> crate::telemetry::SyscallProbe {
+    match cg {
+        Some(c) if !cpus.is_empty() => {
+            crate::telemetry::SyscallProbe::open_cgroup(c.path(), cpus, pid)
+        }
+        _ => crate::telemetry::SyscallProbe::open(pid),
+    }
+}
+
 /// Summed memory high-water mark across the cell's cgroup leaves (consumer side
 /// plus producer side), so it covers every process the way the unprivileged
 /// VmHWM sum does. Returns None when neither leaf is available (not root).
@@ -456,10 +493,11 @@ fn run_throughput(
         let _ = cg.attach(consumer.id());
     }
     std::thread::sleep(Duration::from_millis(150)); // let the consumer bind
-    // Open the syscall probe after the bind settle, so the engine's io_threads
-    // and runtime workers already exist and are enumerated. The measured receive
-    // loop starts only once the producer connects, below, so it is fully covered.
-    let syscall_probe = crate::telemetry::SyscallProbe::open(consumer.id());
+    // Open the syscall probe after the bind settle. cgroup-scoped when possible,
+    // so every thread of the consumer is counted; the measured receive loop starts
+    // only once the producer connects, below, so it is fully covered.
+    let cpus = parse_cpus(&isolation.cpuset_cpus);
+    let syscall_probe = open_syscall_probe(&sub_cg, &cpus, consumer.id());
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
@@ -561,7 +599,8 @@ fn run_latency(
     // probe enumerates threads. The probe then attaches part-way through the
     // discarded warmup and covers the whole measured round-trip loop.
     std::thread::sleep(Duration::from_millis(120));
-    let syscall_probe = crate::telemetry::SyscallProbe::open(client.id());
+    let cpus = parse_cpus(&isolation.cpuset_cpus);
+    let syscall_probe = open_syscall_probe(&pub_cg, &cpus, client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
     let (ok, rss_peak) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
@@ -705,7 +744,8 @@ fn run_multipeer(
     // pubsub/fanout consumer was just spawned). A short slice of the duration
     // window is uncounted as a result, acceptable for a characterization metric.
     std::thread::sleep(Duration::from_millis(150));
-    let syscall_probe = crate::telemetry::SyscallProbe::open(measured.id());
+    let cpus = parse_cpus(&isolation.cpuset_cpus);
+    let syscall_probe = open_syscall_probe(&sub_cg, &cpus, measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
     // Sample every peer process too, so the memory footprint covers the whole
     // fan-out / fan-in topology, not just the measured consumer.
