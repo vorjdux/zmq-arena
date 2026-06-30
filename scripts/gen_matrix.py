@@ -70,14 +70,47 @@ TARGETS = [
         "mp_knobs": {},
         "kinds": ["throughput", "latency", "pubsub"],
     },
+    {
+        "id": "omq_tokio",
+        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "variant": "default",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Same binary, multi-thread tokio runtime. The (id, variant) pair keys the
+        # dashboard series omq_tokio_mt.
+        "id": "omq_tokio",
+        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "variant": "multi_thread",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        "id": "omq_compio",
+        "binary": "targets/omq_compio_target/target/release/omq-compio-target",
+        "variant": "default",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
 ]
 
 ISOLATION = {"cpuset_cpus": "0", "cpuset_mems": "0", "memory_max_bytes": 268435456}
 
 
+def target_spec(target, knobs_key):
+    spec = {"id": target["id"], "binary": target["binary"], "knobs": target[knobs_key]}
+    if target.get("variant"):
+        spec["variant"] = target["variant"]
+    return spec
+
+
 def count_cell(target, kind, transport, size, msgs):
     return {
-        "target": {"id": target["id"], "binary": target["binary"], "knobs": target["count_knobs"]},
+        "target": target_spec(target, "count_knobs"),
         "transport": transport,
         "kind": kind,
         "payload_bytes": size,
@@ -88,7 +121,7 @@ def count_cell(target, kind, transport, size, msgs):
 
 def duration_cell(target, kind, size, peers):
     return {
-        "target": {"id": target["id"], "binary": target["binary"], "knobs": target["mp_knobs"]},
+        "target": target_spec(target, "mp_knobs"),
         "transport": "tcp_netns",
         "kind": kind,
         "peers": peers,

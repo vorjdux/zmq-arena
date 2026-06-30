@@ -113,18 +113,26 @@ struct TargetMeta {
     io: String,
 }
 
-/// Run `<binary> describe` and parse the one-line JSON classification, caching by
-/// binary path. On any failure, fall back to a minimal record carrying the target
-/// id as the engine, so a target without a `describe` mode still produces a
-/// well-formed (if sparse) record rather than aborting the cell.
-fn target_meta(binary: &Path, fallback_id: &str) -> TargetMeta {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, TargetMeta>>> = OnceLock::new();
+/// Run `<binary> describe --variant <v>` and parse the one-line JSON
+/// classification, caching by (binary, variant). The variant is passed through so
+/// a target whose threading or concurrency depends on the runtime variant (omq's
+/// current-thread vs multi-thread) reports the right values; single-variant
+/// targets ignore the flag. On any failure, fall back to a minimal record
+/// carrying the target id as the engine, so a target without a `describe` mode
+/// still produces a well-formed (if sparse) record rather than aborting the cell.
+fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> TargetMeta {
+    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), TargetMeta>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(m) = cache.lock().unwrap().get(binary) {
+    let key = (binary.to_path_buf(), variant.unwrap_or("default").to_string());
+    if let Some(m) = cache.lock().unwrap().get(&key) {
         return m.clone();
     }
-    let meta = ProcCommand::new(binary)
-        .arg("describe")
+    let mut cmd = ProcCommand::new(binary);
+    cmd.arg("describe");
+    if let Some(v) = variant {
+        cmd.arg("--variant").arg(v);
+    }
+    let meta = cmd
         .output()
         .ok()
         .filter(|o| o.status.success())
@@ -133,7 +141,7 @@ fn target_meta(binary: &Path, fallback_id: &str) -> TargetMeta {
             eprintln!("  note: {} has no usable `describe`; recording id only", binary.display());
             TargetMeta { engine: fallback_id.to_string(), ..Default::default() }
         });
-    cache.lock().unwrap().insert(binary.to_path_buf(), meta.clone());
+    cache.lock().unwrap().insert(key, meta.clone());
     meta
 }
 
@@ -232,7 +240,11 @@ fn execute_cell(
         // fanin: the single consumer (the sink) is the coordinator and binds.
         Kind::FanIn => run_multipeer(run_id, cell_id, entry, isolation, false),
     }?;
-    record.meta = target_meta(&entry.target.binary, &entry.target.id);
+    record.meta = target_meta(
+        &entry.target.binary,
+        entry.target.variant.as_deref(),
+        &entry.target.id,
+    );
     Ok(record)
 }
 

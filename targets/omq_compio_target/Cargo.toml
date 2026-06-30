@@ -19,8 +19,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
-# Verified crate identity. Pin a rev/tag before a grid run.
+# omq-compio: pure-Rust ZMTP on compio (io_uring). The wrapper drives it with
+# omq_compio::build_default_runtime(), which sets up the io_uring proactor and the
+# provided-buffer pool, so no direct compio dependency is needed. The Cargo.lock
+# pins the exact commit; replace with an explicit rev/tag before a certified run.
 omq-compio = { git = "https://github.com/paddor/omq.rs", package = "omq-compio" }
 
 [profile.release]

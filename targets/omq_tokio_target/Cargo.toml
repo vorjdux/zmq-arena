@@ -19,10 +19,15 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
-# Verified crate identity. Pin a rev/tag before a grid run.
+# omq-tokio: pure-Rust ZMTP on tokio (mio/epoll). The Cargo.lock pins the exact
+# commit; replace with an explicit rev/tag before a certified grid run.
 omq-tokio = { git = "https://github.com/paddor/omq.rs", package = "omq-tokio" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# The wrapper builds the runtime itself (current-thread for the default variant,
+# multi-thread for the multi_thread variant), so it needs both flavors plus the
+# time and io drivers enable_all turns on.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
 
 [profile.release]
 opt-level = 3

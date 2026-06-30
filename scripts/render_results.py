@@ -36,7 +36,7 @@ REGISTRY = {
     "zeromq_rs":     {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "omq_tokio":     {"engine": "omq",       "io": "epoll",    "threading": "single"},
     "omq_tokio_mt":  {"engine": "omq",       "io": "epoll",    "threading": "multi"},
-    "omq_compio":    {"engine": "omq",       "io": "io_uring", "threading": "multi"},
+    "omq_compio":    {"engine": "omq",       "io": "io_uring", "threading": "single"},
     "omq_compio_st": {"engine": "omq",       "io": "io_uring", "threading": "single"},
     "rzmq":          {"engine": "rzmq",      "io": "io_uring", "threading": "multi"},
     "celerity":      {"engine": "celerity",  "io": "epoll",    "threading": "multi"},

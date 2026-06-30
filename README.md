@@ -46,12 +46,20 @@ harness, where each bench peer is a separate build unit.
 
 libzmq, rust-zmq, and monocoque run all five kinds. rust-zmq is the same C core
 as libzmq reached through the Rust binding, so the pair measures binding
-overhead. zmq.rs runs throughput, latency, and pub/sub; it does not run fan-out
-or fan-in, because its PUSH/PULL sockets do not round-robin or fair-queue across
-multiple peers on the bound side. The remaining Rust socket loops are stubs until
-each is written against its engine's API. Crate identities and versions are
-verified against crates.io and the upstream repos. See `targets/README.md` for
-the command-line contract and how to add a target.
+overhead. The two omq backends, omq-tokio (epoll/mio) and omq-compio (io_uring),
+run all five over the omq `Socket` API; omq-tokio also exposes a multi-thread
+runtime as a second variant. zmq.rs runs throughput, latency, and pub/sub; it
+does not run fan-out or fan-in, because its PUSH/PULL sockets do not round-robin
+or fair-queue across multiple peers on the bound side. rzmq and celerity remain
+stubs until each is written against its engine's API. Crate identities and
+versions are verified against crates.io and the upstream repos. See
+`targets/README.md` for the command-line contract and how to add a target.
+
+omq's PUSH does strict round-robin with HWM backpressure rather than libzmq-style
+load-balancing to any ready peer, so its fan-out underperforms on a single shared
+core (a lagging consumer gates the rotation). On bare metal, where each consumer
+has its own core, that stall does not occur. The other four kinds reach the
+millions of msgs/s on the dev host.
 
 ## Benchmarks and variants
 
@@ -60,19 +68,18 @@ The harness runs the same set of benchmarks as the omq comparison: throughput
 tcp, and inproc, across a payload sweep, with peer counts where they apply.
 
 A measured series is a variant, meaning an engine plus a runtime, not just an
-engine. One binary can expose several runtimes, so `omq-tokio` and its
-multi-thread mode, or `omq-compio` and its single-thread mode, show up as
-separate series you can compare directly.
+engine. One binary can expose several runtimes, so `omq-tokio` in its
+current-thread and multi-thread modes shows up as two series you can compare
+directly, alongside `omq-compio` on io_uring.
 
 | variant | target | engine | io model | threading | selected by |
 |---------|--------|--------|----------|-----------|-------------|
 | `libzmq` | libzmq_cpp_target | libzmq | epoll | native threads | only variant |
 | `rust_zmq` | rust_zmq_target | libzmq | epoll | native threads | only variant |
 | `zmq.rs` | zeromq_rs_target | zmq.rs | epoll | tokio | only variant |
-| `omq_tokio` | omq_tokio_target | omq | mio | current-thread | `--variant default` |
-| `omq_tokio_mt` | omq_tokio_target | omq | mio | multi-thread | `--variant multi_thread` |
-| `omq_compio` | omq_compio_target | omq | io_uring | default | `--variant default` |
-| `omq_compio_st` | omq_compio_target | omq | io_uring | single-thread | `--variant single_thread` |
+| `omq_tokio` | omq_tokio_target | omq | mio/epoll | current-thread | `--variant default` |
+| `omq_tokio_mt` | omq_tokio_target | omq | mio/epoll | multi-thread | `--variant multi_thread` |
+| `omq_compio` | omq_compio_target | omq | io_uring | single-thread | `--variant default` |
 | `rzmq` | rzmq_target | rzmq | io_uring | tokio | only variant |
 | `celerity` | celerity_target | celerity | epoll | tokio | only variant |
 | `monocoque` | monocoque_target | monocoque | io_uring | compio | only variant |
@@ -232,7 +239,8 @@ cheating entry fails the cell rather than the review.
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
 | rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |
-| omq, rzmq, celerity socket loops | stubs, pending each engine's API (each already reports `describe`) |
+| omq socket loops | omq-tokio (epoll, current-thread + multi-thread variants) and omq-compio (io_uring) over the omq `Socket` API; throughput, latency, pub/sub, fan-in run-verified locally; fan-out runs but is gated by omq's round-robin backpressure on a shared core |
+| rzmq, celerity socket loops | stubs, pending each engine's API (each already reports `describe`) |
 | target classification + library version | done; every target self-reports via `describe`, the orchestrator embeds it per record, versions tracked per run |
 | render and ranking generator | done and tested; emits a global ranking (mean rank across benchmarks) |
 | interactive dashboard | done; filters and color-by across engine, io, threading, sync/async, native/ffi, language; per-combination and global rankings; library versions shown |
