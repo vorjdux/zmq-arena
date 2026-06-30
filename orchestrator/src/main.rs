@@ -354,30 +354,36 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
     }
 }
 
-/// Like `wait_until`, but also samples the child's peak resident set size from
-/// `/proc/<pid>/status` on each poll, returning the high-water mark in bytes
-/// alongside the finished flag. This is the unprivileged peak-memory path: it
-/// needs neither root nor a cgroup, so it works on any host. VmHWM is itself a
-/// kernel high-water mark, so the last reading before the process exits is its
-/// true peak; sampling the max across polls guards against a missed final read.
-fn wait_until_peak(child: &mut Child, deadline: Instant) -> (bool, u64) {
-    let pid = child.id();
-    let mut peak = 0u64;
+/// Like `wait_until`, but samples the peak resident set size of every process in
+/// the cell (the measured child plus `others`, e.g. the producer and any drains)
+/// from `/proc/<pid>/status` on each poll, and returns their summed high-water
+/// mark in bytes. This is the grouped, unprivileged memory-footprint path: it
+/// needs neither root nor a cgroup, and the sum is what a library actually costs
+/// to run its full data path, not just one end. VmHWM is itself a kernel
+/// high-water mark, so tracking each process's max across polls (then summing)
+/// captures the peak even if a process exits before the loop ends.
+fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, u64) {
+    let mut pids: Vec<u32> = Vec::with_capacity(others.len() + 1);
+    pids.push(child.id());
+    pids.extend_from_slice(others);
+    let mut peaks = vec![0u64; pids.len()];
     loop {
-        if let Some(rss) = crate::telemetry::peak_rss_bytes(pid) {
-            peak = peak.max(rss);
+        for (i, &pid) in pids.iter().enumerate() {
+            if let Some(rss) = crate::telemetry::peak_rss_bytes(pid) {
+                peaks[i] = peaks[i].max(rss);
+            }
         }
         match child.try_wait() {
-            Ok(Some(_)) => return (true, peak),
+            Ok(Some(_)) => return (true, peaks.iter().sum()),
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return (false, peak);
+                    return (false, peaks.iter().sum());
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return (false, peak),
+            Err(_) => return (false, peaks.iter().sum()),
         }
     }
 }
@@ -397,6 +403,18 @@ fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup>
         return None;
     }
     Some(cg)
+}
+
+/// Summed memory high-water mark across the cell's cgroup leaves (consumer side
+/// plus producer side), so it covers every process the way the unprivileged
+/// VmHWM sum does. Returns None when neither leaf is available (not root).
+fn cgroup_total_memory(sub: &Option<Cgroup>, pubc: &Option<Cgroup>) -> Option<u64> {
+    let a = sub.as_ref().and_then(|c| c.peak_memory_bytes().ok());
+    let b = pubc.as_ref().and_then(|c| c.peak_memory_bytes().ok());
+    match (a, b) {
+        (None, None) => None,
+        _ => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+    }
 }
 
 /// PUSH/PULL throughput: spawn consumer (binds) then producer (connects), time
@@ -442,7 +460,8 @@ fn run_throughput(
     }
 
     let budget = Duration::from_secs((total / 50_000).max(10));
-    let (consumer_ok, rss_peak) = wait_until_peak(&mut consumer, Instant::now() + budget);
+    let (consumer_ok, rss_peak) =
+        wait_until_peak(&mut consumer, &[producer.id()], Instant::now() + budget);
     let elapsed = t0.elapsed();
     let syscalls = syscall_probe.read();
     let _ = wait_until(&mut producer, Instant::now() + Duration::from_secs(5));
@@ -467,14 +486,11 @@ fn run_throughput(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    // Prefer the cgroup high-water mark (root, covers all procs in the leaf);
-    // fall back to the measured process's VmHWM so peak memory is populated even
-    // unprivileged.
-    let peak_memory_bytes = sub_cg
-        .as_ref()
-        .and_then(|cg| cg.peak_memory_bytes().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+    // Grouped memory footprint across all cell processes: the cgroup leaves when
+    // root, otherwise the summed per-process VmHWM. Either way it is the whole
+    // data path, not one end.
+    let peak_memory_bytes =
+        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -536,7 +552,7 @@ fn run_latency(
     let syscall_probe = crate::telemetry::SyscallProbe::open(client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
-    let (ok, rss_peak) = wait_until_peak(&mut client, Instant::now() + budget);
+    let (ok, rss_peak) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
     let syscalls = syscall_probe.read();
     let mut out = String::new();
     if let Some(mut so) = client.stdout.take() {
@@ -565,11 +581,8 @@ fn run_latency(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes = pub_cg
-        .as_ref()
-        .and_then(|cg| cg.peak_memory_bytes().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+    let peak_memory_bytes =
+        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -682,7 +695,10 @@ fn run_multipeer(
     std::thread::sleep(Duration::from_millis(150));
     let syscall_probe = crate::telemetry::SyscallProbe::open(measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
-    let (ok, rss_peak) = wait_until_peak(&mut measured, Instant::now() + budget);
+    // Sample every peer process too, so the memory footprint covers the whole
+    // fan-out / fan-in topology, not just the measured consumer.
+    let other_pids: Vec<u32> = others.iter().map(|c| c.id()).collect();
+    let (ok, rss_peak) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
@@ -710,11 +726,8 @@ fn run_multipeer(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes = sub_cg
-        .as_ref()
-        .and_then(|cg| cg.peak_memory_bytes().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+    let peak_memory_bytes =
+        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),

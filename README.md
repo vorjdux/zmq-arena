@@ -177,7 +177,9 @@ through `describe`, so a chip reads, say, `rust-zmq 4.3.4 (FFI→C)` while the C
 `libzmq 4.3.5` sits beside it. The combination ranking sorts the selected metric
 for one cell; the global ranking averages each variant's rank position across
 every cell in the run, so latency and throughput count equally and one number
-says who is ahead overall. Library versions are tracked per run, so the evolution
+says who is ahead overall. Both rankings also show CPU time and memory footprint,
+grouped across all of the cell's processes, so you can read how heavy each library
+runs, not just how fast. Library versions are tracked per run, so the evolution
 view shows them moving over time.
 
 Serve it locally with `cd docs && python3 -m http.server`, since browsers block
@@ -215,7 +217,7 @@ cheating entry fails the cell rather than the review.
 | cgroup v2 provisioning | done (std::fs; needs root) |
 | ipc and loopback tcp transport | done; netns isolation still to do |
 | CPU and context-switch capture | done (`getrusage` deltas) |
-| peak memory capture | done; per-process `VmHWM` (unprivileged, any host), preferring the cgroup high-water mark when run as root |
+| CPU and memory footprint | done; grouped across all of a cell's processes. CPU from `getrusage(RUSAGE_CHILDREN)`; memory from each process's `VmHWM` summed (unprivileged, any host), or the summed cgroup leaves when run as root |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |

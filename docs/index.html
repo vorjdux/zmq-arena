@@ -164,10 +164,10 @@ const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/
   pubsub:"PUB/SUB throughput", fanout:"Fan-out (1→N)", fanin:"Fan-in (N→1)" };
 
 const SHARED_METRICS = [
-  {key:"cpu",   label:"CPU time",          unit:"s",     better:"lower",  get:r=>r.cpu_seconds},
+  {key:"cpu",   label:"CPU time (all procs)", unit:"s",  better:"lower",  get:r=>r.cpu_seconds},
   {key:"invol", label:"Involuntary ctx-sw",unit:"count", better:"lower",  get:r=>r.sched.involuntary},
   {key:"iosys", label:"I/O syscalls",      unit:"count", better:"lower",  get:r=>r.syscalls.sendmsg+r.syscalls.recvmsg+r.syscalls.io_uring_enter},
-  {key:"mem",   label:"Peak memory",       unit:"MB",    better:"lower",  get:r=>r.peak_memory_bytes/1e6},
+  {key:"mem",   label:"Memory footprint",  unit:"MB",    better:"lower",  get:r=>r.peak_memory_bytes/1e6},
 ];
 const LATENCY_METRICS = [
   {key:"p999", label:"Latency p99.9", unit:"µs", better:"lower", get:r=>r.latency_ns.p999/1000},
@@ -389,21 +389,23 @@ function renderRanking(){
   const m=metricDef(), kind=val("kind"), tr=val("transport"), pay=+val("payload"), run=val("run"), pe=currentPeers();
   const rows=vlist().map(v=>{
     const rec=RECORDS.find(r=>r.date===run&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===pay&&r.peers===pe);
-    const x=rec?m.get(rec):null; return (x==null||Number.isNaN(x))?null:{v,x};
+    const x=rec?m.get(rec):null; return (x==null||Number.isNaN(x))?null:{v,x,rec};
   }).filter(Boolean);
   rows.sort((a,b)=>m.better==="lower"?a.x-b.x:b.x-a.x);
   const best=rows.length?rows[0].x:null;
   el("rankTitle").textContent=`Ranking · ${m.label}`;
-  el("rankHint").textContent=`Run ${run} · ${KIND_LABEL[kind]} · ${tr}${pe?` · ${pe} peers`:""} · ${fmtPayload(pay)} · ${m.better==="lower"?"lower":"higher"} is better`;
-  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>${m.label} (${m.unit})</th><th>vs best</th></tr></thead><tbody>`;
+  el("rankHint").textContent=`Run ${run} · ${KIND_LABEL[kind]} · ${tr}${pe?` · ${pe} peers`:""} · ${fmtPayload(pay)} · ${m.better==="lower"?"lower":"higher"} is better. CPU and memory are the footprint across all of the cell's processes.`;
+  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>${m.label} (${m.unit})</th><th>vs best</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     let rel="n/a";
     if(best){ const ratio=m.better==="lower"?r.x/best:best/r.x; rel=i===0?"best":"×"+ratio.toFixed(2); }
     const meta=VARMETA[r.v];
+    const cpu=r.rec?r.rec.cpu_seconds:null, mem=r.rec?r.rec.peak_memory_bytes/1e6:null;
     html+=`<tr><td>${i+1}</td>`+
       `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
       `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
-      `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td></tr>`;
+      `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td>`+
+      `<td>${cpu==null?"—":cpu.toFixed(3)}</td><td>${mem==null?"—":mem.toFixed(1)}</td></tr>`;
   });
   html+="</tbody></table>";
   if(!rows.length) html=`<div class="hint">No data for this combination.</div>`;
@@ -433,18 +435,26 @@ function renderGlobalRanking(){
     g.sort((a,b)=>{ const av=primaryMetric(a).val, bv=primaryMetric(b).val; return lower?av-bv:bv-av; });
     g.forEach((r,i)=>{ (ranks[r.variant]=ranks[r.variant]||[]).push(i+1); });
   }
+  // Mean footprint per variant across its cells in the run (all-process CPU and
+  // memory), so the leaderboard also shows how heavy each library runs overall.
+  const mean=(arr,f)=>arr.length?arr.reduce((s,x)=>s+f(x),0)/arr.length:null;
+  const foot={};
+  for(const r of recs){ (foot[r.variant]=foot[r.variant]||[]).push(r); }
   const rows=Object.keys(ranks).map(v=>({v,
-    mean:ranks[v].reduce((a,b)=>a+b,0)/ranks[v].length, n:ranks[v].length}));
+    mean:ranks[v].reduce((a,b)=>a+b,0)/ranks[v].length, n:ranks[v].length,
+    cpu:mean(foot[v]||[],r=>r.cpu_seconds), mem:mean(foot[v]||[],r=>r.peak_memory_bytes/1e6)}));
   rows.sort((a,b)=>a.mean-b.mean);
   el("globalHint").textContent=`Run ${run} · mean rank position across ${Object.keys(groups).length} `+
     `benchmarks over ${rows.length} selected variants (lower is better). Each benchmark ranks the `+
-    `selected variants; positions are averaged, so latency and throughput count equally.`;
-  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th></tr></thead><tbody>`;
+    `selected variants; positions are averaged, so latency and throughput count equally. CPU and `+
+    `memory are the mean footprint across all of each cell's processes.`;
+  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{ const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
       `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
       `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
-      `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td></tr>`;
+      `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td>`+
+      `<td>${r.cpu==null?"—":r.cpu.toFixed(3)}</td><td>${r.mem==null?"—":r.mem.toFixed(1)}</td></tr>`;
   });
   html+="</tbody></table>";
   if(!rows.length) html=`<div class="hint">Select variants to build a global ranking.</div>`;
