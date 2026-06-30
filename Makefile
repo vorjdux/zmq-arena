@@ -16,11 +16,14 @@ CPU     := $(shell grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2
 NOTE    ?= dev host; functional test, not admissible tail data
 
 .PHONY: all build orchestrator libzmq monocoque zeromq-rs rust-zmq targets-all \
-        bench render run run-root dry dashboard clean help
+        matrix bench render run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
 
 build: orchestrator libzmq monocoque zeromq-rs rust-zmq  ## build the control plane and the runnable targets
+
+matrix:                   ## regenerate matrix.linode.json (payload sweep, all kinds)
+	python3 scripts/gen_matrix.py
 
 orchestrator:             ## build the Rust control plane
 	cargo build --release --manifest-path orchestrator/Cargo.toml

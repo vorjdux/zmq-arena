@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Generate the run matrix as a payload-size sweep across all five kinds.
+
+The payload sizes follow monocoque's own throughput benches
+(MESSAGE_SIZES = [64, 256, 1024, 4096, 16384]) so the arena's sweep lines up with
+the engine's native benchmark points. Each runnable target is swept over every
+size it supports.
+
+Message counts shrink as the payload grows, so a large-payload cell moves a
+sane amount of data and finishes inside the orchestrator's time budget on a slow
+host; msgs/s and MB/s are rates, so the count does not bias the comparison. The
+duration-based kinds (pubsub, fanout, fanin) take no count: they run a fixed
+window and the message total is the result.
+
+Usage:
+  python3 scripts/gen_matrix.py                 # writes matrix.linode.json
+  python3 scripts/gen_matrix.py --sizes 64,1024 --out matrix.quick.json
+"""
+
+import argparse
+import json
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+# Monocoque's throughput-bench size set.
+DEFAULT_SIZES = [64, 256, 1024, 4096, 16384]
+
+# Count-based kinds: messages per payload size (warmup is 10% of this). Larger
+# payloads carry fewer messages so total bytes and wall time stay bounded.
+THROUGHPUT_MSGS = {64: 200000, 256: 150000, 1024: 100000, 4096: 50000, 16384: 20000}
+LATENCY_MSGS = {64: 20000, 256: 20000, 1024: 20000, 4096: 10000, 16384: 10000}
+
+# Peer counts for the duration-based kinds, and their window.
+PUBSUB_PEERS = 8
+FAN_PEERS = 4
+DURATION_SECS = 2.0
+
+ALL_FIVE = ["throughput", "latency", "pubsub", "fanout", "fanin"]
+
+# Per-target binary, knobs, and supported kinds. zmq.rs cannot fan-out or fan-in
+# (its PUSH/PULL does not multiplex multiple peers on the bound side), so it runs
+# only the first three kinds.
+TARGETS = [
+    {
+        "id": "libzmq",
+        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
+        "mp_knobs": {"io_threads": "1"},
+        "kinds": ALL_FIVE,
+    },
+    {
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        "id": "rust_zmq",
+        "binary": "targets/rust_zmq_target/target/release/rust-zmq-target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
+        "mp_knobs": {"io_threads": "1"},
+        "kinds": ALL_FIVE,
+    },
+    {
+        "id": "zeromq_rs",
+        "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ["throughput", "latency", "pubsub"],
+    },
+]
+
+ISOLATION = {"cpuset_cpus": "0", "cpuset_mems": "0", "memory_max_bytes": 268435456}
+
+
+def count_cell(target, kind, transport, size, msgs):
+    return {
+        "target": {"id": target["id"], "binary": target["binary"], "knobs": target["count_knobs"]},
+        "transport": transport,
+        "kind": kind,
+        "payload_bytes": size,
+        "messages": msgs,
+        "warmup_messages": msgs // 10,
+    }
+
+
+def duration_cell(target, kind, size, peers):
+    return {
+        "target": {"id": target["id"], "binary": target["binary"], "knobs": target["mp_knobs"]},
+        "transport": "tcp_netns",
+        "kind": kind,
+        "peers": peers,
+        "duration_secs": DURATION_SECS,
+        "payload_bytes": size,
+        "messages": 0,
+        "warmup_messages": 0,
+    }
+
+
+def build(sizes):
+    entries = []
+    for target in TARGETS:
+        for size in sizes:
+            if "throughput" in target["kinds"]:
+                for transport in ("ipc", "tcp_netns"):
+                    entries.append(count_cell(target, "throughput", transport, size, THROUGHPUT_MSGS[size]))
+            if "latency" in target["kinds"]:
+                for transport in ("ipc", "tcp_netns"):
+                    entries.append(count_cell(target, "latency", transport, size, LATENCY_MSGS[size]))
+            if "pubsub" in target["kinds"]:
+                entries.append(duration_cell(target, "pubsub", size, PUBSUB_PEERS))
+            if "fanout" in target["kinds"]:
+                entries.append(duration_cell(target, "fanout", size, FAN_PEERS))
+            if "fanin" in target["kinds"]:
+                entries.append(duration_cell(target, "fanin", size, FAN_PEERS))
+    return entries
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Generate the payload-sweep run matrix")
+    ap.add_argument("--sizes", default=",".join(map(str, DEFAULT_SIZES)),
+                    help="comma-separated payload sizes in bytes")
+    ap.add_argument("--out", default=str(REPO / "matrix.linode.json"), type=Path)
+    args = ap.parse_args()
+
+    sizes = [int(s) for s in args.sizes.split(",") if s]
+    entries = build(sizes)
+    doc = {
+        "_comment": (
+            f"Generated by scripts/gen_matrix.py. Payload sweep over {sizes} bytes "
+            f"(monocoque's throughput-bench size set) across all five kinds per target. "
+            f"Count-based kinds shrink their message count as the payload grows so cells "
+            f"stay within budget; duration-based kinds run a {DURATION_SECS}s window. "
+            f"{len(entries)} cells. On one vCPU the producer and consumer share the core, "
+            f"so these numbers validate mechanics and the payload trend, not absolute "
+            f"engine performance. Regenerate with: python3 scripts/gen_matrix.py"
+        ),
+        "isolation": ISOLATION,
+        "entries": entries,
+    }
+    args.out.write_text(json.dumps(doc, indent=2) + "\n")
+    print(f"wrote {len(entries)} cells across {len(sizes)} sizes -> {args.out}")
+
+
+if __name__ == "__main__":
+    main()
