@@ -354,6 +354,34 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
     }
 }
 
+/// Like `wait_until`, but also samples the child's peak resident set size from
+/// `/proc/<pid>/status` on each poll, returning the high-water mark in bytes
+/// alongside the finished flag. This is the unprivileged peak-memory path: it
+/// needs neither root nor a cgroup, so it works on any host. VmHWM is itself a
+/// kernel high-water mark, so the last reading before the process exits is its
+/// true peak; sampling the max across polls guards against a missed final read.
+fn wait_until_peak(child: &mut Child, deadline: Instant) -> (bool, u64) {
+    let pid = child.id();
+    let mut peak = 0u64;
+    loop {
+        if let Some(rss) = crate::telemetry::peak_rss_bytes(pid) {
+            peak = peak.max(rss);
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => return (true, peak),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return (false, peak);
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => return (false, peak),
+        }
+    }
+}
+
 /// Best-effort cgroup leaf. Returns None (with a one-line warning) when
 /// provisioning fails, e.g. when not root. The arena then runs without
 /// isolation, which is fine for functional tests on a dev VM.
@@ -411,7 +439,7 @@ fn run_throughput(
     }
 
     let budget = Duration::from_secs((total / 50_000).max(10));
-    let consumer_ok = wait_until(&mut consumer, Instant::now() + budget);
+    let (consumer_ok, rss_peak) = wait_until_peak(&mut consumer, Instant::now() + budget);
     let elapsed = t0.elapsed();
     let syscalls = syscall_probe.read();
     let _ = wait_until(&mut producer, Instant::now() + Duration::from_secs(5));
@@ -436,10 +464,14 @@ fn run_throughput(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
+    // Prefer the cgroup high-water mark (root, covers all procs in the leaf);
+    // fall back to the measured process's VmHWM so peak memory is populated even
+    // unprivileged.
     let peak_memory_bytes = sub_cg
         .as_ref()
         .and_then(|cg| cg.peak_memory_bytes().ok())
-        .unwrap_or(0);
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -497,7 +529,7 @@ fn run_latency(
     let syscall_probe = crate::telemetry::SyscallProbe::open(client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
-    let ok = wait_until(&mut client, Instant::now() + budget);
+    let (ok, rss_peak) = wait_until_peak(&mut client, Instant::now() + budget);
     let syscalls = syscall_probe.read();
     let mut out = String::new();
     if let Some(mut so) = client.stdout.take() {
@@ -529,7 +561,8 @@ fn run_latency(
     let peak_memory_bytes = pub_cg
         .as_ref()
         .and_then(|cg| cg.peak_memory_bytes().ok())
-        .unwrap_or(0);
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -637,7 +670,7 @@ fn run_multipeer(
     let mut measured = measured;
     let syscall_probe = crate::telemetry::SyscallProbe::open(measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
-    let ok = wait_until(&mut measured, Instant::now() + budget);
+    let (ok, rss_peak) = wait_until_peak(&mut measured, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
@@ -668,7 +701,8 @@ fn run_multipeer(
     let peak_memory_bytes = sub_cg
         .as_ref()
         .and_then(|cg| cg.peak_memory_bytes().ok())
-        .unwrap_or(0);
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),

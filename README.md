@@ -144,8 +144,11 @@ python3 scripts/render_results.py --scratch "scratch/$(date -u +%F)" --run-id "$
 ```
 
 What runs is the throughput kind over ipc and tcp, driving libzmq as two real
-processes, with CPU and context switches captured from `getrusage` and memory
-from the cgroup. cgroups are skipped cleanly if you are not root.
+processes, with CPU and context switches captured from `getrusage` and peak
+memory from the measured process's `VmHWM`. cgroups are skipped cleanly if you
+are not root; peak memory and CPU still record without them. Syscall counts need
+perf, so they read zero unless you run under sudo (`make run-root`) on a host
+with tracefs and `perf_event_paranoid <= 1`.
 
 One thing a single-vCPU VM cannot tell you is comparative performance. The two
 processes share the core, cpuset pinning does nothing, and a guest cannot lock
@@ -212,10 +215,11 @@ cheating entry fails the cell rather than the review.
 | cgroup v2 provisioning | done (std::fs; needs root) |
 | ipc and loopback tcp transport | done; netns isolation still to do |
 | CPU and context-switch capture | done (`getrusage` deltas) |
+| peak memory capture | done; per-process `VmHWM` (unprivileged, any host), preferring the cgroup high-water mark when run as root |
 | throughput run path | done (PUSH/PULL over ipc and tcp; drives libzmq) |
 | latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
 | pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |
-| perf syscall counting | done (`perf_event_open` tracepoints; needs root + tracefs + `perf_event_paranoid <= 1`, else 0) |
+| perf syscall counting | done (`perf_event_open` tracepoints with `inherit`, so io_threads and runtime workers are counted; needs root + tracefs + `perf_event_paranoid <= 1`, else 0 with a one-time note) |
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
 | rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |

@@ -1,19 +1,28 @@
 //! Per-cell telemetry capture.
 //!
-//! Three signals are recorded for each cell:
+//! Signals recorded for each cell:
 //!   - CPU and context switches via `getrusage(RUSAGE_CHILDREN)` (accurate, and
 //!     it survives the child's exit).
+//!   - Peak memory via the measured process's `VmHWM` (`peak_rss_bytes`), which
+//!     is unprivileged and works on any host; the caller prefers the cgroup
+//!     high-water mark when it has root.
 //!   - Syscall occurrence counts via `perf_event_open` tracepoint counters
-//!     scoped to the measured PID. These count only when the host permits it
-//!     (root, tracefs mounted, `perf_event_paranoid <= 1`) and degrade to zero
-//!     otherwise.
+//!     scoped to the measured PID, with `inherit` set so the target's io_threads
+//!     and runtime workers are counted, not just its first thread. These count
+//!     only when the host permits it (root or CAP_PERFMON, tracefs mounted,
+//!     `perf_event_paranoid <= 1`) and degrade to zero with a one-time note.
 //!   - Latency is measured inside the target (REQ/REP) and reported on stdout,
 //!     so the orchestrator only stores the quantiles, not a histogram.
 
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use perf_event_open_sys as perf;
 use serde::{Deserialize, Serialize};
+
+/// Warn once if no syscall counters could be opened, so an all-zero syscall
+/// column is explained rather than silently misleading.
+static PERF_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// Exact syscall occurrence counts over one measurement block, scoped to the
 /// measured PID.
@@ -76,6 +85,22 @@ pub fn rusage_children() -> (f64, SchedCounters) {
     }
 }
 
+/// Peak resident set size of a live process, in bytes, from `/proc/<pid>/status`
+/// `VmHWM` (a kernel-maintained high-water mark). Unprivileged and per-process,
+/// so it gives a peak-memory figure on any host, with no cgroup or root needed.
+/// Read it while the process is alive (e.g. during the wait loop); once the
+/// process exits, `/proc/<pid>` is gone. Returns None if the field is missing.
+pub fn peak_rss_bytes(pid: u32) -> Option<u64> {
+    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmHWM:") {
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy)]
 enum SyscallKind {
     EpollWait,
@@ -107,6 +132,13 @@ impl SyscallProbe {
             if let Some(fd) = open_tracepoint(pid, tp) {
                 counters.push((kind, fd));
             }
+        }
+        if counters.is_empty() && !PERF_WARNED.swap(true, Ordering::Relaxed) {
+            eprintln!(
+                "  syscall counting unavailable (need root or CAP_PERFMON, tracefs \
+                 mounted, and perf_event_paranoid <= 1); recording 0. Run with sudo \
+                 (make run-root) for these counts."
+            );
         }
         SyscallProbe { counters }
     }
@@ -161,6 +193,13 @@ fn open_tracepoint(pid: u32, name: &str) -> Option<i32> {
     attr.type_ = 2; // PERF_TYPE_TRACEPOINT
     attr.size = std::mem::size_of::<perf::bindings::perf_event_attr>() as u32;
     attr.config = id;
+    // inherit: count the threads and children the target spawns after the probe
+    // attaches, not just its main thread. This is essential here, because the
+    // actual socket syscalls run on libzmq's io_threads and on the async
+    // runtimes' worker threads, not on the process's first thread. The probe is
+    // opened immediately after spawn, before the target builds its runtime, so
+    // those threads are inherited.
+    attr.set_inherit(1);
     // SAFETY: attr is fully initialized; pid scoping with cpu=-1 counts the task
     // across all CPUs. Returns a non-negative fd on success.
     let fd = unsafe { perf::perf_event_open(&mut attr, pid as i32, -1, -1, 0) };
