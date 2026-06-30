@@ -425,8 +425,11 @@ fn run_throughput(
     if let Some(cg) = &sub_cg {
         let _ = cg.attach(consumer.id());
     }
-    let syscall_probe = crate::telemetry::SyscallProbe::open(consumer.id());
     std::thread::sleep(Duration::from_millis(150)); // let the consumer bind
+    // Open the syscall probe after the bind settle, so the engine's io_threads
+    // and runtime workers already exist and are enumerated. The measured receive
+    // loop starts only once the producer connects, below, so it is fully covered.
+    let syscall_probe = crate::telemetry::SyscallProbe::open(consumer.id());
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
@@ -526,6 +529,10 @@ fn run_latency(
     if let Some(cg) = &pub_cg {
         let _ = cg.attach(client.id());
     }
+    // Brief settle so the client's io_thread / runtime workers exist before the
+    // probe enumerates threads. The probe then attaches part-way through the
+    // discarded warmup and covers the whole measured round-trip loop.
+    std::thread::sleep(Duration::from_millis(120));
     let syscall_probe = crate::telemetry::SyscallProbe::open(client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
@@ -668,6 +675,11 @@ fn run_multipeer(
     }
 
     let mut measured = measured;
+    // Settle so the measured consumer's io_threads / runtime workers exist before
+    // the probe enumerates threads (the fan-in sink already settled above; the
+    // pubsub/fanout consumer was just spawned). A short slice of the duration
+    // window is uncounted as a result, acceptable for a characterization metric.
+    std::thread::sleep(Duration::from_millis(150));
     let syscall_probe = crate::telemetry::SyscallProbe::open(measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
     let (ok, rss_peak) = wait_until_peak(&mut measured, Instant::now() + budget);

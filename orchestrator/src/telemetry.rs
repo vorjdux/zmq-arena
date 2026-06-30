@@ -7,10 +7,11 @@
 //!     is unprivileged and works on any host; the caller prefers the cgroup
 //!     high-water mark when it has root.
 //!   - Syscall occurrence counts via `perf_event_open` tracepoint counters
-//!     scoped to the measured PID, with `inherit` set so the target's io_threads
-//!     and runtime workers are counted, not just its first thread. These count
-//!     only when the host permits it (root or CAP_PERFMON, tracefs mounted,
-//!     `perf_event_paranoid <= 1`) and degrade to zero with a one-time note.
+//!     opened per-thread across `/proc/<pid>/task` (plus `inherit`), so the
+//!     target's io_threads and runtime workers that do the actual socket I/O are
+//!     counted, not just its first thread. These count only when the host permits
+//!     it (root or CAP_PERFMON, tracefs mounted, `perf_event_paranoid <= 1`) and
+//!     degrade to zero with a one-time note.
 //!   - Latency is measured inside the target (REQ/REP) and reported on stdout,
 //!     so the orchestrator only stores the quantiles, not a histogram.
 
@@ -110,10 +111,19 @@ enum SyscallKind {
     IoUringEnter,
 }
 
-/// Per-syscall tracepoint counters scoped to one PID. Open it right after
-/// spawning the target, then `read()` before reaping while the fds are open.
-/// Best-effort: counters that cannot be opened (no tracefs, paranoid too high,
-/// not root) are skipped and read back as zero.
+/// Per-syscall tracepoint counters for a process. The socket syscalls of these
+/// engines run on background threads (libzmq's io_threads, the async runtimes'
+/// workers), not the process's first thread, so a single PID-scoped counter
+/// misses them. This opens a counter on every thread in `/proc/<pid>/task` and
+/// also sets `inherit`, so threads that exist when the probe attaches are counted
+/// directly and threads spawned later are counted through inheritance; `read()`
+/// sums across all of them. Each per-thread fd retains its count after that
+/// thread exits, so the sum is correct even though the threads are gone by the
+/// time the process is reaped.
+///
+/// Open it after the target has spun up its threads, then `read()` while the fds
+/// are open. Best-effort: counters that cannot be opened (no tracefs, paranoid
+/// too high, not root) are skipped and read back as zero.
 pub struct SyscallProbe {
     counters: Vec<(SyscallKind, i32)>,
 }
@@ -128,9 +138,11 @@ impl SyscallProbe {
             (SyscallKind::IoUringEnter, "sys_enter_io_uring_enter"),
         ];
         let mut counters = Vec::new();
-        for (kind, tp) in want {
-            if let Some(fd) = open_tracepoint(pid, tp) {
-                counters.push((kind, fd));
+        for tid in thread_ids(pid) {
+            for (kind, tp) in want {
+                if let Some(fd) = open_tracepoint(tid, tp) {
+                    counters.push((kind, fd));
+                }
             }
         }
         if counters.is_empty() && !PERF_WARNED.swap(true, Ordering::Relaxed) {
@@ -145,18 +157,36 @@ impl SyscallProbe {
 
     pub fn read(&self) -> SyscallCounters {
         let mut c = SyscallCounters::default();
+        // Sum across every per-thread counter; one kind has one fd per thread.
         for (kind, fd) in &self.counters {
             let v = read_counter(*fd);
             match kind {
-                SyscallKind::EpollWait => c.epoll_wait = v,
-                SyscallKind::EpollCtl => c.epoll_ctl = v,
-                SyscallKind::SendMsg => c.sendmsg = v,
-                SyscallKind::RecvMsg => c.recvmsg = v,
-                SyscallKind::IoUringEnter => c.io_uring_enter = v,
+                SyscallKind::EpollWait => c.epoll_wait += v,
+                SyscallKind::EpollCtl => c.epoll_ctl += v,
+                SyscallKind::SendMsg => c.sendmsg += v,
+                SyscallKind::RecvMsg => c.recvmsg += v,
+                SyscallKind::IoUringEnter => c.io_uring_enter += v,
             }
         }
         c
     }
+}
+
+/// Thread ids of a process from `/proc/<pid>/task`, falling back to the pid
+/// itself if the directory cannot be read.
+fn thread_ids(pid: u32) -> Vec<u32> {
+    let mut tids = Vec::new();
+    if let Ok(entries) = fs::read_dir(format!("/proc/{pid}/task")) {
+        for e in entries.flatten() {
+            if let Ok(tid) = e.file_name().to_string_lossy().parse::<u32>() {
+                tids.push(tid);
+            }
+        }
+    }
+    if tids.is_empty() {
+        tids.push(pid);
+    }
+    tids
 }
 
 impl Drop for SyscallProbe {
