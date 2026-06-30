@@ -1,0 +1,5 @@
+# Independent toolchain pin for this target (rust-zmq over libzmq). The
+# orchestrator's pin does not apply because this is not a workspace member.
+[toolchain]
+channel = "1.96.0"
+profile = "minimal"

@@ -28,6 +28,8 @@ build_rust_target() {
 build_rust_target targets/monocoque_target
 # zmq.rs (the `zeromq` crate).
 build_rust_target targets/zeromq_rs_target
+# rust-zmq (the `zmq` crate): Rust FFI binding over the system libzmq.
+build_rust_target targets/rust_zmq_target
 # omq.rs comparison roster.
 build_rust_target targets/omq_tokio_target
 build_rust_target targets/omq_compio_target   # Linux 6.0+ (io_uring)

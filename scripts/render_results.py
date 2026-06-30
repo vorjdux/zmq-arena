@@ -31,6 +31,7 @@ VARIANT_KEY = {
 # Category tags per variant key.
 REGISTRY = {
     "libzmq":        {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
+    "rust_zmq":      {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
     "zmq.rs":        {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "zeromq_rs":     {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "omq_tokio":     {"engine": "omq",       "io": "epoll",    "threading": "single"},
@@ -76,8 +77,10 @@ def to_archive_record(cell: dict) -> dict:
 
     sysc = cell.get("syscalls") or {}
     sched = cell.get("sched") or {}
-    # libzmq (the ZeroMQ core) is C++; every other engine here is Rust.
-    language = "C++" if m["engine"] == "libzmq" else "Rust"
+    # The libzmq_cpp_target drives the C core through the C++ C API; rust_zmq
+    # reaches the same core through the Rust FFI binding. Key language off the
+    # variant, not the engine, so the binding shows as Rust.
+    language = "C++" if vkey == "libzmq" else "Rust"
     return {
         "variant": vkey, "engine": m["engine"], "io": m["io"], "threading": m["threading"],
         "language": language,

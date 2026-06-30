@@ -36,6 +36,7 @@ harness, where each bench peer is a separate build unit.
 | directory | engine | language | crate or source | model |
 |-----------|--------|----------|-----------------|-------|
 | `libzmq_cpp_target` | libzmq | C++ | system `libzmq` via CMake | epoll, the reference |
+| `rust_zmq_target` | libzmq | Rust | `zmq = "0.10"` (rust-zmq) | epoll, FFI binding over libzmq |
 | `zeromq_rs_target` | zmq.rs | Rust | `zeromq = "0.6"` | epoll + tokio |
 | `omq_tokio_target` | omq-tokio | Rust | git `paddor/omq.rs` | mio, tokio |
 | `omq_compio_target` | omq-compio | Rust | git `paddor/omq.rs` | io_uring, single-thread, Linux 6.0+ |
@@ -43,12 +44,14 @@ harness, where each bench peer is a separate build unit.
 | `celerity_target` | celerity | Rust | `celerity = "0.2.0"` | sans-IO ZMTP 3.1 + tokio |
 | `monocoque_target` | monocoque | Rust | `monocoque-rs = "0.1.5"` | io_uring/compio, ZMTP 3.1 |
 
-libzmq and monocoque run all five kinds. zmq.rs runs throughput, latency, and
-pub/sub; it does not run fan-out or fan-in, because its PUSH/PULL sockets do not
-round-robin or fair-queue across multiple peers on the bound side. The remaining
-Rust socket loops are stubs until each is written against its engine's API. Crate
-identities and versions are verified against crates.io and the upstream repos.
-See `targets/README.md` for the command-line contract and how to add a target.
+libzmq, rust-zmq, and monocoque run all five kinds. rust-zmq is the same C core
+as libzmq reached through the Rust binding, so the pair measures binding
+overhead. zmq.rs runs throughput, latency, and pub/sub; it does not run fan-out
+or fan-in, because its PUSH/PULL sockets do not round-robin or fair-queue across
+multiple peers on the bound side. The remaining Rust socket loops are stubs until
+each is written against its engine's API. Crate identities and versions are
+verified against crates.io and the upstream repos. See `targets/README.md` for
+the command-line contract and how to add a target.
 
 ## Benchmarks and variants
 
@@ -64,6 +67,7 @@ separate series you can compare directly.
 | variant | target | engine | io model | threading | selected by |
 |---------|--------|--------|----------|-----------|-------------|
 | `libzmq` | libzmq_cpp_target | libzmq | epoll | native threads | only variant |
+| `rust_zmq` | rust_zmq_target | libzmq | epoll | native threads | only variant |
 | `zmq.rs` | zeromq_rs_target | zmq.rs | epoll | tokio | only variant |
 | `omq_tokio` | omq_tokio_target | omq | mio | current-thread | `--variant default` |
 | `omq_tokio_mt` | omq_tokio_target | omq | mio | multi-thread | `--variant multi_thread` |
@@ -90,6 +94,13 @@ or `zeromq-devel` first):
 ```
 cmake -S targets/libzmq_cpp_target -B targets/libzmq_cpp_target/build -DCMAKE_BUILD_TYPE=Release
 cmake --build targets/libzmq_cpp_target/build --parallel
+```
+
+The rust-zmq target links the same system `libzmq` through pkg-config, so it
+needs `libzmq3-dev` (or `zeromq-devel`) as well:
+
+```
+cd targets/rust_zmq_target && cargo build --release
 ```
 
 `scripts/build-targets.sh` builds the orchestrator and every target, each in its
@@ -197,6 +208,7 @@ cheating entry fails the cell rather than the review.
 | perf syscall counting | done (`perf_event_open` tracepoints; needs root + tracefs + `perf_event_paranoid <= 1`, else 0) |
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
+| rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |
 | omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |

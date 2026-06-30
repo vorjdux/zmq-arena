@@ -40,6 +40,7 @@ FAN_PEERS = [2, 4, 8]
 # support from run_comparisons.py. `since` delays a variant's first appearance.
 VARIANTS = {
     "libzmq":        {"engine": "libzmq",   "io": "epoll",    "threading": "native", "lat": 1.00, "trend": 1.000, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 0},
+    "rust_zmq":      {"engine": "libzmq",   "io": "epoll",    "threading": "native", "lat": 1.06, "trend": 1.000, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 0},
     "zmq.rs":        {"engine": "zmq.rs",   "io": "epoll",    "threading": "multi",  "lat": 1.85, "trend": 0.995, "transports": ["ipc", "tcp_netns"],            "pubsub": True,  "since": 0},
     "omq_tokio":     {"engine": "omq",      "io": "epoll",    "threading": "single", "lat": 1.05, "trend": 0.965, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 0},
     "omq_tokio_mt":  {"engine": "omq",      "io": "epoll",    "threading": "multi",  "lat": 1.12, "trend": 0.960, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 0},
@@ -102,8 +103,9 @@ def telemetry(rng, v, payload):
 
 
 def base_record(vid, v, kind, transport, payload, peers):
-    # libzmq (the ZeroMQ core) is C++; every other engine here is Rust.
-    language = "C++" if v["engine"] == "libzmq" else "Rust"
+    # The C++ libzmq_cpp_target is the only C++ entry; rust_zmq drives the same
+    # core through the Rust binding. Key language off the variant id.
+    language = "C++" if vid == "libzmq" else "Rust"
     return {
         "variant": vid, "engine": v["engine"], "io": v["io"],
         "threading": v["threading"], "language": language,

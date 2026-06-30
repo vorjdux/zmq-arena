@@ -178,6 +178,35 @@
     {
       "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
       "transport": "tcp_netns", "kind": "pubsub", "peers": 8, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "_comment": "rust-zmq (the `zmq` crate): the Rust FFI binding over the same C libzmq core as libzmq_cpp_target. Running the pair isolates binding overhead. Real libzmq, so all five kinds apply.",
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1" } },
+      "transport": "ipc", "kind": "throughput", "payload_bytes": 64, "messages": 200000, "warmup_messages": 20000
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "throughput", "payload_bytes": 64, "messages": 200000, "warmup_messages": 20000
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "io_threads": "1" } },
+      "transport": "ipc", "kind": "latency", "payload_bytes": 64, "messages": 20000, "warmup_messages": 2000
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "latency", "payload_bytes": 64, "messages": 20000, "warmup_messages": 2000
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "pubsub", "peers": 8, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "fanout", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "target": { "id": "rust_zmq", "binary": "targets/rust_zmq_target/target/release/rust-zmq-target", "knobs": { "io_threads": "1" } },
+      "transport": "tcp_netns", "kind": "fanin", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
     }
   ]
 }

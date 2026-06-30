@@ -1,0 +1,36 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build independently: `cd targets/rust_zmq_target && cargo build --release`.
+# Owns its dependency closure, release profile, lockfile, and toolchain pin so
+# the engine is benchmarked exactly as it ships.
+#
+# Engine: libzmq (the C ZeroMQ core) through the `zmq` crate (rust-zmq), a safe
+# FFI binding. Same engine as libzmq_cpp_target, reached through the Rust binding
+# instead of the C++ C API, so running the pair isolates binding overhead. Links
+# the system libzmq via pkg-config (install libzmq3-dev / zeromq-devel).
+# Empty [workspace] table makes this its own workspace root.
+[workspace]
+
+[package]
+name = "rust-zmq-target"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: rust-zmq (the `zmq` crate, FFI over libzmq)."
+
+[[bin]]
+name = "rust-zmq-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# rust-zmq: a safe Rust binding over the C libzmq. Links the system libzmq via
+# pkg-config (system-deps). Verified latest on crates.io: 0.10.0.
+zmq = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
