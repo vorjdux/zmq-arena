@@ -51,7 +51,7 @@
   .chip.on { opacity:1; }
   .chip .sw { width:10px; height:10px; border-radius:50%; }
   .chip small { color:var(--muted); }
-  main { padding:10px 24px 48px; display:grid; gap:18px; }
+  main { padding:10px 24px 28px; display:grid; gap:18px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
   .card h2 { margin:0 0 2px; font-size:14px; }
   .card .hint { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -62,7 +62,7 @@
      selects fill, and let wide tables scroll inside their card instead of the page. */
   @media (max-width:640px){
     header,.controls,.variants,footer{ padding-left:14px; padding-right:14px; }
-    main{ padding:8px 14px 40px; }
+    main{ padding:8px 14px 24px; }
     .banner{ margin-left:14px; margin-right:14px; }
     header{ justify-content:center; }
     h1.logo{ flex:1 1 100%; }
@@ -80,7 +80,10 @@
   .best { color:var(--accent); font-weight:600; }
   td small { color:var(--muted); }
   .err { padding:24px; color:var(--warn); }
-  footer { color:var(--muted); padding:0 24px 32px; font-size:12px; }
+  footer { color:var(--muted); font-size:12px; text-align:center;
+    padding:18px 24px 22px; background:var(--panel2);
+    border-top:1px solid var(--line); }
+  footer div { max-width:900px; margin:0 auto; }
   a { color:var(--accent); }
 </style>
 </head>
