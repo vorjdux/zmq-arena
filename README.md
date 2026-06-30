@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground" width="520">
+</p>
+
 # zmq-arena
 
 A benchmarking harness for ZMTP (the ZeroMQ wire protocol). It runs several

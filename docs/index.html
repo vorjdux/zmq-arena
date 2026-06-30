@@ -19,6 +19,8 @@
     font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
   header { padding:18px 24px 6px; }
   h1 { margin:0; font-size:20px; }
+  h1.logo { line-height:0; }
+  h1.logo img { height:64px; width:auto; display:block; }
   .sub { color:var(--muted); margin-top:4px; }
   .sub code { color:var(--fg); }
   .banner { margin:12px 24px 0; padding:8px 12px; border-radius:8px;
@@ -69,7 +71,7 @@
 </head>
 <body>
 <header>
-  <h1>zmq-arena · ZMTP benchmark results</h1>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
   <div class="sub" id="dataSource">loading…</div>
 </header>
 <div class="banner hidden" id="sampleBanner"></div>
