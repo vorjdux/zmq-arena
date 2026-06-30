@@ -159,6 +159,12 @@
 "use strict";
 
 // ── presentation registries ───────────────────────────────────────
+// Transports shown tcp-first (the common deployment case), then ipc, then inproc.
+const TRANSPORT_ORDER = ["tcp_netns", "ipc", "inproc"];
+const TRANSPORT_LABEL = { "tcp_netns":"tcp (loopback)", "ipc":"ipc", "inproc":"inproc" };
+const orderTransports = ts =>
+  [...ts].sort((a,b)=>{ const ia=TRANSPORT_ORDER.indexOf(a), ib=TRANSPORT_ORDER.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); });
 const VARIANT_LABEL = {
   "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
   "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio",
@@ -272,9 +278,9 @@ function refreshKindDependent(){
   fill(el("metric"), metrics.map(m=>m.key), k=>{ const m=metrics.find(x=>x.key===k); return `${m.label} (${m.unit})`; },
        metrics.some(m=>m.key===val("metric"))?val("metric"):metrics[0].key);
   const rs=RECORDS.filter(r=>r.kind===kind);
-  fill(el("transport"), [...new Set(rs.map(r=>r.transport))].sort(), null,
-       val("transport"));
-  if(!el("transport").value) el("transport").selectedIndex=0;
+  const transports=orderTransports(new Set(rs.map(r=>r.transport)));
+  fill(el("transport"), transports, t=>TRANSPORT_LABEL[t]||t,
+       transports.includes(val("transport"))?val("transport"):transports[0]);
   const payloads=[...new Set(rs.map(r=>r.payload_bytes))].sort((a,b)=>a-b);
   fill(el("payload"), payloads, fmtPayload, +val("payload")||payloads[0]);
   const peersWrap=el("peersWrap");
