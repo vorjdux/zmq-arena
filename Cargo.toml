@@ -18,7 +18,7 @@ members = ["orchestrator"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.85"
-repository = "https://github.com/vorj-dux/zmq-arena"
+repository = "https://github.com/vorjdux/zmq-arena"
 
 [workspace.dependencies]
 anyhow = "1"

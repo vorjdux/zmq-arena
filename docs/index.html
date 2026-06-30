@@ -487,7 +487,14 @@ function renderGlobalRanking(){
 function render(){ renderEvolution(); renderSweep(); renderRanking(); renderGlobalRanking(); }
 
 // ── boot ──────────────────────────────────────────────────────────
-el("footer").innerHTML='zmq-arena · interactive results · data under <code>docs/history/</code> (real) and <code>docs/sample/</code> (preview) · charts via <a href="https://echarts.apache.org">Apache ECharts</a> · benchmark design inspired by <a href="https://github.com/paddor/omq.rs">omq.rs</a>';
+el("footer").innerHTML=
+  `<div>zmq-arena · interactive results · data under <code>docs/history/</code> (real) and `+
+  `<code>docs/sample/</code> (preview) · charts via <a href="https://echarts.apache.org">Apache ECharts</a> · `+
+  `benchmark design inspired by <a href="https://github.com/paddor/omq.rs">omq.rs</a></div>`+
+  `<div style="margin-top:6px">© ${new Date().getFullYear()} Matheus Santos · `+
+  `<a href="https://github.com/vorjdux/zmq-arena">github.com/vorjdux/zmq-arena</a> · open source, `+
+  `dual-licensed <a href="https://github.com/vorjdux/zmq-arena/blob/main/LICENSE-MIT">MIT</a> or `+
+  `<a href="https://github.com/vorjdux/zmq-arena/blob/main/LICENSE-APACHE">Apache-2.0</a></div>`;
 load().catch(e=>{ el("dataSource").textContent="failed to load data";
   const err=el("err"); err.hidden=false;
   err.textContent="Could not load results: "+e.message+". Serve this folder over HTTP (e.g. `python3 -m http.server` in docs/). Browser file:// fetches are blocked."; });
