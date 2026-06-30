@@ -77,13 +77,26 @@ def to_archive_record(cell: dict) -> dict:
 
     sysc = cell.get("syscalls") or {}
     sched = cell.get("sched") or {}
-    # The libzmq_cpp_target drives the C core through the C++ C API; rust_zmq
-    # reaches the same core through the Rust FFI binding. Key language off the
-    # variant, not the engine, so the binding shows as Rust.
-    language = "C++" if vkey == "libzmq" else "Rust"
+
+    # The target is the source of truth: prefer the `meta` block it reported via
+    # `describe`, and fall back to the static REGISTRY for engine/io/threading
+    # when an older record has no meta. Language falls back to the variant key
+    # (only the C++ libzmq_cpp_target is C++; the rest, including the rust-zmq
+    # binding to the same core, are Rust).
+    tm = cell.get("meta") or {}
+    engine = tm.get("engine") or m["engine"]
+    io = tm.get("io") or m["io"]
+    threading = tm.get("threading") or m["threading"]
+    language = tm.get("language") or ("C++" if vkey == "libzmq" else "Rust")
     return {
-        "variant": vkey, "engine": m["engine"], "io": m["io"], "threading": m["threading"],
+        "variant": vkey, "engine": engine, "io": io, "threading": threading,
         "language": language,
+        "lib_version": tm.get("lib_version", ""),
+        "binding_version": tm.get("binding_version"),
+        "lib_language": tm.get("lib_language", language),
+        "impl": tm.get("impl", ""),
+        "ffi_to": tm.get("ffi_to"),
+        "concurrency": tm.get("concurrency", ""),
         "kind": kind, "transport": entry["transport"],
         "payload_bytes": entry["payload_bytes"], "peers": entry.get("peers"),
         "latency_ns": latency_ns, "throughput": throughput,
@@ -153,6 +166,40 @@ def rank_table(records, kind, transport, metric_path, lower_better, label, unit)
     return "\n".join(lines)
 
 
+def global_ranking(records):
+    """One leaderboard across every benchmark. Within each (kind, transport,
+    payload, peers) group, rank the variants by that group's primary metric
+    (p99 for latency, msgs/s for the throughput family), then average each
+    variant's rank position across the groups it appeared in. Averaging rank
+    positions, not raw values, keeps the units commensurable across kinds; lower
+    mean rank is better. Returns rows of (variant, mean_rank, benchmarks)."""
+    def primary(r):
+        if r.get("latency_ns"):
+            return r["latency_ns"]["p99"], True   # lower is better
+        if r.get("throughput"):
+            return r["throughput"]["msgs_per_s"], False
+        return None, False
+
+    groups = {}
+    for r in records:
+        val, _ = primary(r)
+        if val is None:
+            continue
+        key = (r["kind"], r["transport"], r["payload_bytes"], r.get("peers"))
+        groups.setdefault(key, []).append(r)
+
+    ranks = {}  # variant -> list of positions
+    for rs in groups.values():
+        lower = primary(rs[0])[1]
+        rs = sorted(rs, key=lambda r: primary(r)[0], reverse=not lower)
+        for pos, r in enumerate(rs, 1):
+            ranks.setdefault(r["variant"], []).append(pos)
+
+    rows = [(v, sum(ps) / len(ps), len(ps)) for v, ps in ranks.items()]
+    rows.sort(key=lambda x: x[1])
+    return rows
+
+
 def write_ranking(repo: Path, date: str, records: list):
     p99_us = lambda r: (r["latency_ns"]["p99"] / 1000) if r.get("latency_ns") else None
     msgs = lambda r: (r["throughput"]["msgs_per_s"]) if r.get("throughput") else None
@@ -161,6 +208,22 @@ def write_ranking(repo: Path, date: str, records: list):
              f"From the run on {date}. This file is rewritten on every run; for "
              f"the full history and interactive charts, open the dashboard under "
              f"`docs/`.\n"]
+
+    grows = global_ranking(records)
+    if grows:
+        parts.append("## Global ranking")
+        parts.append("")
+        parts.append("Mean rank position across every benchmark in the run (lower "
+                     "is better). Each benchmark ranks its variants, then the "
+                     "positions are averaged, so latency and throughput cells "
+                     "count equally.")
+        parts.append("")
+        parts.append("| # | variant | mean rank | benchmarks |")
+        parts.append("|---|---------|-----------|------------|")
+        for i, (v, mr, n) in enumerate(grows, 1):
+            parts.append(f"| {i} | {v} | {mr:.2f} | {n} |")
+        parts.append("")
+
     any_table = False
     for kind, transport in [("latency", "ipc"), ("latency", "tcp_netns")]:
         t = rank_table(records, kind, transport, p99_us, True, "p99 latency", "µs")

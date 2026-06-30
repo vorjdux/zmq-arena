@@ -159,13 +159,23 @@ for GitHub Pages with the source set to `docs/`. It reads the run archives under
 `docs/history/` and falls back to synthetic sample data under `docs/sample/`
 until the first real run lands.
 
-It has three views driven by one control bar: an evolution chart of each variant
-across weekly runs, a payload size sweep for one run, and a ranking table. You
+It has four views driven by one control bar: an evolution chart of each variant
+across weekly runs, a payload size sweep for one run, a ranking table for the
+chosen combination, and a global ranking across every benchmark in the run. You
 pick the benchmark kind, metric, transport, peers, and payload; the variant
 picker (with category presets) chooses which series are in play; and "color by"
-groups them by engine, io model, threading, or individual variant. The metric
-list follows the kind: latency quantiles for latency, msgs/s and MB/s for the
-throughput family, plus CPU, context switches, syscalls, and memory throughout.
+groups them by engine, io model, threading, sync/async, native/ffi, library
+language, wrapper language, or individual variant. The metric list follows the
+kind: latency quantiles for latency, msgs/s and MB/s for the throughput family,
+plus CPU, context switches, syscalls, and memory throughout.
+
+Each series carries the classification and library version the target reported
+through `describe`, so a chip reads, say, `rust-zmq 4.3.4 (FFI→C)` while the C++
+`libzmq 4.3.5` sits beside it. The combination ranking sorts the selected metric
+for one cell; the global ranking averages each variant's rank position across
+every cell in the run, so latency and throughput count equally and one number
+says who is ahead overall. Library versions are tracked per run, so the evolution
+view shows them moving over time.
 
 Serve it locally with `cd docs && python3 -m http.server`, since browsers block
 `fetch` over `file://`.
@@ -209,9 +219,10 @@ cheating entry fails the cell rather than the review.
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
 | zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
 | rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |
-| omq, rzmq, celerity socket loops | stubs, pending each engine's API |
-| render and ranking generator | done and tested |
-| interactive dashboard | done |
+| omq, rzmq, celerity socket loops | stubs, pending each engine's API (each already reports `describe`) |
+| target classification + library version | done; every target self-reports via `describe`, the orchestrator embeds it per record, versions tracked per run |
+| render and ranking generator | done and tested; emits a global ranking (mean rank across benchmarks) |
+| interactive dashboard | done; filters and color-by across engine, io, threading, sync/async, native/ffi, language; per-combination and global rankings; library versions shown |
 
 ## Acknowledgments
 

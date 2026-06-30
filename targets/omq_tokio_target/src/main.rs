@@ -67,8 +67,27 @@ fn parse_knob(s: &str) -> Result<(String, String), String> {
     }
 }
 
+/// One-line JSON classification the orchestrator captures into each record. The
+/// engine version is read from Cargo.lock at build time (see build.rs). omq-tokio
+/// default is the current-thread runtime; the multi_thread variant is a separate
+/// series in the matrix. describe stays binary-level until the socket loop lands.
+fn describe() -> String {
+    format!(
+        concat!(
+            "{{\"engine\":\"omq\",\"lib_version\":\"{}\",\"binding_version\":null,",
+            "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"single\",\"io\":\"epoll\"}}"
+        ),
+        env!("ENGINE_VERSION")
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("describe") {
+        println!("{}", describe());
+        return Ok(());
+    }
     let cli = Cli::parse();
     let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
 

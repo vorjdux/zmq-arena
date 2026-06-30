@@ -66,7 +66,27 @@ fn parse_knob(s: &str) -> Result<(String, String), String> {
     }
 }
 
+/// One-line JSON classification the orchestrator captures into each record. The
+/// libzmq version is the runtime engine version; the rust-zmq binding version is
+/// read from Cargo.lock at build time (see build.rs).
+fn describe() -> String {
+    let (maj, min, pat) = zmq::version();
+    format!(
+        concat!(
+            "{{\"engine\":\"libzmq\",\"lib_version\":\"{}.{}.{}\",\"binding_version\":\"{}\",",
+            "\"lib_language\":\"C++\",\"impl\":\"ffi\",\"ffi_to\":\"C\",",
+            "\"language\":\"Rust\",\"concurrency\":\"sync\",\"threading\":\"native\",\"io\":\"epoll\"}}"
+        ),
+        maj, min, pat,
+        env!("BINDING_VERSION")
+    )
+}
+
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("describe") {
+        println!("{}", describe());
+        return Ok(());
+    }
     let cli = Cli::parse();
     let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
     eprintln!(

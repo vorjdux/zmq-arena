@@ -19,10 +19,12 @@ mod cgroups;
 mod config;
 mod telemetry;
 
+use std::collections::HashMap;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcCommand, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -70,12 +72,69 @@ struct CellRecord {
     run_id: String,
     cell_id: String,
     entry: MatrixEntry,
+    /// Classification and library version the target reported via `describe`.
+    #[serde(default)]
+    meta: TargetMeta,
     latency: LatencySnapshot,
     throughput: Throughput,
     cpu_seconds: f64,
     syscalls: SyscallCounters,
     sched: SchedCounters,
     peak_memory_bytes: u64,
+}
+
+/// Self-reported target classification. The target is the source of truth: the
+/// orchestrator runs `<binary> describe` once per binary and embeds the parsed
+/// JSON in every record, so library version evolution tracks automatically.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct TargetMeta {
+    #[serde(default)]
+    engine: String,
+    #[serde(default)]
+    lib_version: String,
+    #[serde(default)]
+    binding_version: Option<String>,
+    #[serde(default)]
+    lib_language: String,
+    /// "native" or "ffi".
+    #[serde(default, rename = "impl")]
+    impl_: String,
+    /// Language the FFI binds into; null when native.
+    #[serde(default)]
+    ffi_to: Option<String>,
+    #[serde(default)]
+    language: String,
+    /// "sync" or "async".
+    #[serde(default)]
+    concurrency: String,
+    #[serde(default)]
+    threading: String,
+    #[serde(default)]
+    io: String,
+}
+
+/// Run `<binary> describe` and parse the one-line JSON classification, caching by
+/// binary path. On any failure, fall back to a minimal record carrying the target
+/// id as the engine, so a target without a `describe` mode still produces a
+/// well-formed (if sparse) record rather than aborting the cell.
+fn target_meta(binary: &Path, fallback_id: &str) -> TargetMeta {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, TargetMeta>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(m) = cache.lock().unwrap().get(binary) {
+        return m.clone();
+    }
+    let meta = ProcCommand::new(binary)
+        .arg("describe")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| serde_json::from_slice::<TargetMeta>(&o.stdout).ok())
+        .unwrap_or_else(|| {
+            eprintln!("  note: {} has no usable `describe`; recording id only", binary.display());
+            TargetMeta { engine: fallback_id.to_string(), ..Default::default() }
+        });
+    cache.lock().unwrap().insert(binary.to_path_buf(), meta.clone());
+    meta
 }
 
 fn cell_id(entry: &MatrixEntry, index: usize) -> String {
@@ -165,14 +224,16 @@ fn execute_cell(
     entry: &MatrixEntry,
     isolation: &Isolation,
 ) -> anyhow::Result<CellRecord> {
-    match entry.kind {
+    let mut record = match entry.kind {
         Kind::Throughput => run_throughput(run_id, cell_id, entry, isolation),
         Kind::Latency => run_latency(run_id, cell_id, entry, isolation),
         // pubsub and fanout: the producer is the coordinator and binds.
         Kind::PubSub | Kind::FanOut => run_multipeer(run_id, cell_id, entry, isolation, true),
         // fanin: the single consumer (the sink) is the coordinator and binds.
         Kind::FanIn => run_multipeer(run_id, cell_id, entry, isolation, false),
-    }
+    }?;
+    record.meta = target_meta(&entry.target.binary, &entry.target.id);
+    Ok(record)
 }
 
 /// Args for a multi-peer cell: the unified set plus the bind side and the
@@ -384,6 +445,7 @@ fn run_throughput(
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
         entry: entry.clone(),
+        meta: TargetMeta::default(),
         // Latency is not measured for throughput cells; the render step emits
         // null for it. A zeroed snapshot keeps the record well-formed.
         latency: LatencySnapshot {
@@ -473,6 +535,7 @@ fn run_latency(
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
         entry: entry.clone(),
+        meta: TargetMeta::default(),
         latency,
         // Throughput is not measured for latency cells; render emits null.
         throughput: Throughput::default(),
@@ -611,6 +674,7 @@ fn run_multipeer(
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
         entry: entry.clone(),
+        meta: TargetMeta::default(),
         latency: LatencySnapshot {
             count: 0, min_ns: 0, max_ns: 0, p50_ns: 0, p90_ns: 0, p99_ns: 0, p999_ns: 0,
         },

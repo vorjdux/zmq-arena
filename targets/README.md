@@ -24,6 +24,39 @@ All wrappers parse the same flags. The orchestrator passes them verbatim.
 --knob <key=value>        repeatable; maintainer-owned tuning (see below)
 ```
 
+## describe: self-reported classification
+
+A wrapper invoked as `<binary> describe` (no other flags) prints one line of JSON
+to stdout and exits 0. The orchestrator runs this once per binary and embeds the
+result in every record, so the dashboard can filter and rank by classification and
+track library-version evolution across runs without a central registry. The
+target is the source of truth.
+
+```json
+{"engine":"libzmq","lib_version":"4.3.5","binding_version":null,
+ "lib_language":"C++","impl":"native","ffi_to":null,"language":"Rust",
+ "concurrency":"sync","threading":"native","io":"epoll"}
+```
+
+| field | meaning |
+|-------|---------|
+| `engine` | the implementation being measured (libzmq, zmq.rs, omq, rzmq, celerity, monocoque) |
+| `lib_version` | the engine's own version. Read it from the linked library where possible (libzmq: `zmq_version()`); a build script that parses Cargo.lock supplies it for pure-Rust crates, so it tracks the lockfile |
+| `binding_version` | for an FFI binding, the binding crate's version; `null` when native |
+| `lib_language` | the engine's implementation language (libzmq is C++; the pure-Rust engines are Rust) |
+| `impl` | `native` if the wrapper language reaches the engine directly, `ffi` if through a foreign binding |
+| `ffi_to` | the language the FFI calls into (`C` for the libzmq binding); `null` when native |
+| `language` | the wrapper / what you write socket code against (C++ for the libzmq C++ target, Rust for the rest) |
+| `concurrency` | `sync` or `async` |
+| `threading` | `single`, `multi`, or `native` (OS threads) |
+| `io` | readiness or completion model: `epoll`, `io_uring`, ... |
+
+A target with a runtime-selected `--variant` whose threading or concurrency differs
+per variant should make `describe` variant-aware (read `--variant` and branch); the
+current targets are single-variant, so `describe` is binary-level. Implement it as
+a fast path before argument parsing. Pure-Rust targets get `lib_version` from a
+`build.rs` that reads the engine crate's entry in the committed Cargo.lock.
+
 ## Benchmark kinds
 
 The harness drives five kinds, mirroring the omq comparison matrix. `--kind`

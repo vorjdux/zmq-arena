@@ -67,7 +67,26 @@ fn parse_knob(s: &str) -> Result<(String, String), String> {
     }
 }
 
+/// One-line JSON classification the orchestrator captures into each record. The
+/// engine version is read from Cargo.lock at build time (see build.rs). omq-compio
+/// runs on the compio io_uring runtime; describe stays binary-level until the
+/// socket loop lands.
+fn describe() -> String {
+    format!(
+        concat!(
+            "{{\"engine\":\"omq\",\"lib_version\":\"{}\",\"binding_version\":null,",
+            "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"multi\",\"io\":\"io_uring\"}}"
+        ),
+        env!("ENGINE_VERSION")
+    )
+}
+
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("describe") {
+        println!("{}", describe());
+        return Ok(());
+    }
     let cli = Cli::parse();
     let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
 

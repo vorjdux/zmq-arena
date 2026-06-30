@@ -85,7 +85,10 @@
     <option value="engine">engine</option>
     <option value="io">io model</option>
     <option value="threading">threading</option>
-    <option value="language">language</option>
+    <option value="concurrency">sync/async</option>
+    <option value="impl">native/ffi</option>
+    <option value="lib_language">lib language</option>
+    <option value="language">wrapper language</option>
     <option value="variant">variant</option>
   </select></div>
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
@@ -100,6 +103,10 @@
     <span class="preset" data-preset="epoll">epoll</span>
     <span class="preset" data-preset="single">single-thread</span>
     <span class="preset" data-preset="multi">multi-thread</span>
+    <span class="preset" data-preset="sync">sync</span>
+    <span class="preset" data-preset="async">async</span>
+    <span class="preset" data-preset="native">native</span>
+    <span class="preset" data-preset="ffi">ffi</span>
     <span class="preset" data-preset="omq">omq family</span>
   </div>
   <div class="chips" id="chips"></div>
@@ -123,6 +130,11 @@
       <div id="rankTable"></div>
     </section>
   </div>
+  <section class="card">
+    <h2>Global ranking</h2>
+    <div class="hint" id="globalHint"></div>
+    <div id="globalTable"></div>
+  </section>
 </main>
 
 <div class="err" id="err" hidden></div>
@@ -198,7 +210,12 @@ async function load(){
   for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
   DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading,language:r.language||(r.engine==="libzmq"?"C++":"Rust")};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={
+    engine:r.engine, io:r.io, threading:r.threading,
+    language:r.language||(r.engine==="libzmq"?"C++":"Rust"),
+    lib_language:r.lib_language||r.language||"",
+    concurrency:r.concurrency||"", impl:r.impl||"", ffi_to:r.ffi_to||null,
+  };
   const order=Object.keys(VARIANT_LABEL);
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort((a,b)=>{
     const ia=order.indexOf(a),ib=order.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b); });
@@ -262,8 +279,9 @@ function buildChips(){
   for(const v of VARIANTS){
     const c=document.createElement("span");
     c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
-    c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[VARMETA[v].engine]||"#888"}"></span>`+
-      `${VARIANT_LABEL[v]||v} <small>${VARMETA[v].language}·${VARMETA[v].io}·${VARMETA[v].threading}</small>`;
+    const mv=VARMETA[v], ver=libVerLatest(v);
+    c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[mv.engine]||"#888"}"></span>`+
+      `${VARIANT_LABEL[v]||v}${ver?` <code>${ver}</code>`:""} <small>${mv.impl||mv.language}·${mv.concurrency||"-"}·${mv.io}·${mv.threading}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
     box.appendChild(c);
@@ -278,7 +296,16 @@ function applyPreset(p){
   if(p==="io_uring"||p==="epoll") return setSelected(VARIANTS.filter(v=>VARMETA[v].io===p));
   if(p==="single") return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="single"));
   if(p==="multi")  return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="multi"||VARMETA[v].threading==="native"));
+  if(p==="sync"||p==="async") return setSelected(VARIANTS.filter(v=>VARMETA[v].concurrency===p));
+  if(p==="native"||p==="ffi") return setSelected(VARIANTS.filter(v=>VARMETA[v].impl===p));
 }
+
+// Library version a variant reported for a given run (versions evolve over time),
+// with a fallback to its most recent reported version.
+function libVerAt(v,run){ const r=RECORDS.find(x=>x.variant===v&&x.date===run&&x.lib_version); return r?r.lib_version:libVerLatest(v); }
+function libVerLatest(v){ for(let i=DATES.length-1;i>=0;i--){ const r=RECORDS.find(x=>x.variant===v&&x.date===DATES[i]&&x.lib_version); if(r) return r.lib_version; } return ""; }
+function verTag(v,run){ const ver=libVerAt(v,run); const b=VARMETA[v].impl==="ffi"?VARMETA[v].ffi_to:null;
+  return ver?(b?`${ver} (FFI→${b})`:ver):""; }
 
 // ── series styling (color by category, dash within group) ─────────
 function catValue(v,dim){ return dim==="variant" ? v : VARMETA[v][dim]; }
@@ -368,13 +395,14 @@ function renderRanking(){
   const best=rows.length?rows[0].x:null;
   el("rankTitle").textContent=`Ranking · ${m.label}`;
   el("rankHint").textContent=`Run ${run} · ${KIND_LABEL[kind]} · ${tr}${pe?` · ${pe} peers`:""} · ${fmtPayload(pay)} · ${m.better==="lower"?"lower":"higher"} is better`;
-  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>${m.label} (${m.unit})</th><th>vs best</th></tr></thead><tbody>`;
+  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>${m.label} (${m.unit})</th><th>vs best</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     let rel="n/a";
     if(best){ const ratio=m.better==="lower"?r.x/best:best/r.x; rel=i===0?"best":"×"+ratio.toFixed(2); }
     const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
-      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.language}·${meta.io}·${meta.threading}</small></td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
+      `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
       `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td></tr>`;
   });
   html+="</tbody></table>";
@@ -382,7 +410,48 @@ function renderRanking(){
   el("rankTable").innerHTML=html;
 }
 
-function render(){ renderEvolution(); renderSweep(); renderRanking(); }
+// Primary comparison metric for a record, used by the global ranking so latency
+// and throughput cells can be ranked on one commensurable scale (rank position).
+function primaryMetric(rec){
+  if(rec.latency_ns) return {val:rec.latency_ns.p99, lower:true};
+  if(rec.throughput) return {val:rec.throughput.msgs_per_s, lower:false};
+  return null;
+}
+
+// One leaderboard across every benchmark in the selected run, over the selected
+// variants. Each (kind, transport, payload, peers) group ranks its variants by
+// the primary metric; the positions are averaged per variant. Lower is better.
+function renderGlobalRanking(){
+  const run=val("run");
+  const recs=RECORDS.filter(r=>r.date===run && selected.has(r.variant) && primaryMetric(r));
+  const groups={};
+  for(const r of recs){ const k=`${r.kind}|${r.transport}|${r.payload_bytes}|${r.peers}`;
+    (groups[k]=groups[k]||[]).push(r); }
+  const ranks={};
+  for(const k in groups){
+    const g=groups[k], lower=primaryMetric(g[0]).lower;
+    g.sort((a,b)=>{ const av=primaryMetric(a).val, bv=primaryMetric(b).val; return lower?av-bv:bv-av; });
+    g.forEach((r,i)=>{ (ranks[r.variant]=ranks[r.variant]||[]).push(i+1); });
+  }
+  const rows=Object.keys(ranks).map(v=>({v,
+    mean:ranks[v].reduce((a,b)=>a+b,0)/ranks[v].length, n:ranks[v].length}));
+  rows.sort((a,b)=>a.mean-b.mean);
+  el("globalHint").textContent=`Run ${run} · mean rank position across ${Object.keys(groups).length} `+
+    `benchmarks over ${rows.length} selected variants (lower is better). Each benchmark ranks the `+
+    `selected variants; positions are averaged, so latency and throughput count equally.`;
+  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{ const meta=VARMETA[r.v];
+    html+=`<tr><td>${i+1}</td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
+      `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
+      `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td></tr>`;
+  });
+  html+="</tbody></table>";
+  if(!rows.length) html=`<div class="hint">Select variants to build a global ranking.</div>`;
+  el("globalTable").innerHTML=html;
+}
+
+function render(){ renderEvolution(); renderSweep(); renderRanking(); renderGlobalRanking(); }
 
 // ── boot ──────────────────────────────────────────────────────────
 el("footer").innerHTML='zmq-arena · interactive results · data under <code>docs/history/</code> (real) and <code>docs/sample/</code> (preview) · charts via <a href="https://echarts.apache.org">Apache ECharts</a> · benchmark design inspired by <a href="https://github.com/paddor/omq.rs">omq.rs</a>';

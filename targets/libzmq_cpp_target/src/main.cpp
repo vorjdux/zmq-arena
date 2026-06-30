@@ -201,6 +201,19 @@ void run_pubsub_loop(void* sock, const Args& a, bool producer) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // describe: print the one-line JSON classification the orchestrator captures
+    // into each record. lib_version is the linked libzmq version at runtime.
+    if (argc >= 2 && std::string(argv[1]) == "describe") {
+        int maj = 0, min = 0, pat = 0;
+        zmq_version(&maj, &min, &pat);
+        std::printf(
+            "{\"engine\":\"libzmq\",\"lib_version\":\"%d.%d.%d\",\"binding_version\":null,"
+            "\"lib_language\":\"C++\",\"impl\":\"native\",\"ffi_to\":null,"
+            "\"language\":\"C++\",\"concurrency\":\"sync\",\"threading\":\"native\",\"io\":\"epoll\"}\n",
+            maj, min, pat);
+        return 0;
+    }
+
     Args a = parse(argc, argv);
 
     void* ctx = zmq_ctx_new();

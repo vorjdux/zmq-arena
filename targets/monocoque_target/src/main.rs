@@ -81,7 +81,24 @@ struct Cli {
     knobs: Vec<String>,
 }
 
+/// One-line JSON classification the orchestrator captures into each record. The
+/// engine version is read from Cargo.lock at build time (see build.rs).
+fn describe() -> String {
+    format!(
+        concat!(
+            "{{\"engine\":\"monocoque\",\"lib_version\":\"{}\",\"binding_version\":null,",
+            "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"single\",\"io\":\"io_uring\"}}"
+        ),
+        env!("ENGINE_VERSION")
+    )
+}
+
 fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("describe") {
+        println!("{}", describe());
+        return Ok(());
+    }
     let cli = Cli::parse();
     eprintln!(
         "monocoque-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={} variant={}",

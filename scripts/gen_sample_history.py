@@ -51,6 +51,34 @@ VARIANTS = {
     "monocoque":     {"engine": "monocoque","io": "io_uring", "threading": "single", "lat": 0.95, "trend": 0.945, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 3},
 }
 
+# Classification and library-version timeline per variant. `versions` is a list
+# of (run_index, version) breakpoints; the variant reports the latest version at
+# or before the run, which lets the synthetic history show library evolution
+# (libzmq 4.3.4 -> 4.3.5, monocoque 0.1.4 -> 0.1.5). The real grid gets these
+# fields from each target's `describe`; here they are illustrative sample values.
+META = {
+    "libzmq":        {"lib_lang": "C++",  "impl": "native", "ffi_to": None, "concurrency": "sync",  "binding": None,     "versions": [(0, "4.3.4"), (3, "4.3.5")]},
+    "rust_zmq":      {"lib_lang": "C++",  "impl": "ffi",    "ffi_to": "C",  "concurrency": "sync",  "binding": "0.10.0", "versions": [(0, "4.3.4")]},
+    "zmq.rs":        {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.6.0")]},
+    "omq_tokio":     {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.2.0")]},
+    "omq_tokio_mt":  {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.2.0")]},
+    "omq_compio":    {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.2.0")]},
+    "omq_compio_st": {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.2.0")]},
+    "rzmq":          {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(0, "0.5.21")]},
+    "celerity":      {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(2, "0.2.0")]},
+    "monocoque":     {"lib_lang": "Rust", "impl": "native", "ffi_to": None, "concurrency": "async", "binding": None,     "versions": [(3, "0.1.4"), (5, "0.1.5")]},
+}
+
+
+def version_at(vid, run_idx):
+    versions = META[vid]["versions"]
+    current = versions[0][1]
+    for threshold, ver in versions:
+        if threshold <= run_idx:
+            current = ver
+    return current
+
+
 # Base p50 latency (ns) for a 64B payload, per transport. inproc is in-process
 # (single process, the one exception to the arena's isolation rule) and fastest.
 BASE_P50_NS = {"inproc": 700.0, "ipc": 2100.0, "tcp_netns": 8200.0}
@@ -102,13 +130,19 @@ def telemetry(rng, v, payload):
     return sysc, sched, mem, cpu
 
 
-def base_record(vid, v, kind, transport, payload, peers):
+def base_record(vid, v, kind, transport, payload, peers, run_idx):
     # The C++ libzmq_cpp_target is the only C++ entry; rust_zmq drives the same
     # core through the Rust binding. Key language off the variant id.
     language = "C++" if vid == "libzmq" else "Rust"
+    m = META[vid]
     return {
         "variant": vid, "engine": v["engine"], "io": v["io"],
         "threading": v["threading"], "language": language,
+        "lib_version": version_at(vid, run_idx),
+        "binding_version": m["binding"],
+        "lib_language": m["lib_lang"],
+        "impl": m["impl"], "ffi_to": m["ffi_to"],
+        "concurrency": m["concurrency"],
         "kind": kind, "transport": transport,
         "payload_bytes": payload, "peers": peers,
     }
@@ -123,7 +157,7 @@ def build_records(rng, run_idx):
             # throughput (PUSH/PULL) + latency (REQ/REP)
             for payload in SIZES:
                 sysc, sched, mem, cpu = telemetry(rng, v, payload)
-                tr = base_record(vid, v, "throughput", transport, payload, None)
+                tr = base_record(vid, v, "throughput", transport, payload, None, run_idx)
                 tr.update({"latency_ns": None,
                            "throughput": throughput_block(rng, v, transport, payload, run_idx),
                            "cpu_seconds": cpu, "syscalls": sysc, "sched": sched,
@@ -131,7 +165,7 @@ def build_records(rng, run_idx):
                 out.append(tr)
 
                 sysc, sched, mem, cpu = telemetry(rng, v, payload)
-                la = base_record(vid, v, "latency", transport, payload, None)
+                la = base_record(vid, v, "latency", transport, payload, None, run_idx)
                 la.update({"latency_ns": latency_block(rng, v, transport, payload, run_idx),
                            "throughput": None, "cpu_seconds": cpu,
                            "syscalls": sysc, "sched": sched, "peak_memory_bytes": mem})
@@ -142,7 +176,7 @@ def build_records(rng, run_idx):
                 for peers in PUBSUB_PEERS:
                     for payload in SIZES:
                         sysc, sched, mem, cpu = telemetry(rng, v, payload)
-                        ps = base_record(vid, v, "pubsub", transport, payload, peers)
+                        ps = base_record(vid, v, "pubsub", transport, payload, peers, run_idx)
                         ps.update({"latency_ns": None,
                                    "throughput": throughput_block(rng, v, transport, payload, run_idx, peers),
                                    "cpu_seconds": cpu, "syscalls": sysc, "sched": sched,
@@ -155,7 +189,7 @@ def build_records(rng, run_idx):
                 for peers in FAN_PEERS:
                     for payload in SIZES:
                         sysc, sched, mem, cpu = telemetry(rng, v, payload)
-                        fr = base_record(vid, v, kind, "tcp_netns", payload, peers)
+                        fr = base_record(vid, v, kind, "tcp_netns", payload, peers, run_idx)
                         fr.update({"latency_ns": None,
                                    "throughput": throughput_block(rng, v, "tcp_netns", payload, run_idx, peers),
                                    "cpu_seconds": cpu, "syscalls": sysc, "sched": sched,
