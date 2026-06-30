@@ -1,5 +1,5 @@
 {
-  "_comment": "Dev/functional matrix for a single-vCPU Linode (Ubuntu 24.04). Only libzmq is exercised because it is the one target with a working socket loop today, and only the throughput kind is wired in the runnable path. On 1 vCPU the producer and consumer share the core, so these numbers validate the harness mechanics, not engine performance. cpuset.cpus=0 is the only core available.",
+  "_comment": "Dev/functional matrix for a single-vCPU Linode (Ubuntu 24.04). libzmq and monocoque cover all five kinds; zmq.rs covers throughput, latency, and pub/sub. On 1 vCPU the producer and consumer share the core, so these numbers validate the harness mechanics, not engine performance. cpuset.cpus=0 is the only core available.",
   "isolation": {
     "cpuset_cpus": "0",
     "cpuset_mems": "0",
@@ -157,6 +157,27 @@
     {
       "target": { "id": "monocoque", "binary": "targets/monocoque_target/target/release/monocoque-target", "knobs": {} },
       "transport": "tcp_netns", "kind": "fanin", "peers": 4, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
+    },
+    {
+      "_comment": "zmq.rs (zeromq 0.6) carries throughput, latency, and pub/sub. Fan-out and fan-in are omitted: a bound PUSH does not round-robin to connecting PULLs and a bound PULL does not fair-queue across multiple PUSHers, so those topologies are unsupported on this engine.",
+      "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
+      "transport": "ipc", "kind": "throughput", "payload_bytes": 64, "messages": 200000, "warmup_messages": 20000
+    },
+    {
+      "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
+      "transport": "tcp_netns", "kind": "throughput", "payload_bytes": 64, "messages": 200000, "warmup_messages": 20000
+    },
+    {
+      "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
+      "transport": "ipc", "kind": "latency", "payload_bytes": 64, "messages": 20000, "warmup_messages": 2000
+    },
+    {
+      "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
+      "transport": "tcp_netns", "kind": "latency", "payload_bytes": 64, "messages": 20000, "warmup_messages": 2000
+    },
+    {
+      "target": { "id": "zeromq_rs", "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target", "knobs": {} },
+      "transport": "tcp_netns", "kind": "pubsub", "peers": 8, "duration_secs": 2.0, "payload_bytes": 64, "messages": 0, "warmup_messages": 0
     }
   ]
 }

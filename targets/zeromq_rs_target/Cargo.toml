@@ -22,8 +22,13 @@ path = "src/main.rs"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 # zmq.rs, the canonical pure-Rust ZeroMQ. Verified crate identity from the
-# omq comparison harness: `zeromq = "0.6"` with the IPC transport feature.
+# omq comparison harness: `zeromq = "0.6"`. Default features carry the
+# tokio-runtime and all transports; ipc-transport is listed for intent.
 zeromq = { version = "0.6", features = ["ipc-transport"] }
+# zmq.rs runs on tokio. Its accept/connect background tasks need a real reactor,
+# so the wrapper drives it on a multi-thread runtime (a current-thread runtime
+# would starve those tasks while the send/recv loop holds the worker).
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [profile.release]
 opt-level = 3

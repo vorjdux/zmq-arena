@@ -1,7 +1,7 @@
 # zmq-arena dev workflow.
 #
 # Common flow on a dev host:
-#   make build      # orchestrator + the runnable targets (libzmq, monocoque)
+#   make build      # orchestrator + the runnable targets (libzmq, monocoque, zmq.rs)
 #   make run        # run the matrix and render results into docs/
 #   make            # build + run + render in one go
 #
@@ -15,12 +15,12 @@ ORCH    ?= ./target/release/zmq-arena
 CPU     := $(shell grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
 NOTE    ?= dev host; functional test, not admissible tail data
 
-.PHONY: all build orchestrator libzmq monocoque targets-all \
+.PHONY: all build orchestrator libzmq monocoque zeromq-rs targets-all \
         bench render run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
 
-build: orchestrator libzmq monocoque  ## build the control plane and the runnable targets
+build: orchestrator libzmq monocoque zeromq-rs  ## build the control plane and the runnable targets
 
 orchestrator:             ## build the Rust control plane
 	cargo build --release --manifest-path orchestrator/Cargo.toml
@@ -31,6 +31,9 @@ libzmq:                   ## configure (idempotent) and build the libzmq C++ tar
 
 monocoque:                ## build the monocoque target
 	cd targets/monocoque_target && cargo build --release
+
+zeromq-rs:                ## build the zmq.rs target
+	cd targets/zeromq_rs_target && cargo build --release
 
 targets-all:              ## build every target, including the stubbed engines
 	./scripts/build-targets.sh
@@ -58,7 +61,8 @@ dashboard:                ## serve docs/ over HTTP (Ctrl-C to stop)
 clean:                    ## remove scratch and all build artifacts
 	rm -rf scratch
 	cargo clean --manifest-path orchestrator/Cargo.toml
-	rm -rf targets/libzmq_cpp_target/build targets/monocoque_target/target
+	rm -rf targets/libzmq_cpp_target/build targets/monocoque_target/target \
+		targets/zeromq_rs_target/target
 
 help:                     ## list these targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) \

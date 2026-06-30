@@ -43,11 +43,12 @@ harness, where each bench peer is a separate build unit.
 | `celerity_target` | celerity | Rust | `celerity = "0.2.0"` | sans-IO ZMTP 3.1 + tokio |
 | `monocoque_target` | monocoque | Rust | `monocoque-rs = "0.1.5"` | io_uring/compio, ZMTP 3.1 |
 
-libzmq runs throughput, pub/sub, and latency; monocoque runs throughput. The
-other Rust socket loops are stubs until each is written against its engine's
-API. Crate identities and versions are verified against crates.io and the
-upstream repos. See `targets/README.md` for the command-line contract and how to
-add a target.
+libzmq and monocoque run all five kinds. zmq.rs runs throughput, latency, and
+pub/sub; it does not run fan-out or fan-in, because its PUSH/PULL sockets do not
+round-robin or fair-queue across multiple peers on the bound side. The remaining
+Rust socket loops are stubs until each is written against its engine's API. Crate
+identities and versions are verified against crates.io and the upstream repos.
+See `targets/README.md` for the command-line contract and how to add a target.
 
 ## Benchmarks and variants
 
@@ -195,7 +196,8 @@ cheating entry fails the cell rather than the review.
 | pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer; libzmq + monocoque) |
 | perf syscall counting | done (`perf_event_open` tracepoints; needs root + tracefs + `perf_event_paranoid <= 1`, else 0) |
 | monocoque socket loop | all five kinds (write-coalesced throughput, REQ/REP, PUB/SUB, fan-out, fan-in); run-verified locally |
-| zmq.rs, omq, rzmq, celerity socket loops | stubs, pending each engine's API |
+| zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
+| omq, rzmq, celerity socket loops | stubs, pending each engine's API |
 | render and ranking generator | done and tested |
 | interactive dashboard | done |
 
