@@ -42,7 +42,7 @@ REGISTRY = {
     "rzmq":          {"engine": "rzmq",      "io": "io_uring", "threading": "multi"},
     "celerity":      {"engine": "celerity",  "io": "epoll",    "threading": "multi"},
     "monocoque":       {"engine": "monocoque", "io": "io_uring", "threading": "single"},
-    "monocoque_tokio": {"engine": "monocoque", "io": "epoll",    "threading": "multi"},
+    "monocoque_tokio": {"engine": "monocoque", "io": "epoll",    "threading": "single"},
 }
 
 

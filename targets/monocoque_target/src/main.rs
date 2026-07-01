@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use bytes::Bytes;
 use clap::{Parser, ValueEnum};
-use compio::net::{TcpListener, UnixListener, UnixStream};
+use compio_io::{AsyncRead, AsyncWrite};
+use monocoque::rt::{LocalRuntime, TcpListener, UnixListener, UnixStream};
 use monocoque::zmq::{
     PubSocket, PullFanIn, PullSocket, PushFanOut, PushSocket, RepSocket, ReqSocket, SubSocket,
 };
@@ -83,37 +84,31 @@ struct Cli {
     knobs: Vec<String>,
 }
 
-/// One-line JSON classification the orchestrator captures into each record. It is
-/// variant-aware: monocoque exposes two runtimes, so the `tokio` variant reports
-/// an epoll/multi-thread profile while the default `compio` variant reports
-/// io_uring/single-thread. The engine version is read from Cargo.lock at build
-/// time (see build.rs).
-fn describe(variant: &str) -> String {
-    let (io, threading) = if variant == "tokio" {
-        ("epoll", "multi")
-    } else {
-        ("io_uring", "single")
-    };
+/// One-line JSON classification the orchestrator captures into each record. The
+/// runtime is a compile-time choice (the `runtime-compio` / `runtime-tokio`
+/// feature), so `describe` reports whichever backend this binary was built with:
+/// io_uring for compio, epoll for tokio. Both are single-threaded (monocoque's
+/// sockets are !Send; the tokio backend is a current-thread runtime in a
+/// LocalSet). The engine version is read from Cargo.lock at build time (build.rs).
+fn describe() -> String {
+    #[cfg(feature = "tokio")]
+    let io = "epoll";
+    #[cfg(not(feature = "tokio"))]
+    let io = "io_uring";
     format!(
         concat!(
             "{{\"engine\":\"monocoque\",\"lib_version\":\"{}\",\"binding_version\":null,",
             "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
-            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"{}\",\"io\":\"{}\"}}"
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"single\",\"io\":\"{}\"}}"
         ),
         env!("ENGINE_VERSION"),
-        threading,
         io
     )
 }
 
-fn arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
-    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).map(String::as_str)
-}
-
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("describe") {
-        println!("{}", describe(arg_value(&args, "--variant").unwrap_or("default")));
+    if std::env::args().nth(1).as_deref() == Some("describe") {
+        println!("{}", describe());
         return Ok(());
     }
     let cli = Cli::parse();
@@ -122,21 +117,6 @@ fn main() -> Result<()> {
         cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
     );
 
-    // The runtime is selected by variant. compio (io_uring) is the default; tokio
-    // arrives with monocoque-rs 0.1.6. The socket loops are identical at the API
-    // level (monocoque's sockets are generic over the stream), so run_tokio will
-    // reuse them over tokio streams once the 0.1.6 constructors are available.
-    match cli.variant.as_str() {
-        "tokio" => bail!(
-            "monocoque tokio runtime needs monocoque-rs 0.1.6 (release in progress); \
-             the compio (io_uring) variant is the default and runs today"
-        ),
-        _ => run_compio(cli),
-    }
-}
-
-/// Drive the socket loops on the compio io_uring runtime (the default variant).
-fn run_compio(cli: Cli) -> Result<()> {
     let ep = parse_endpoint(&cli.endpoint)?;
     let payload = Bytes::from(vec![b'x'; cli.payload_bytes as usize]);
     let role = cli.role;
@@ -145,7 +125,11 @@ fn run_compio(cli: Cli) -> Result<()> {
     let peers = cli.peers.unwrap_or(1).max(1);
     let duration = Duration::from_secs_f64(cli.duration_secs);
 
-    compio::runtime::Runtime::new()?.block_on(async move {
+    // monocoque::rt::LocalRuntime is the runtime-agnostic driver: compio's
+    // io_uring runtime or tokio's current-thread runtime, per the compiled
+    // feature. The socket loops below are identical across backends because they
+    // use monocoque's rt net types.
+    LocalRuntime::new()?.block_on(async move {
         match kind.as_str() {
             "throughput" => run_throughput(role, ep, messages + warmup, &payload).await,
             "latency" => run_latency(role, ep, messages, warmup, &payload).await,
@@ -190,7 +174,7 @@ async fn run_throughput(role: Role, ep: Endpoint, total: u64, payload: &Bytes) -
 
 async fn send_block<S>(push: &mut PushSocket<S>, total: u64, payload: &Bytes) -> Result<()>
 where
-    S: compio::io::AsyncRead + compio::io::AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut i = 0u64;
     while i < total {
@@ -206,7 +190,7 @@ where
 
 async fn recv_block<S>(pull: &mut PullSocket<S>, total: u64) -> Result<()>
 where
-    S: compio::io::AsyncRead + compio::io::AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buf: Vec<Bytes> = Vec::with_capacity(4);
     let mut count = 0u64;
@@ -265,7 +249,7 @@ async fn run_latency(
 
 async fn echo_loop<S>(rep: &mut RepSocket<S>) -> Result<()>
 where
-    S: compio::io::AsyncRead + compio::io::AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     while let Some(msg) = rep.recv().await? {
         rep.send(msg).await?;
@@ -280,7 +264,7 @@ async fn req_measure<S>(
     payload: &Bytes,
 ) -> Result<()>
 where
-    S: compio::io::AsyncRead + compio::io::AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
 {
     for _ in 0..warmup {
         req.send(vec![payload.clone()]).await?;

@@ -1,6 +1,8 @@
 # Build artifacts. Each project has its own target/ dir.
 /target
 **/target
+# monocoque's tokio variant builds into a separate target dir.
+**/target-tokio
 
 # C++ target build artifacts
 targets/libzmq_cpp_target/build/

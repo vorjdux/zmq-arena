@@ -57,6 +57,17 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # Same engine, tokio (epoll) runtime. Its own binary because monocoque
+        # picks the runtime at compile time; the (id, variant) pair keys the
+        # dashboard series monocoque_tokio.
+        "id": "monocoque",
+        "binary": "targets/monocoque_target/target-tokio/release/monocoque-target",
+        "variant": "tokio",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
         "id": "rust_zmq",
         "binary": "targets/rust_zmq_target/target/release/rust-zmq-target",
         "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},

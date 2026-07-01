@@ -26,6 +26,11 @@ build_rust_target() {
 
 # Speculative / original-spec slots.
 build_rust_target targets/monocoque_target
+# monocoque's tokio (epoll) runtime is a compile-time feature, so build a second
+# binary into a separate target dir.
+echo "== rust target: targets/monocoque_target (tokio) =="
+( cd targets/monocoque_target && cargo build --release --no-default-features \
+    --features tokio --target-dir target-tokio )
 # zmq.rs (the `zeromq` crate).
 build_rust_target targets/zeromq_rs_target
 # rust-zmq (the `zmq` crate): Rust FFI binding over the system libzmq.

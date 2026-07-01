@@ -49,7 +49,7 @@ VARIANTS = {
     "rzmq":          {"engine": "rzmq",     "io": "io_uring", "threading": "multi",  "lat": 0.88, "trend": 0.975, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 0},
     "celerity":      {"engine": "celerity", "io": "epoll",    "threading": "multi",  "lat": 1.60, "trend": 0.930, "transports": ["ipc", "tcp_netns"],            "pubsub": True,  "since": 2},
     "monocoque":       {"engine": "monocoque","io": "io_uring", "threading": "single", "lat": 0.95, "trend": 0.945, "transports": ["ipc", "tcp_netns", "inproc"], "pubsub": True,  "since": 3},
-    "monocoque_tokio": {"engine": "monocoque","io": "epoll",    "threading": "multi",  "lat": 1.12, "trend": 0.950, "transports": ["ipc", "tcp_netns"],            "pubsub": True,  "since": 5},
+    "monocoque_tokio": {"engine": "monocoque","io": "epoll",    "threading": "single", "lat": 1.12, "trend": 0.950, "transports": ["ipc", "tcp_netns"],            "pubsub": True,  "since": 5},
 }
 
 # Classification and library-version timeline per variant. `versions` is a list

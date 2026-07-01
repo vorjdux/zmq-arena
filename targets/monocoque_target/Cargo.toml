@@ -1,8 +1,13 @@
 # Standalone project. NOT a member of the orchestrator workspace.
-# Build: `cd targets/monocoque_target && cargo build --release` (Linux 6.0+ for io_uring).
 #
-# Engine: monocoque (monocoque-rs), a Rust-native ZMTP 3.1 runtime on io_uring
-# via compio. The ZeroMQ socket API lives behind the `zmq` feature.
+# Engine: monocoque (monocoque-rs 0.1.6), a Rust-native ZMTP 3.1 runtime. Its
+# runtime is a compile-time choice, so this one wrapper builds two binaries:
+#   compio (io_uring, default):  cd targets/monocoque_target && cargo build --release
+#   tokio  (epoll):              cargo build --release --no-default-features \
+#                                  --features tokio --target-dir target-tokio
+# The socket loops are identical: they use monocoque's runtime-agnostic rt net
+# types, and the generic bounds use compio_io traits (monocoque's IO abstraction
+# for both backends).
 [workspace]
 
 [package]
@@ -10,21 +15,29 @@ name = "monocoque-target"
 version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "zmq-arena target wrapper: monocoque (monocoque-rs, ZMTP on io_uring/compio)."
+description = "zmq-arena target wrapper: monocoque (monocoque-rs, ZMTP on io_uring/compio or tokio)."
 
 [[bin]]
 name = "monocoque-target"
 path = "src/main.rs"
 
+[features]
+default = ["compio"]
+# Runtime backends (mutually exclusive at compile time). Passed through to
+# monocoque-rs so its rt facade resolves to the chosen runtime.
+compio = ["monocoque-rs/runtime-compio"]
+tokio = ["monocoque-rs/runtime-tokio"]
+
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive", "env"] }
-# Verified on crates.io: monocoque-rs 0.1.5 (lib name `monocoque`), MIT.
-monocoque-rs = { version = "0.1.5", features = ["zmq"] }
-# Must match the compio version monocoque-rs 0.1.5 uses (0.10), or the TcpStream
-# types do not unify across the dependency graph.
-compio = { version = "0.10", features = ["runtime", "macros"] }
 bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# Verified on crates.io: monocoque-rs 0.1.6 (lib name `monocoque`), MIT. The
+# runtime feature is selected by this crate's compio/tokio feature above.
+monocoque-rs = { version = "0.1.6", default-features = false, features = ["zmq"] }
+# monocoque's IO trait abstraction, used for the generic PushSocket<S> bounds. It
+# is a non-optional dependency of monocoque-core for both backends.
+compio-io = "0.2"
 
 [profile.release]
 opt-level = 3

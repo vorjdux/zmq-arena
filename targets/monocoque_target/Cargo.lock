@@ -304,7 +304,7 @@ dependencies = [
  "paste",
  "polling",
  "slab",
- "socket2",
+ "socket2 0.5.10",
  "windows-sys 0.52.0",
 ]
 
@@ -370,7 +370,7 @@ dependencies = [
  "compio-runtime",
  "either",
  "libc",
- "socket2",
+ "socket2 0.5.10",
  "widestring",
  "windows-sys 0.52.0",
 ]
@@ -393,7 +393,7 @@ dependencies = [
  "os_pipe",
  "slab",
  "smallvec",
- "socket2",
+ "socket2 0.5.10",
  "windows-sys 0.52.0",
 ]
 
@@ -825,30 +825,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
-name = "monocoque-rs"
-version = "0.1.5"
+name = "mio"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48f9c79c1cb2cacb385bf8016c2a410ede49ee60e5e0b5cbccd85b180acc8954"
+checksum = "02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda"
+dependencies = [
+ "libc",
+ "wasi",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "monocoque-rs"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173dda9c151b5eeb7126bddbd0b8d5edf336426c4a336847f73fbaa032e90d95"
 dependencies = [
  "bytes",
  "compio",
+ "compio-buf",
+ "compio-io",
  "flume",
  "monocoque-rs-core",
  "monocoque-rs-zmtp",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "monocoque-rs-core"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3208b9d17641ddbeba86b93a71f058b0f56e91003dfd4b8d04120054f61496a"
+checksum = "cc9bb299be974a4b8a841d104b0192e680b695b5dc8c9c6185fef29273c88bbb"
 dependencies = [
  "async-lock",
  "async-trait",
  "bytes",
  "compio",
+ "compio-buf",
+ "compio-io",
  "dashmap",
  "flume",
  "futures",
@@ -856,21 +872,24 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "smallvec",
- "socket2",
+ "socket2 0.5.10",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
 [[package]]
 name = "monocoque-rs-zmtp"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e5c82da12a74f7624c68b19d8fa0fda77cc88d5bf25c06c0b353e10d97e63d8"
+checksum = "2d834302a690b7712eaa90803870815c368f4a67d84c000067fe81d02096f783"
 dependencies = [
  "async-trait",
  "bytes",
  "chacha20poly1305",
  "compio",
+ "compio-buf",
+ "compio-io",
  "crypto_box",
  "flume",
  "futures",
@@ -880,9 +899,10 @@ dependencies = [
  "rand",
  "sha2",
  "smallvec",
- "socket2",
+ "socket2 0.5.10",
  "subtle",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "x25519-dalek",
@@ -896,7 +916,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "clap",
- "compio",
+ "compio-io",
  "monocoque-rs",
 ]
 
@@ -1236,6 +1256,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket2"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1294,6 +1324,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tokio"
+version = "1.52.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
+dependencies = [
+ "bytes",
+ "libc",
+ "mio",
+ "pin-project-lite",
+ "socket2 0.6.4",
+ "tokio-macros",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

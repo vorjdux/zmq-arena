@@ -23,12 +23,12 @@ NOTE    ?= dev host; functional test, not admissible tail data
 GEN_MATRIX ?= matrix.linode.json
 regen = @if [ "$(MATRIX)" = "$(GEN_MATRIX)" ]; then python3 scripts/gen_matrix.py; fi
 
-.PHONY: all build orchestrator libzmq monocoque zeromq-rs rust-zmq omq-tokio omq-compio \
-        targets-all matrix bench render run run-root dry dashboard clean help
+.PHONY: all build orchestrator libzmq monocoque monocoque-tokio zeromq-rs rust-zmq \
+        omq-tokio omq-compio targets-all matrix bench render run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
 
-build: orchestrator libzmq monocoque zeromq-rs rust-zmq omq-tokio omq-compio  ## build the control plane and the runnable targets
+build: orchestrator libzmq monocoque monocoque-tokio zeromq-rs rust-zmq omq-tokio omq-compio  ## build the control plane and the runnable targets
 
 matrix:                   ## regenerate matrix.linode.json (payload sweep, all kinds)
 	python3 scripts/gen_matrix.py
@@ -40,8 +40,12 @@ libzmq:                   ## configure (idempotent) and build the libzmq C++ tar
 	cmake -S targets/libzmq_cpp_target -B targets/libzmq_cpp_target/build -DCMAKE_BUILD_TYPE=Release
 	cmake --build targets/libzmq_cpp_target/build -j
 
-monocoque:                ## build the monocoque target
+monocoque:                ## build the monocoque target (compio io_uring)
 	cd targets/monocoque_target && cargo build --release
+
+monocoque-tokio:          ## build the monocoque tokio (epoll) variant into target-tokio/
+	cd targets/monocoque_target && cargo build --release --no-default-features \
+		--features tokio --target-dir target-tokio
 
 zeromq-rs:                ## build the zmq.rs target
 	cd targets/zeromq_rs_target && cargo build --release
@@ -84,7 +88,7 @@ dashboard:                ## serve docs/ over HTTP (Ctrl-C to stop)
 clean:                    ## remove scratch and all build artifacts
 	rm -rf scratch
 	cargo clean --manifest-path orchestrator/Cargo.toml
-	rm -rf targets/libzmq_cpp_target/build targets/monocoque_target/target \
+	rm -rf targets/libzmq_cpp_target/build targets/monocoque_target/target targets/monocoque_target/target-tokio \
 		targets/zeromq_rs_target/target targets/rust_zmq_target/target \
 		targets/omq_tokio_target/target targets/omq_compio_target/target
 
