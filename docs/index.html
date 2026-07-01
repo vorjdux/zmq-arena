@@ -249,7 +249,8 @@ async function load(){
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} variants · ${DATES.length} runs · `+
-    `${DATES[0]} → ${DATES[DATES.length-1]} · <code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
+    `${DATES[0]} → ${DATES[DATES.length-1]} · <code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""} · `+
+    `<a href="tables.html">results tables →</a>`;
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }
 

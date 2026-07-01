@@ -200,8 +200,14 @@ grouped across all of the cell's processes, so you can read how heavy each libra
 runs, not just how fast. Library versions are tracked per run, so the evolution
 view shows them moving over time.
 
-Serve it locally with `cd docs && python3 -m http.server`, since browsers block
-`fetch` over `file://`.
+`docs/tables.html` is a companion static-tables view of the same data (no
+charts): for each kind and transport it renders a payload-size by variant table
+with the metric in each cell (msgs/s for the throughput family, p50 with p99 for
+latency), best-in-row highlighted, in the style of a benchmark report. The two
+pages cross-link. Pick a run at the top.
+
+Serve either locally with `cd docs && python3 -m http.server`, since browsers
+block `fetch` over `file://`.
 
 ## The weekly grid
 

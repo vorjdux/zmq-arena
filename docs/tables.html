@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zmq-arena · results tables</title>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b21; --panel2:#1d2229; --line:#2a313a;
+    --fg:#e6e9ee; --muted:#9aa4b2; --accent:#4f9cf9; --warn:#f59e0b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#e2e6eb;
+            --fg:#161a1e; --muted:#5b6573; --accent:#2563eb; --warn:#b45309; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 24px 6px; display:flex; align-items:center;
+    justify-content:space-between; gap:8px 24px; flex-wrap:wrap; }
+  h1.logo { margin:0; line-height:0; flex:0 0 auto; }
+  h1.logo img { height:104px; width:auto; max-width:100%; display:block; }
+  .sub { color:var(--muted); flex:1 1 300px; text-align:right; min-width:0; }
+  .sub code { color:var(--fg); }
+  .sub a { color:var(--accent); }
+  .controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap;
+    align-items:flex-end; gap:13px 16px; padding:13px 24px; margin-top:12px;
+    background:color-mix(in srgb,var(--bg) 90%,transparent);
+    backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+  .ctl { display:flex; flex-direction:column; gap:4px; }
+  .ctl label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:7px; padding:7px 9px; font-size:13px; min-width:150px; }
+  .banner { margin:12px 24px 0; padding:8px 12px; border-radius:8px;
+    background:color-mix(in srgb,var(--warn) 18%,transparent);
+    border:1px solid var(--warn); font-size:13px; }
+  .banner.hidden { display:none; }
+  main { padding:14px 24px 28px; display:grid; gap:18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card h2 { margin:0 0 4px; font-size:16px; }
+  .card h3 { margin:14px 0 6px; font-size:13px; font-weight:600; }
+  .card h3 small { color:var(--muted); font-weight:400; margin-left:6px; }
+  .tw { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums;
+    white-space:nowrap; }
+  th,td { text-align:right; padding:6px 12px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td small { color:var(--muted); }
+  .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .best { color:var(--accent); font-weight:700; }
+  .hint { color:var(--muted); font-size:13px; }
+  .err { padding:24px; color:var(--warn); }
+  footer { color:var(--muted); font-size:12px; text-align:center;
+    padding:18px 24px 22px; background:var(--panel2); border-top:1px solid var(--line); }
+  footer div { max-width:900px; margin:0 auto; }
+  footer a { color:var(--accent); }
+  @media (max-width:640px){
+    header,.controls,footer{ padding-left:14px; padding-right:14px; }
+    main{ padding:10px 14px 24px; }
+    .banner{ margin-left:14px; margin-right:14px; }
+    header{ justify-content:center; }
+    h1.logo{ flex:1 1 100%; }
+    h1.logo img{ width:100%; height:auto; }
+    .sub{ flex-basis:100%; text-align:center; }
+    select{ min-width:0; width:100%; }
+    .ctl{ flex:1 1 150px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
+  <div class="sub" id="dataSource">loading… · <a href="index.html">interactive dashboard →</a></div>
+</header>
+<div class="banner hidden" id="sampleBanner"></div>
+
+<div class="controls" id="controls" hidden>
+  <div class="ctl"><label for="run">Run</label><select id="run"></select></div>
+</div>
+
+<main id="main" hidden></main>
+<div class="err" id="err" hidden></div>
+<footer id="footer"></footer>
+
+<script>
+"use strict";
+
+const VARIANT_LABEL = {
+  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
+  "rzmq":"rzmq", "celerity":"celerity",
+  "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",
+};
+const ENGINE_COLOR = {
+  "libzmq":"#eab308", "zmq.rs":"#2563eb", "omq":"#7c3aed",
+  "rzmq":"#16a34a", "celerity":"#db2777", "monocoque":"#0d9488",
+};
+const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
+  pubsub:"Pub/Sub", fanout:"Fan-out", fanin:"Fan-in" };
+const KIND_ORDER = ["throughput","latency","pubsub","fanout","fanin"];
+const HAS_PEERS = k => k==="pubsub" || k==="fanout" || k==="fanin";
+const TRANSPORT_ORDER = ["tcp_netns","ipc","inproc"];
+const TRANSPORT_LABEL = { "tcp_netns":"tcp (loopback)", "ipc":"ipc", "inproc":"inproc" };
+const orderTransports = ts => [...ts].sort((a,b)=>{
+  const ia=TRANSPORT_ORDER.indexOf(a), ib=TRANSPORT_ORDER.indexOf(b);
+  return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); });
+
+const el = id => document.getElementById(id);
+const val = id => el(id).value;
+
+let RECORDS=[], VARMETA={};
+const VORDER = Object.keys(VARIANT_LABEL);
+const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
+  return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
+
+function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
+function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"—";
+  if(v>=1e9)return (v/1e9).toFixed(2)+" G"; if(v>=1e6)return (v/1e6).toFixed(2)+" M";
+  if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
+function fmtUs(ns){ const u=ns/1000; return u>=100?u.toFixed(0):u>=10?u.toFixed(1):u.toFixed(2); }
+function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+
+async function fetchJSON(u){ const bust=u+(u.includes("?")?"&":"?")+"_="+Date.now();
+  const r=await fetch(bust,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
+async function loadFrom(base){
+  const m=await fetchJSON(base+"index.json");
+  if(!m.runs||!m.runs.length) throw new Error("empty manifest");
+  const runs=await Promise.all(m.runs.map(async run=>({date:run.date,data:await fetchJSON(base+run.file)})));
+  return runs;
+}
+
+async function load(){
+  let runs, isSample=false;
+  try { runs=await loadFrom("history/"); }
+  catch(e){ runs=await loadFrom("sample/"); isSample=true; }
+  runs.sort((a,b)=>a.date.localeCompare(b.date));
+  RECORDS=[];
+  for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
+  VARMETA={};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
+  const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
+
+  const latest=runs[runs.length-1].data, hw=latest.hardware||{};
+  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
+    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""} · <a href="index.html">interactive dashboard →</a>`;
+  if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
+    b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements."; }
+
+  el("run").innerHTML="";
+  for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
+  el("run").value=dates[dates.length-1];
+  el("run").addEventListener("change", render);
+  el("controls").hidden=false; el("main").hidden=false;
+  render();
+}
+
+function render(){
+  const run=val("run");
+  const recs=RECORDS.filter(r=>r.date===run);
+  const kinds=KIND_ORDER.filter(k=>recs.some(r=>r.kind===k));
+  let html="";
+  for(const kind of kinds){
+    const kr=recs.filter(r=>r.kind===kind);
+    html+=`<section class="card"><h2>${KIND_LABEL[kind]||kind}</h2>`;
+    for(const tr of orderTransports(new Set(kr.map(r=>r.transport)))){
+      const tcr=kr.filter(r=>r.transport===tr);
+      const peers = HAS_PEERS(kind)
+        ? [...new Set(tcr.map(r=>r.peers))].filter(p=>p!=null).sort((a,b)=>a-b)
+        : [null];
+      for(const pe of (peers.length?peers:[null])) html+=table(kind, tr, pe, tcr.filter(r=>pe==null||r.peers===pe));
+    }
+    html+=`</section>`;
+  }
+  el("main").innerHTML=html || `<div class="hint">No data for this run.</div>`;
+}
+
+function table(kind, tr, peers, recs){
+  if(!recs.length) return "";
+  const isLat = kind==="latency";
+  const sizes=[...new Set(recs.map(r=>r.payload_bytes))].sort((a,b)=>a-b);
+  const variants=[...new Set(recs.map(r=>r.variant))].sort(varSort);
+  const title=`${TRANSPORT_LABEL[tr]||tr}${peers!=null?` · ${peers} peers`:""}`;
+  const unit=isLat ? "p50 (p99) in µs · lower is better" : "msgs/s · higher is better";
+  let h=`<h3>${title}<small>${unit}</small></h3><div class="tw"><table><thead><tr><th>Payload</th>`;
+  for(const v of variants) h+=`<th>${swatch(v)}${VARIANT_LABEL[v]||v}</th>`;
+  h+=`</tr></thead><tbody>`;
+  for(const s of sizes){
+    const cells=variants.map(v=>{
+      const r=recs.find(x=>x.payload_bytes===s && x.variant===v);
+      if(!r) return {v,has:false};
+      if(isLat) return {v,has:true,sort:r.latency_ns.p50,
+        disp:`${fmtUs(r.latency_ns.p50)} <small>(${fmtUs(r.latency_ns.p99)})</small>`};
+      return {v,has:true,sort:r.throughput.msgs_per_s,
+        disp:`${fmtMsgs(r.throughput.msgs_per_s)} <small>${r.throughput.mbps.toFixed(0)} MB/s</small>`};
+    });
+    const present=cells.filter(c=>c.has);
+    const best=present.length ? (isLat
+      ? present.reduce((a,b)=>b.sort<a.sort?b:a)
+      : present.reduce((a,b)=>b.sort>a.sort?b:a)) : null;
+    h+=`<tr><td>${fmtPayload(s)}</td>`;
+    for(const c of cells) h+= c.has
+      ? `<td class="${best&&c.v===best.v?"best":""}">${c.disp}</td>`
+      : `<td>—</td>`;
+    h+=`</tr>`;
+  }
+  h+=`</tbody></table></div>`;
+  return h;
+}
+
+el("footer").innerHTML=
+  `<div>zmq-arena · results tables · data under <code>docs/history/</code> (real) and `+
+  `<code>docs/sample/</code> (preview) · <a href="index.html">interactive dashboard</a></div>`+
+  `<div style="margin-top:6px">© ${new Date().getFullYear()} Matheus Santos · `+
+  `<a href="https://github.com/vorjdux/zmq-arena">github.com/vorjdux/zmq-arena</a> · open source, `+
+  `dual-licensed <a href="https://github.com/vorjdux/zmq-arena/blob/main/LICENSE-MIT">MIT</a> or `+
+  `<a href="https://github.com/vorjdux/zmq-arena/blob/main/LICENSE-APACHE">Apache-2.0</a></div>`;
+
+load().catch(e=>{ el("dataSource").textContent="failed to load data";
+  const err=el("err"); err.hidden=false;
+  err.textContent="Could not load results: "+e.message+". Serve this folder over HTTP (browsers block file:// fetches)."; });
+</script>
+</body>
+</html>
