@@ -26,15 +26,22 @@ REPO = Path(__file__).resolve().parent.parent
 # Monocoque's throughput-bench size set.
 DEFAULT_SIZES = [64, 256, 1024, 4096, 16384]
 
-# Count-based kinds: messages per payload size (warmup is 10% of this). Larger
-# payloads carry fewer messages so total bytes and wall time stay bounded.
+# Count-based kinds: messages per payload size. Larger payloads carry fewer
+# messages so total bytes and wall time stay bounded.
+#
+# Warmup differs by kind (see count_cell): latency discards its warmup (untimed
+# REQ round-trips), so it gets a generous 50% to reach steady state and stabilise
+# the tail -- with too little warmup the first cold round-trips dominate p99.9,
+# and too few samples make p99.9 itself noisy. Throughput folds warmup into the
+# timed window, so it keeps a modest 10%.
 THROUGHPUT_MSGS = {64: 200000, 256: 150000, 1024: 100000, 4096: 50000, 16384: 20000}
-LATENCY_MSGS = {64: 20000, 256: 20000, 1024: 20000, 4096: 10000, 16384: 10000}
+LATENCY_MSGS = {64: 40000, 256: 40000, 1024: 30000, 4096: 20000, 16384: 20000}
 
-# Peer counts for the duration-based kinds, and their window.
+# Peer counts for the duration-based kinds, and their window. A longer window
+# averages out scheduling jitter on a shared core.
 PUBSUB_PEERS = 8
 FAN_PEERS = 4
-DURATION_SECS = 2.0
+DURATION_SECS = 3.0
 
 ALL_FIVE = ["throughput", "latency", "pubsub", "fanout", "fanin"]
 
@@ -120,13 +127,16 @@ def target_spec(target, knobs_key):
 
 
 def count_cell(target, kind, transport, size, msgs):
+    # Latency's warmup is discarded, so give it 50%; throughput folds warmup into
+    # the timed window, so keep it at 10%.
+    warmup = msgs // 2 if kind == "latency" else msgs // 10
     return {
         "target": target_spec(target, "count_knobs"),
         "transport": transport,
         "kind": kind,
         "payload_bytes": size,
         "messages": msgs,
-        "warmup_messages": msgs // 10,
+        "warmup_messages": warmup,
     }
 
 
