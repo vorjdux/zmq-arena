@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parent.parent
 VARIANT_KEY = {
     ("omq_tokio", "multi_thread"): "omq_tokio_mt",
     ("omq_compio", "single_thread"): "omq_compio_st",
+    ("monocoque", "tokio"): "monocoque_tokio",
 }
 # Category tags per variant key.
 REGISTRY = {
@@ -40,7 +41,8 @@ REGISTRY = {
     "omq_compio_st": {"engine": "omq",       "io": "io_uring", "threading": "single"},
     "rzmq":          {"engine": "rzmq",      "io": "io_uring", "threading": "multi"},
     "celerity":      {"engine": "celerity",  "io": "epoll",    "threading": "multi"},
-    "monocoque":     {"engine": "monocoque", "io": "io_uring", "threading": "single"},
+    "monocoque":       {"engine": "monocoque", "io": "io_uring", "threading": "single"},
+    "monocoque_tokio": {"engine": "monocoque", "io": "epoll",    "threading": "multi"},
 }
 
 

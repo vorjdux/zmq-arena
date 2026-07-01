@@ -11,7 +11,9 @@
 //!     parses; REP echoes.
 //!
 //! The orchestrator spawns the consumer (binds) first, then the producer
-//! (connects). monocoque runs on the compio io_uring runtime.
+//! (connects). monocoque exposes two runtimes as separate variants: the default
+//! `compio` (io_uring) runs today; `tokio` (epoll) arrives with monocoque-rs
+//! 0.1.6 and reuses the same socket loops over tokio streams.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -81,22 +83,37 @@ struct Cli {
     knobs: Vec<String>,
 }
 
-/// One-line JSON classification the orchestrator captures into each record. The
-/// engine version is read from Cargo.lock at build time (see build.rs).
-fn describe() -> String {
+/// One-line JSON classification the orchestrator captures into each record. It is
+/// variant-aware: monocoque exposes two runtimes, so the `tokio` variant reports
+/// an epoll/multi-thread profile while the default `compio` variant reports
+/// io_uring/single-thread. The engine version is read from Cargo.lock at build
+/// time (see build.rs).
+fn describe(variant: &str) -> String {
+    let (io, threading) = if variant == "tokio" {
+        ("epoll", "multi")
+    } else {
+        ("io_uring", "single")
+    };
     format!(
         concat!(
             "{{\"engine\":\"monocoque\",\"lib_version\":\"{}\",\"binding_version\":null,",
             "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
-            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"single\",\"io\":\"io_uring\"}}"
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"{}\",\"io\":\"{}\"}}"
         ),
-        env!("ENGINE_VERSION")
+        env!("ENGINE_VERSION"),
+        threading,
+        io
     )
 }
 
+fn arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).map(String::as_str)
+}
+
 fn main() -> Result<()> {
-    if std::env::args().nth(1).as_deref() == Some("describe") {
-        println!("{}", describe());
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("describe") {
+        println!("{}", describe(arg_value(&args, "--variant").unwrap_or("default")));
         return Ok(());
     }
     let cli = Cli::parse();
@@ -105,6 +122,21 @@ fn main() -> Result<()> {
         cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
     );
 
+    // The runtime is selected by variant. compio (io_uring) is the default; tokio
+    // arrives with monocoque-rs 0.1.6. The socket loops are identical at the API
+    // level (monocoque's sockets are generic over the stream), so run_tokio will
+    // reuse them over tokio streams once the 0.1.6 constructors are available.
+    match cli.variant.as_str() {
+        "tokio" => bail!(
+            "monocoque tokio runtime needs monocoque-rs 0.1.6 (release in progress); \
+             the compio (io_uring) variant is the default and runs today"
+        ),
+        _ => run_compio(cli),
+    }
+}
+
+/// Drive the socket loops on the compio io_uring runtime (the default variant).
+fn run_compio(cli: Cli) -> Result<()> {
     let ep = parse_endpoint(&cli.endpoint)?;
     let payload = Bytes::from(vec![b'x'; cli.payload_bytes as usize]);
     let role = cli.role;
