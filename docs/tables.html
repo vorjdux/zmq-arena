@@ -22,6 +22,12 @@
   h1.logo img { height:104px; width:auto; max-width:100%; display:block; }
   .sub { color:var(--muted); flex:1 1 300px; text-align:right; min-width:0; }
   .sub code { color:var(--fg); }
+  .topnav { display:flex; gap:2px; padding:0 24px; border-bottom:1px solid var(--line); }
+  .topnav a { padding:9px 15px; color:var(--muted); text-decoration:none;
+    border-bottom:2px solid transparent; font-size:14px; }
+  .topnav a:hover { color:var(--fg); }
+  .topnav a.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  @media (max-width:640px){ .topnav{ padding:0 8px; } }
   .sub a { color:var(--accent); }
   .controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap;
     align-items:flex-end; gap:13px 16px; padding:13px 24px; margin-top:12px;
@@ -71,8 +77,9 @@
 <body>
 <header>
   <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
-  <div class="sub" id="dataSource">loading… · <a href="index.html">interactive dashboard →</a></div>
+  <div class="sub" id="dataSource">loading…</div>
 </header>
+<nav class="topnav"><a href="index.html">Overview</a><a href="explore.html">Explore</a><a href="tables.html" class="active">Tables</a></nav>
 <div class="banner hidden" id="sampleBanner"></div>
 
 <div class="controls" id="controls" hidden>
@@ -143,7 +150,7 @@ async function load(){
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
-    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""} · <a href="index.html">interactive dashboard →</a>`;
+    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements."; }
 

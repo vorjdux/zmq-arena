@@ -175,39 +175,36 @@ bare metal.
 
 ## Dashboard
 
-`docs/index.html` is a self-contained page (Apache ECharts, no build step) meant
-for GitHub Pages with the source set to `docs/`. It reads the run archives under
-`docs/history/` and falls back to synthetic sample data under `docs/sample/`
-until the first real run lands.
+The `docs/` pages are self-contained (Apache ECharts, no build step) and meant
+for GitHub Pages with the source set to `docs/`. They read the run archives under
+`docs/history/` and fall back to synthetic sample data under `docs/sample/` until
+the first real run lands. A top nav links three pages.
 
-It has four views driven by one control bar: an evolution chart of each variant
-across weekly runs, a payload size sweep for one run, a ranking table for the
-chosen combination, and a global ranking across every benchmark in the run. You
-pick the benchmark kind, metric, transport, peers, and payload; the variant
-picker (with category presets) chooses which series are in play; and "color by"
-groups them by engine, io model, threading, sync/async, native/ffi, library
-language, wrapper language, or individual variant. The metric list follows the
-kind: latency quantiles for latency, msgs/s and MB/s for the throughput family,
-plus CPU, context switches, syscalls, and memory throughout.
+`index.html` is the Overview: the landing page. It leads with the global ranking,
+a leaderboard that averages each library's rank position across every benchmark
+in the run (latency and throughput count equally) so one number says who is ahead
+overall, with the mean CPU and memory footprint alongside. Below it is a grid of
+small-multiple panels, one per scenario (throughput ipc, latency tcp, pub/sub,
+fan-out, fan-in, ...), each plotting payload size against the metric with one line
+per library. Every library keeps the same colour in every panel, so you can read
+the whole comparison at a glance without picking. The library chips act as a
+shared legend and filter; a segmented control switches the latency percentile and
+throughput unit; and Grid/Focus toggles between all panels open and an accordion.
+
+`explore.html` is the interactive drill-down for one combination at a time: an
+evolution chart across runs, a payload sweep, and a per-combination ranking, with
+the full control bar (kind, metric, transport, peers, payload, run, color-by).
+Useful once there are many weekly runs to watch a library move over time.
+
+`tables.html` is the numbers: for each kind and transport it renders a payload-size
+by library table with the metric in each cell (msgs/s for the throughput family,
+p50 with p99 for latency), best-in-row highlighted, in the style of a benchmark
+report.
 
 Each series carries the classification and library version the target reported
-through `describe`, so a chip reads, say, `rust-zmq 4.3.4 (FFI→C)` while the C++
-`libzmq 4.3.5` sits beside it. The combination ranking sorts the selected metric
-for one cell; the global ranking averages each variant's rank position across
-every cell in the run, so latency and throughput count equally and one number
-says who is ahead overall. Both rankings also show CPU time and memory footprint,
-grouped across all of the cell's processes, so you can read how heavy each library
-runs, not just how fast. Library versions are tracked per run, so the evolution
-view shows them moving over time.
-
-`docs/tables.html` is a companion static-tables view of the same data (no
-charts): for each kind and transport it renders a payload-size by variant table
-with the metric in each cell (msgs/s for the throughput family, p50 with p99 for
-latency), best-in-row highlighted, in the style of a benchmark report. The two
-pages cross-link. Pick a run at the top.
-
-Serve either locally with `cd docs && python3 -m http.server`, since browsers
-block `fetch` over `file://`.
+through `describe`, so a row reads, say, `rust-zmq 4.3.4` next to the C++
+`libzmq 4.3.5`. Serve locally with `cd docs && python3 -m http.server`, since
+browsers block `fetch` over `file://`.
 
 ## The weekly grid
 
