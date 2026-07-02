@@ -32,8 +32,7 @@ pub struct Cgroup {
 }
 
 fn write_file(path: &Path, content: &str) -> Result<()> {
-    fs::write(path, content)
-        .with_context(|| format!("writing {:?} to {}", content, path.display()))
+    fs::write(path, content).with_context(|| format!("writing {:?} to {}", content, path.display()))
 }
 
 impl Cgroup {
@@ -51,10 +50,7 @@ impl Cgroup {
     /// the unified root and the leaf's parent, so the leaf can use them.
     pub fn create(&self) -> Result<()> {
         let root = Path::new(CGROUP_ROOT);
-        let parent = self
-            .path
-            .parent()
-            .expect("leaf cgroup always has a parent");
+        let parent = self.path.parent().expect("leaf cgroup always has a parent");
 
         // Ancestors from root down to (and including) the leaf's parent: these
         // are the nodes that must enable the controllers in subtree_control.
@@ -83,8 +79,7 @@ impl Cgroup {
         }
 
         if !self.path.exists() {
-            fs::create_dir(&self.path)
-                .with_context(|| format!("mkdir {}", self.path.display()))?;
+            fs::create_dir(&self.path).with_context(|| format!("mkdir {}", self.path.display()))?;
         }
         Ok(())
     }
@@ -129,8 +124,7 @@ impl Cgroup {
         } else {
             self.path.join("memory.current")
         };
-        let raw = fs::read_to_string(&src)
-            .with_context(|| format!("reading {}", src.display()))?;
+        let raw = fs::read_to_string(&src).with_context(|| format!("reading {}", src.display()))?;
         Ok(raw.trim().parse().unwrap_or(0))
     }
 }

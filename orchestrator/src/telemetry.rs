@@ -79,8 +79,10 @@ pub fn rusage_children() -> (f64, SchedCounters) {
         if libc::getrusage(libc::RUSAGE_CHILDREN, &mut ru) != 0 {
             return (0.0, SchedCounters::default());
         }
-        let cpu = ru.ru_utime.tv_sec as f64 + ru.ru_utime.tv_usec as f64 / 1e6
-            + ru.ru_stime.tv_sec as f64 + ru.ru_stime.tv_usec as f64 / 1e6;
+        let cpu = ru.ru_utime.tv_sec as f64
+            + ru.ru_utime.tv_usec as f64 / 1e6
+            + ru.ru_stime.tv_sec as f64
+            + ru.ru_stime.tv_usec as f64 / 1e6;
         let sched = SchedCounters {
             voluntary_ctxt_switches: ru.ru_nvcsw.max(0) as u64,
             involuntary_ctxt_switches: ru.ru_nivcsw.max(0) as u64,
@@ -267,11 +269,7 @@ fn open_tracepoint(pid: u32, name: &str) -> Option<i32> {
     // SAFETY: attr is fully initialized; pid scoping with cpu=-1 counts the task
     // across all CPUs. Returns a non-negative fd on success.
     let fd = unsafe { perf::perf_event_open(&mut attr, pid as i32, -1, -1, 0) };
-    if fd < 0 {
-        None
-    } else {
-        Some(fd)
-    }
+    if fd < 0 { None } else { Some(fd) }
 }
 
 /// Open the cgroup leaf directory so it can be passed as the "pid" argument of a
@@ -311,9 +309,5 @@ fn read_counter(fd: i32) -> u64 {
     let mut v: u64 = 0;
     // SAFETY: a perf_event counter fd yields a u64 count on read.
     let n = unsafe { libc::read(fd, (&mut v as *mut u64).cast::<libc::c_void>(), 8) };
-    if n == 8 {
-        v
-    } else {
-        0
-    }
+    if n == 8 { v } else { 0 }
 }

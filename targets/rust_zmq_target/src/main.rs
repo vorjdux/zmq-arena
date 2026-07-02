@@ -97,7 +97,7 @@ fn main() -> Result<()> {
     let payload = vec![b'x'; cli.payload_bytes as usize];
     let duration = Duration::from_secs_f64(cli.duration_secs);
     match cli.kind.as_str() {
-        "throughput" => run_throughput(&cli, &knobs, cli.messages + cli.warmup, &payload),
+        "throughput" => run_throughput(&cli, &knobs, cli.messages, cli.warmup, &payload),
         "latency" => run_latency(&cli, &knobs, cli.messages, cli.warmup, &payload),
         "pubsub" => run_pubsub(&cli, &knobs, duration, &payload),
         "fanout" => run_fanout(&cli, &knobs, duration, &payload),
@@ -128,9 +128,20 @@ fn apply_hwm(sock: &zmq::Socket, knobs: &BTreeMap<String, String>) -> Result<()>
 
 // ── throughput (PUSH/PULL) ──────────────────────────────────────────────────
 
-/// PULL binds and receives exactly `total`; PUSH connects and sends `total`.
-/// PUSH/PULL is lossless under HWM back-pressure, so the counts match.
-fn run_throughput(cli: &Cli, knobs: &BTreeMap<String, String>, total: u64, payload: &[u8]) -> Result<()> {
+/// PUSH sends `messages + warmup`; PULL receives the `warmup` prefix untimed, then
+/// times only the `messages` steady-state block and prints
+/// `THROUGHPUT <measured> <elapsed_secs>`. Timing the measured block inside the
+/// target (not the orchestrator's wall clock) keeps process spawn, the connection
+/// handshake, and the warmup transfer out of the rate. PUSH/PULL is lossless under
+/// HWM back-pressure, so the counts match.
+fn run_throughput(
+    cli: &Cli,
+    knobs: &BTreeMap<String, String>,
+    messages: u64,
+    warmup: u64,
+    payload: &[u8],
+) -> Result<()> {
+    let total = messages + warmup;
     let ctx = make_context(knobs)?;
     match cli.role {
         Role::Sub => {
@@ -138,11 +149,25 @@ fn run_throughput(cli: &Cli, knobs: &BTreeMap<String, String>, total: u64, paylo
             apply_hwm(&sock, knobs)?;
             sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
             let mut buf = vec![0u8; payload.len().max(1)];
+            // Drain the warmup prefix untimed, then time the measured block.
             let mut count = 0u64;
-            while count < total {
-                sock.recv_into(&mut buf, 0)?;
+            while count < warmup {
+                if sock.recv_into(&mut buf, 0).is_err() {
+                    break; // connection closed early
+                }
                 count += 1;
             }
+            let t0 = Instant::now();
+            let mut measured = 0u64;
+            while count < total {
+                if sock.recv_into(&mut buf, 0).is_err() {
+                    break; // connection closed early
+                }
+                count += 1;
+                measured += 1;
+            }
+            let elapsed = t0.elapsed().as_secs_f64().max(1e-9);
+            println!("THROUGHPUT {measured} {elapsed:.6}");
         }
         Role::Pub => {
             let sock = ctx.socket(zmq::PUSH)?;

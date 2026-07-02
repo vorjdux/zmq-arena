@@ -103,10 +103,85 @@ pub struct Isolation {
     pub memory_max_bytes: u64,
 }
 
+/// Replication policy: how many times each cell is measured and when the
+/// adaptive loop is allowed to stop early. A single measurement on a shared host
+/// is one noisy draw; replicating and taking a robust central estimate is what
+/// makes the numbers reproducible. Every field defaults, so a matrix that omits
+/// the `replication` block still loads and runs with sane values.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Replication {
+    /// Minimum measured replicates before the stability gate is even checked.
+    /// Below ~5 the median and IQR are themselves too noisy to trust.
+    #[serde(default = "default_min_replicates")]
+    pub min_replicates: usize,
+    /// Hard ceiling on measured replicates per cell. The adaptive loop stops
+    /// here even if the cell never reaches `target_rel_iqr` (some cells on a
+    /// shared core simply never stabilise; they get flagged, not chased forever).
+    #[serde(default = "default_max_replicates")]
+    pub max_replicates: usize,
+    /// Whole interleaved rounds run and discarded before measurement begins, to
+    /// warm the page cache, CPU caches, and branch predictors. 0 disables it.
+    #[serde(default = "default_warmup_replicates")]
+    pub warmup_replicates: usize,
+    /// Convergence target on the primary metric's relative IQR (IQR / median).
+    /// Once a cell is at or below this after `min_replicates`, it stops early.
+    #[serde(default = "default_target_rel_iqr")]
+    pub target_rel_iqr: f64,
+    /// Hampel filter aggressiveness: replicates more than `mad_k` scaled-MAD from
+    /// the median are rejected as outliers before the final estimate. 3.0 is the
+    /// conventional choice (≈3σ for normal data).
+    #[serde(default = "default_mad_k")]
+    pub mad_k: f64,
+    /// Ceiling on the fraction of replicates the Hampel filter may reject before
+    /// the cell is declared un-trustworthy. A lone stalled replicate is a true
+    /// outlier; but when a *large* share sit far from the median the data is
+    /// bimodal or drifting, and the tight spread of whatever survived is false
+    /// confidence: the filter has just locked onto one mode. Such a cell is
+    /// flagged UNSTABLE regardless of the surviving IQR. 0.25 = reject at most a
+    /// quarter.
+    #[serde(default = "default_max_outlier_frac")]
+    pub max_outlier_frac: f64,
+}
+
+fn default_min_replicates() -> usize {
+    5
+}
+fn default_max_replicates() -> usize {
+    11
+}
+fn default_warmup_replicates() -> usize {
+    1
+}
+fn default_target_rel_iqr() -> f64 {
+    0.05
+}
+fn default_mad_k() -> f64 {
+    3.0
+}
+fn default_max_outlier_frac() -> f64 {
+    0.25
+}
+
+impl Default for Replication {
+    fn default() -> Self {
+        Replication {
+            min_replicates: default_min_replicates(),
+            max_replicates: default_max_replicates(),
+            warmup_replicates: default_warmup_replicates(),
+            target_rel_iqr: default_target_rel_iqr(),
+            mad_k: default_mad_k(),
+            max_outlier_frac: default_max_outlier_frac(),
+        }
+    }
+}
+
 /// Top-level run definition loaded from `matrix.json`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunConfig {
     pub isolation: Isolation,
+    /// Replication policy for the whole grid. Defaults when absent.
+    #[serde(default)]
+    pub replication: Replication,
     pub entries: Vec<MatrixEntry>,
 }
 

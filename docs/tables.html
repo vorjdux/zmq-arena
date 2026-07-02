@@ -55,6 +55,7 @@
   td small { color:var(--muted); }
   .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .best { color:var(--accent); font-weight:700; }
+  .lowconf { color:var(--warn); cursor:help; font-weight:700; margin-left:3px; }
   .hint { color:var(--muted); font-size:13px; }
   .err { padding:24px; color:var(--warn); }
   footer { color:var(--muted); font-size:12px; text-align:center;
@@ -127,6 +128,13 @@ function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"—";
   if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
 function fmtUs(ns){ const u=ns/1000; return u>=100?u.toFixed(0):u>=10?u.toFixed(1):u.toFixed(2); }
 function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+// Low-confidence marker: a cell whose replicates did not converge (relative IQR
+// above target) gets a ‡ with the spread + replicate count on hover, so a noisy
+// number is never read as if it were solid.
+function conf(r){ const s=r.stability; if(!s||s.stable) return "";
+  const pct=(s.rel_iqr*100).toFixed(1);
+  return ` <span class="lowconf" title="low confidence: replicates did not `+
+    `converge, relative IQR ${pct}% (n=${s.n}${s.outliers_dropped?`, ${s.outliers_dropped} outlier(s) dropped`:""})">‡</span>`; }
 
 async function fetchJSON(u){ const bust=u+(u.includes("?")?"&":"?")+"_="+Date.now();
   const r=await fetch(bust,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
@@ -179,7 +187,13 @@ function render(){
     }
     html+=`</section>`;
   }
-  el("main").innerHTML=html || `<div class="hint">No data for this run.</div>`;
+  const anyLowConf = recs.some(r=>r.stability && !r.stability.stable);
+  const legend = anyLowConf
+    ? `<div class="hint"><span class="lowconf">‡</span> marks a low-confidence `+
+      `cell: its replicates did not converge (relative IQR above target). Hover `+
+      `for the spread. Values are the median across replicates, outliers rejected.</div>`
+    : "";
+  el("main").innerHTML=(legend+html) || `<div class="hint">No data for this run.</div>`;
 }
 
 function table(kind, tr, peers, recs){
@@ -197,9 +211,9 @@ function table(kind, tr, peers, recs){
       const r=recs.find(x=>x.payload_bytes===s && x.variant===v);
       if(!r) return {v,has:false};
       if(isLat) return {v,has:true,sort:r.latency_ns.p50,
-        disp:`${fmtUs(r.latency_ns.p50)} <small>(${fmtUs(r.latency_ns.p99)})</small>`};
+        disp:`${fmtUs(r.latency_ns.p50)} <small>(${fmtUs(r.latency_ns.p99)})</small>${conf(r)}`};
       return {v,has:true,sort:r.throughput.msgs_per_s,
-        disp:`${fmtMsgs(r.throughput.msgs_per_s)} <small>${r.throughput.mbps.toFixed(0)} MB/s</small>`};
+        disp:`${fmtMsgs(r.throughput.msgs_per_s)} <small>${r.throughput.mbps.toFixed(0)} MB/s</small>${conf(r)}`};
     });
     const present=cells.filter(c=>c.has);
     const best=present.length ? (isLat

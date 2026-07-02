@@ -14,6 +14,12 @@ targets/libzmq_cpp_target/build/
 *.hgrm
 *.profraw
 
+# Rendered run archives. These are regenerated on every run from scratch/ by
+# scripts/render_results.py; keep them out of version control so local dev-host
+# runs (non-admissible numbers) don't churn the repo. index.json is the manifest
+# render rewrites, so it is ignored too.
+docs/history/*
+
 # Cargo.lock is intentionally NOT ignored. Every project here is a binary, and
 # the arena requires deterministic builds: the orchestrator and each standalone
 # target commit their lockfiles so a grid run is reproducible.

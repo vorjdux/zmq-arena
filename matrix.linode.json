@@ -5,6 +5,14 @@
     "cpuset_mems": "0",
     "memory_max_bytes": 268435456
   },
+  "replication": {
+    "min_replicates": 5,
+    "max_replicates": 11,
+    "warmup_replicates": 1,
+    "target_rel_iqr": 0.05,
+    "mad_k": 3.0,
+    "max_outlier_frac": 0.25
+  },
   "entries": [
     {
       "target": {
