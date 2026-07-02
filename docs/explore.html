@@ -95,7 +95,7 @@
 </head>
 <body>
 <header>
-  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
   <div class="sub" id="dataSource">loading…</div>
 </header>
 <nav class="topnav"><a href="index.html">Overview</a><a href="explore.html" class="active">Explore</a><a href="tables.html">Tables</a></nav>
@@ -142,7 +142,7 @@
 <main id="main" hidden>
   <section class="card">
     <h2 id="evoTitle">Evolution over time</h2>
-    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category. A hollow amber marker flags a low-confidence point whose replicates did not converge.</div>
+    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category. A hollow amber marker flags a low-confidence point whose replicates did not converge; a solid red marker flags a suspect point whose throughput is beaten by a larger payload (a measurement or config artifact, not a real result).</div>
     <div id="evoChart" class="chart"></div>
   </section>
   <div class="row2">
@@ -196,10 +196,21 @@ const HAS_PEERS = k => k === "pubsub" || k === "fanout" || k === "fanin";
 const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
   pubsub:"PUB/SUB throughput", fanout:"Fan-out (1→N)", fanin:"Fan-in (N→1)" };
 
+// Kernel I/O syscalls per 1000 messages. Uses the render step's normalized
+// figures so io_uring_enter (a batched syscall that reaps many completions per
+// call) is comparable to an epoll engine's per-readiness epoll_wait, instead of
+// a raw count that flatters the batched path. Returns null (plotted as a gap, not
+// a misleading 0) when the perf counters were not captured, e.g. an unprivileged
+// run. Legacy records without the normalized block also return null.
+function iosysPerK(r){
+  const p = r.syscalls_per_kmsg;
+  if(!p || r.syscalls_captured===false) return null;
+  return (p.io_uring_enter||0)+(p.epoll_wait||0)+(p.sendmsg||0)+(p.recvmsg||0);
+}
 const SHARED_METRICS = [
   {key:"cpu",   label:"CPU time (all procs)", unit:"s",  better:"lower",  get:r=>r.cpu_seconds},
   {key:"invol", label:"Involuntary ctx-sw",unit:"count", better:"lower",  get:r=>r.sched.involuntary},
-  {key:"iosys", label:"I/O syscalls",      unit:"count", better:"lower",  get:r=>r.syscalls.sendmsg+r.syscalls.recvmsg+r.syscalls.io_uring_enter},
+  {key:"iosys", label:"Kernel I/O syscalls", unit:"/1k msg", better:"lower", get:iosysPerK},
   {key:"mem",   label:"Memory footprint",  unit:"MB",    better:"lower",  get:r=>r.peak_memory_bytes/1e6},
 ];
 const LATENCY_METRICS = [
@@ -379,17 +390,22 @@ function mkSeries(v,data,style){
 
 function vlist(){ return VARIANTS.filter(v=>selected.has(v)); }
 
-// A record whose replicates did not converge. Such points are drawn as a hollow
-// amber marker so a noisy number is visibly distinct from a settled one.
+// Per-point styling for two failure modes. An inverted cell (msgs/s beaten by a
+// larger payload, physically impossible on one path) is drawn as a solid red
+// marker, because it is suspect regardless of how tight its spread is. A merely
+// noisy cell (replicates did not converge) is a hollow amber marker. Inverted
+// wins. Everything else plots as a bare value.
 function lowConf(rec){ return !!(rec && rec.stability && !rec.stability.stable); }
+function inverted(rec){ return !!(rec && rec.stability && rec.stability.inverted); }
 const LOWCONF_STYLE = { symbol:"emptyCircle", symbolSize:9,
   itemStyle:{ color:"#f59e0b", borderColor:"#f59e0b", borderWidth:2 } };
-// Wrap a plotted value in a per-point style object when its record is
-// low-confidence; otherwise return the bare value ECharts expects.
+const INVERTED_STYLE = { symbol:"circle", symbolSize:11,
+  itemStyle:{ color:"#ef4444", borderColor:"#ef4444", borderWidth:2 } };
+function pointStyle(rec){ return inverted(rec) ? INVERTED_STYLE : lowConf(rec) ? LOWCONF_STYLE : null; }
 function evoPoint(rec,v){ if(v==null) return null;
-  return lowConf(rec) ? {value:v, ...LOWCONF_STYLE} : v; }
+  const st=pointStyle(rec); return st ? {value:v, ...st} : v; }
 function sweepPoint(rec,p,v){ if(v==null) return [p,null];
-  return lowConf(rec) ? {value:[p,v], ...LOWCONF_STYLE} : [p,v]; }
+  const st=pointStyle(rec); return st ? {value:[p,v], ...st} : [p,v]; }
 
 function renderEvolution(){
   const m=metricDef(), kind=val("kind"), tr=val("transport"), pay=+val("payload"), pe=currentPeers();
@@ -451,9 +467,9 @@ function renderRanking(){
     const cpu=r.rec?r.rec.cpu_seconds:null, mem=r.rec?r.rec.peak_memory_bytes/1e6:null;
     html+=`<tr><td>${i+1}</td>`+
       `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
-      `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
+      `<td><small>${verTag(r.v,run)||"-"}</small></td>`+
       `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td>`+
-      `<td>${cpu==null?"—":cpu.toFixed(3)}</td><td>${mem==null?"—":mem.toFixed(1)}</td></tr>`;
+      `<td>${cpu==null?"-":cpu.toFixed(3)}</td><td>${mem==null?"-":mem.toFixed(1)}</td></tr>`;
   });
   html+="</tbody></table>";
   if(!rows.length) html=`<div class="hint">No data for this combination.</div>`;
@@ -500,9 +516,9 @@ function renderGlobalRanking(){
   rows.forEach((r,i)=>{ const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
       `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
-      `<td><small>${verTag(r.v,run)||"—"}</small></td>`+
+      `<td><small>${verTag(r.v,run)||"-"}</small></td>`+
       `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td>`+
-      `<td>${r.cpu==null?"—":r.cpu.toFixed(3)}</td><td>${r.mem==null?"—":r.mem.toFixed(1)}</td></tr>`;
+      `<td>${r.cpu==null?"-":r.cpu.toFixed(3)}</td><td>${r.mem==null?"-":r.mem.toFixed(1)}</td></tr>`;
   });
   html+="</tbody></table>";
   if(!rows.length) html=`<div class="hint">Select variants to build a global ranking.</div>`;

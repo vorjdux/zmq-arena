@@ -56,6 +56,7 @@
   .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .best { color:var(--accent); font-weight:700; }
   .lowconf { color:var(--warn); cursor:help; font-weight:700; margin-left:3px; }
+  .inverted { color:#ef4444; cursor:help; font-weight:800; margin-left:3px; }
   .hint { color:var(--muted); font-size:13px; }
   .err { padding:24px; color:var(--warn); }
   footer { color:var(--muted); font-size:12px; text-align:center;
@@ -77,7 +78,7 @@
 </head>
 <body>
 <header>
-  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
   <div class="sub" id="dataSource">loading…</div>
 </header>
 <nav class="topnav"><a href="index.html">Overview</a><a href="explore.html">Explore</a><a href="tables.html" class="active">Tables</a></nav>
@@ -123,18 +124,24 @@ const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
 function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
-function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"—";
+function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+" G"; if(v>=1e6)return (v/1e6).toFixed(2)+" M";
   if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
 function fmtUs(ns){ const u=ns/1000; return u>=100?u.toFixed(0):u>=10?u.toFixed(1):u.toFixed(2); }
 function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
-// Low-confidence marker: a cell whose replicates did not converge (relative IQR
-// above target) gets a ‡ with the spread + replicate count on hover, so a noisy
-// number is never read as if it were solid.
-function conf(r){ const s=r.stability; if(!s||s.stable) return "";
+// Two markers. An inverted cell (msgs/s beaten by a larger payload, physically
+// impossible on one path) gets a bold "!", because reproducible does not mean
+// correct. A merely noisy cell (replicates did not converge) gets a "?". Inverted
+// wins if both apply.
+function conf(r){ const s=r.stability; if(!s) return "";
+  if(s.inverted)
+    return ` <span class="inverted" title="suspect: msgs/s is beaten by a larger `+
+      `payload in this sweep, which is impossible on one path. Likely a measurement `+
+      `or socket-config artifact, not a real result.">!</span>`;
+  if(s.stable) return "";
   const pct=(s.rel_iqr*100).toFixed(1);
   return ` <span class="lowconf" title="low confidence: replicates did not `+
-    `converge, relative IQR ${pct}% (n=${s.n}${s.outliers_dropped?`, ${s.outliers_dropped} outlier(s) dropped`:""})">‡</span>`; }
+    `converge, relative IQR ${pct}% (n=${s.n}${s.outliers_dropped?`, ${s.outliers_dropped} outlier(s) dropped`:""})">?</span>`; }
 
 async function fetchJSON(u){ const bust=u+(u.includes("?")?"&":"?")+"_="+Date.now();
   const r=await fetch(bust,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
@@ -187,12 +194,18 @@ function render(){
     }
     html+=`</section>`;
   }
-  const anyLowConf = recs.some(r=>r.stability && !r.stability.stable);
-  const legend = anyLowConf
-    ? `<div class="hint"><span class="lowconf">‡</span> marks a low-confidence `+
+  const anyLowConf = recs.some(r=>r.stability && !r.stability.stable && !r.stability.inverted);
+  const anyInverted = recs.some(r=>r.stability && r.stability.inverted);
+  let legend = "";
+  if(anyInverted)
+    legend += `<div class="hint"><span class="inverted">!</span> marks a suspect `+
+      `cell: its msgs/s is beaten by a larger payload in the same sweep, which is `+
+      `impossible on one path, so the number is a measurement or config artifact. `+
+      `Reproducible is not the same as correct.</div>`;
+  if(anyLowConf)
+    legend += `<div class="hint"><span class="lowconf">?</span> marks a low-confidence `+
       `cell: its replicates did not converge (relative IQR above target). Hover `+
-      `for the spread. Values are the median across replicates, outliers rejected.</div>`
-    : "";
+      `for the spread. Values are the median across replicates, outliers rejected.</div>`;
   el("main").innerHTML=(legend+html) || `<div class="hint">No data for this run.</div>`;
 }
 
@@ -222,7 +235,7 @@ function table(kind, tr, peers, recs){
     h+=`<tr><td>${fmtPayload(s)}</td>`;
     for(const c of cells) h+= c.has
       ? `<td class="${best&&c.v===best.v?"best":""}">${c.disp}</td>`
-      : `<td>—</td>`;
+      : `<td>-</td>`;
     h+=`</tr>`;
   }
   h+=`</tbody></table></div>`;
