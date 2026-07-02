@@ -17,6 +17,7 @@
 
 mod cgroups;
 mod config;
+mod stats;
 mod telemetry;
 
 use std::collections::HashMap;
@@ -32,11 +33,16 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
 use crate::cgroups::Cgroup;
-use crate::config::{Isolation, Kind, MatrixEntry, RunConfig, Transport};
+use crate::config::{Isolation, Kind, MatrixEntry, Replication, RunConfig, Transport};
+use crate::stats::Stability;
 use crate::telemetry::{LatencySnapshot, SchedCounters, SyscallCounters, Throughput};
 
 #[derive(Parser)]
-#[command(name = "zmq-arena", version, about = "ZMTP benchmarking arena control plane")]
+#[command(
+    name = "zmq-arena",
+    version,
+    about = "ZMTP benchmarking arena control plane"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -64,6 +70,10 @@ struct RunArgs {
     /// targets. Safe to run unprivileged.
     #[arg(long)]
     dry_run: bool,
+    /// Force a fixed replicate count per cell (min=max=N, no warmup round),
+    /// overriding the matrix's adaptive policy. For quick local iteration.
+    #[arg(long)]
+    replicates: Option<usize>,
 }
 
 /// One serialized measurement cell: the input cell plus all captured telemetry.
@@ -81,6 +91,12 @@ struct CellRecord {
     syscalls: SyscallCounters,
     sched: SchedCounters,
     peak_memory_bytes: u64,
+    /// Robust spread of the cell's primary metric (msgs/s for the throughput
+    /// family, p50 latency for latency) across replicates, with the outlier and
+    /// confidence bookkeeping. Absent on a legacy single-shot record; the render
+    /// step treats a missing block as "one replicate, unknown spread".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stability: Option<Stability>,
 }
 
 /// Self-reported target classification. The target is the source of truth: the
@@ -123,7 +139,10 @@ struct TargetMeta {
 fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> TargetMeta {
     static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), TargetMeta>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = (binary.to_path_buf(), variant.unwrap_or("default").to_string());
+    let key = (
+        binary.to_path_buf(),
+        variant.unwrap_or("default").to_string(),
+    );
     if let Some(m) = cache.lock().unwrap().get(&key) {
         return m.clone();
     }
@@ -138,8 +157,14 @@ fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> Targe
         .filter(|o| o.status.success())
         .and_then(|o| serde_json::from_slice::<TargetMeta>(&o.stdout).ok())
         .unwrap_or_else(|| {
-            eprintln!("  note: {} has no usable `describe`; recording id only", binary.display());
-            TargetMeta { engine: fallback_id.to_string(), ..Default::default() }
+            eprintln!(
+                "  note: {} has no usable `describe`; recording id only",
+                binary.display()
+            );
+            TargetMeta {
+                engine: fallback_id.to_string(),
+                ..Default::default()
+            }
         });
     cache.lock().unwrap().insert(key, meta.clone());
     meta
@@ -148,8 +173,12 @@ fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> Targe
 fn cell_id(entry: &MatrixEntry, index: usize) -> String {
     format!(
         "{}-{:?}-{:?}-{}b-p{}-{:03}",
-        entry.target.id, entry.transport, entry.kind,
-        entry.payload_bytes, entry.peers.unwrap_or(0), index
+        entry.target.id,
+        entry.transport,
+        entry.kind,
+        entry.payload_bytes,
+        entry.peers.unwrap_or(0),
+        index
     )
     .to_lowercase()
 }
@@ -161,26 +190,53 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Mutable per-cell accumulator for the interleaved replication loop.
+struct CellAcc<'a> {
+    id: String,
+    entry: &'a MatrixEntry,
+    /// Successful replicate records, in execution order.
+    records: Vec<CellRecord>,
+    /// The primary metric of each successful replicate, aligned with `records`.
+    primary: Vec<f64>,
+    /// Replicate attempts that errored (timeout, no output, …).
+    failures: usize,
+    /// Set once the cell has converged or hit the replicate ceiling.
+    done: bool,
+}
+
 fn run(args: RunArgs) -> anyhow::Result<()> {
     let cfg = RunConfig::load(&args.matrix)
         .with_context(|| format!("loading matrix {}", args.matrix.display()))?;
 
+    // A CLI --replicates N forces a fixed count (min=max=N, no warmup) for quick
+    // local iteration; otherwise the matrix's adaptive policy applies.
+    let rep = match args.replicates {
+        Some(n) => {
+            let n = n.max(1);
+            Replication {
+                min_replicates: n,
+                max_replicates: n,
+                warmup_replicates: 0,
+                ..cfg.replication
+            }
+        }
+        None => cfg.replication,
+    };
+
     eprintln!(
-        "zmq-arena: run_id={} cells={} dry_run={}",
+        "zmq-arena: run_id={} cells={} dry_run={} replicates={}..{} warmup={} target_rel_iqr={}",
         args.run_id,
         cfg.entries.len(),
-        args.dry_run
+        args.dry_run,
+        rep.min_replicates,
+        rep.max_replicates,
+        rep.warmup_replicates,
+        rep.target_rel_iqr,
     );
 
-    if !args.dry_run {
-        std::fs::create_dir_all(&args.out)
-            .with_context(|| format!("creating output dir {}", args.out.display()))?;
-    }
-
-    for (i, entry) in cfg.entries.iter().enumerate() {
-        let id = cell_id(entry, i);
-
-        if args.dry_run {
+    if args.dry_run {
+        for (i, entry) in cfg.entries.iter().enumerate() {
+            let id = cell_id(entry, i);
             eprintln!(
                 "  plan {id}: target={} variant={} transport={:?} kind={:?} peers={:?} payload={}B msgs={} (knobs: {})",
                 entry.target.id,
@@ -192,22 +248,202 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
                 entry.messages,
                 format_knobs(entry),
             );
-            continue;
         }
+        return Ok(());
+    }
 
-        match execute_cell(&args.run_id, &id, entry, &cfg.isolation) {
-            Ok(record) => {
-                let out_path = args.out.join(format!("{id}.json"));
-                std::fs::write(&out_path, serde_json::to_vec_pretty(&record)?)
-                    .with_context(|| format!("writing record {}", out_path.display()))?;
-                eprintln!("  done {id} -> {}", out_path.display());
-            }
-            // One bad cell should not abort the grid.
-            Err(e) => eprintln!("  skip {id}: {e:#}"),
+    std::fs::create_dir_all(&args.out)
+        .with_context(|| format!("creating output dir {}", args.out.display()))?;
+
+    let mut cells: Vec<CellAcc> = cfg
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| CellAcc {
+            id: cell_id(entry, i),
+            entry,
+            records: Vec::new(),
+            primary: Vec::new(),
+            failures: 0,
+            done: false,
+        })
+        .collect();
+
+    // Warmup rounds: run every cell once per round and discard the result, to
+    // warm caches and page-in the binaries before any measured replicate. These
+    // are interleaved (a whole pass per round) like the measured rounds below.
+    for w in 0..rep.warmup_replicates {
+        eprintln!("  warmup round {}/{}", w + 1, rep.warmup_replicates);
+        for cell in &cells {
+            let _ = execute_cell(&args.run_id, &cell.id, cell.entry, &cfg.isolation);
         }
     }
 
+    // Measured rounds, interleaved: each round runs one replicate of every cell
+    // that has not yet converged. Interleaving (rather than N back-to-back
+    // replicates per cell) spreads each cell's replicates across wall-clock time,
+    // so a transient (a background task, a scheduler hiccup) lands on different
+    // cells' single replicates and is rejected as an outlier, instead of biasing
+    // every replicate of one clustered cell identically.
+    for round in 0..rep.max_replicates {
+        let active = cells.iter().filter(|c| !c.done).count();
+        if active == 0 {
+            break;
+        }
+        eprintln!(
+            "  round {}/{}: {active} cells active",
+            round + 1,
+            rep.max_replicates
+        );
+        for cell in cells.iter_mut() {
+            if cell.done {
+                continue;
+            }
+            match execute_cell(&args.run_id, &cell.id, cell.entry, &cfg.isolation) {
+                Ok(record) => {
+                    cell.primary.push(primary_metric(cell.entry.kind, &record));
+                    cell.records.push(record);
+                }
+                Err(e) => {
+                    cell.failures += 1;
+                    eprintln!("    replicate skip {}: {e:#}", cell.id);
+                }
+            }
+            // Convergence check: past the minimum, stop early once the primary
+            // metric's spread meets the target; always stop at the ceiling.
+            let measured = round + 1;
+            let n = cell.records.len();
+            if measured >= rep.max_replicates {
+                cell.done = true;
+            } else if n >= rep.min_replicates {
+                let s = Stability::summarize(
+                    &cell.primary,
+                    rep.mad_k,
+                    rep.target_rel_iqr,
+                    rep.max_outlier_frac,
+                );
+                if s.stable {
+                    cell.done = true;
+                }
+            }
+        }
+    }
+
+    // Aggregate and write one robust record per cell.
+    let mut written = 0;
+    for cell in &cells {
+        if cell.records.is_empty() {
+            eprintln!(
+                "  skip {}: all {} replicate(s) failed",
+                cell.id, cell.failures
+            );
+            continue;
+        }
+        let record = aggregate_cell(cell, &rep);
+        let s = record.stability.as_ref().expect("aggregate sets stability");
+        let out_path = args.out.join(format!("{}.json", cell.id));
+        std::fs::write(&out_path, serde_json::to_vec_pretty(&record)?)
+            .with_context(|| format!("writing record {}", out_path.display()))?;
+        eprintln!(
+            "  done {} -> {} (n={}/{}, dropped={}, rel_iqr={:.3}, {})",
+            cell.id,
+            out_path.display(),
+            s.n,
+            s.replicates,
+            s.outliers_dropped,
+            s.rel_iqr,
+            if s.stable { "stable" } else { "UNSTABLE" },
+        );
+        written += 1;
+    }
+    eprintln!("zmq-arena: wrote {written}/{} cell records", cells.len());
+
     Ok(())
+}
+
+/// The metric a cell's replicates converge on and are ranked by: median
+/// round-trip (p50) for latency, receive rate for the throughput family. p50,
+/// not the p99/p99.9 tail, drives the stability gate because the tail on a
+/// shared core never fully settles; the tail percentiles are still reported, as
+/// the median across replicates.
+fn primary_metric(kind: Kind, r: &CellRecord) -> f64 {
+    match kind {
+        Kind::Latency => r.latency.p50_ns as f64,
+        _ => r.throughput.msgs_per_s,
+    }
+}
+
+/// Field-wise median of a numeric field across the kept replicate records.
+fn median_u64(records: &[&CellRecord], f: impl Fn(&CellRecord) -> u64) -> u64 {
+    let xs: Vec<f64> = records.iter().map(|r| f(r) as f64).collect();
+    stats::median(&xs).round() as u64
+}
+
+fn median_f64(records: &[&CellRecord], f: impl Fn(&CellRecord) -> f64) -> f64 {
+    let xs: Vec<f64> = records.iter().map(|r| f(r)).collect();
+    stats::median(&xs)
+}
+
+/// Merge a cell's replicates into one robust record: reject outliers on the
+/// primary metric with the Hampel filter, then report the field-wise median over
+/// the surviving replicates. Dropping a replicate as a primary-metric outlier
+/// discards its telemetry too, so every reported field is over the same set.
+fn aggregate_cell(cell: &CellAcc, rep: &Replication) -> CellRecord {
+    let stability = Stability::summarize(
+        &cell.primary,
+        rep.mad_k,
+        rep.target_rel_iqr,
+        rep.max_outlier_frac,
+    );
+    let mask = stats::hampel_mask(&cell.primary, rep.mad_k);
+    let kept: Vec<&CellRecord> = cell
+        .records
+        .iter()
+        .zip(&mask)
+        .filter_map(|(r, keep)| keep.then_some(r))
+        .collect();
+    // hampel_mask keeps everything when there are <3 points or zero MAD, so kept
+    // is never empty when records is non-empty.
+    let base = kept[0];
+
+    let latency = LatencySnapshot {
+        count: median_u64(&kept, |r| r.latency.count),
+        min_ns: median_u64(&kept, |r| r.latency.min_ns),
+        max_ns: median_u64(&kept, |r| r.latency.max_ns),
+        p50_ns: median_u64(&kept, |r| r.latency.p50_ns),
+        p90_ns: median_u64(&kept, |r| r.latency.p90_ns),
+        p99_ns: median_u64(&kept, |r| r.latency.p99_ns),
+        p999_ns: median_u64(&kept, |r| r.latency.p999_ns),
+    };
+    let throughput = Throughput {
+        msgs_per_s: median_f64(&kept, |r| r.throughput.msgs_per_s),
+        mbps: median_f64(&kept, |r| r.throughput.mbps),
+    };
+    let syscalls = SyscallCounters {
+        epoll_ctl: median_u64(&kept, |r| r.syscalls.epoll_ctl),
+        epoll_wait: median_u64(&kept, |r| r.syscalls.epoll_wait),
+        sendmsg: median_u64(&kept, |r| r.syscalls.sendmsg),
+        recvmsg: median_u64(&kept, |r| r.syscalls.recvmsg),
+        io_uring_enter: median_u64(&kept, |r| r.syscalls.io_uring_enter),
+    };
+    let sched = SchedCounters {
+        voluntary_ctxt_switches: median_u64(&kept, |r| r.sched.voluntary_ctxt_switches),
+        involuntary_ctxt_switches: median_u64(&kept, |r| r.sched.involuntary_ctxt_switches),
+    };
+
+    CellRecord {
+        run_id: base.run_id.clone(),
+        cell_id: base.cell_id.clone(),
+        entry: base.entry.clone(),
+        meta: base.meta.clone(),
+        latency,
+        throughput,
+        cpu_seconds: median_f64(&kept, |r| r.cpu_seconds),
+        syscalls,
+        sched,
+        peak_memory_bytes: median_u64(&kept, |r| r.peak_memory_bytes),
+        stability: Some(stability),
+    }
 }
 
 fn format_knobs(entry: &MatrixEntry) -> String {
@@ -250,7 +486,13 @@ fn execute_cell(
 
 /// Args for a multi-peer cell: the unified set plus the bind side and the
 /// duration window the duration-based kinds use.
-fn peer_args(entry: &MatrixEntry, role: &str, endpoint: &str, bind: bool, duration: f64) -> Vec<String> {
+fn peer_args(
+    entry: &MatrixEntry,
+    role: &str,
+    endpoint: &str,
+    bind: bool,
+    duration: f64,
+) -> Vec<String> {
     let mut a = target_args(entry, role, endpoint);
     if bind {
         a.push("--bind".into());
@@ -301,13 +543,20 @@ fn target_args(entry: &MatrixEntry, role: &str, endpoint: &str) -> Vec<String> {
     };
     let kind = format!("{:?}", entry.kind).to_lowercase();
     let mut a = vec![
-        "--role".into(), role.into(),
-        "--kind".into(), kind,
-        "--transport".into(), transport.into(),
-        "--endpoint".into(), endpoint.into(),
-        "--payload-bytes".into(), entry.payload_bytes.to_string(),
-        "--messages".into(), entry.messages.to_string(),
-        "--warmup".into(), entry.warmup_messages.to_string(),
+        "--role".into(),
+        role.into(),
+        "--kind".into(),
+        kind,
+        "--transport".into(),
+        transport.into(),
+        "--endpoint".into(),
+        endpoint.into(),
+        "--payload-bytes".into(),
+        entry.payload_bytes.to_string(),
+        "--messages".into(),
+        entry.messages.to_string(),
+        "--warmup".into(),
+        entry.warmup_messages.to_string(),
     ];
     if let Some(p) = entry.peers {
         a.push("--peers".into());
@@ -410,7 +659,9 @@ fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup>
     if let Err(e) = cg.create().and_then(|_| cg.apply_limits()) {
         // Warn once per run, not once per leaf.
         if !CGROUP_WARNED.swap(true, Ordering::Relaxed) {
-            eprintln!("  cgroups unavailable ({e}); running without isolation (run as root for pinning)");
+            eprintln!(
+                "  cgroups unavailable ({e}); running without isolation (run as root for pinning)"
+            );
         }
         return None;
     }
@@ -445,7 +696,11 @@ fn parse_cpus(spec: &str) -> Vec<u32> {
 /// Open the syscall probe for the measured process: cgroup-scoped (counts every
 /// task in the leaf, the robust path) when the cgroup and cpuset are available,
 /// otherwise per-thread enumeration on the pid.
-fn open_syscall_probe(cg: &Option<Cgroup>, cpus: &[u32], pid: u32) -> crate::telemetry::SyscallProbe {
+fn open_syscall_probe(
+    cg: &Option<Cgroup>,
+    cpus: &[u32],
+    pid: u32,
+) -> crate::telemetry::SyscallProbe {
     match cg {
         Some(c) if !cpus.is_empty() => {
             crate::telemetry::SyscallProbe::open_cgroup(c.path(), cpus, pid)
@@ -487,6 +742,7 @@ fn run_throughput(
 
     let mut consumer = ProcCommand::new(binary)
         .args(target_args(entry, "sub", &endpoint))
+        .stdout(Stdio::piped())
         .spawn()
         .with_context(|| format!("spawning consumer {}", binary.display()))?;
     if let Some(cg) = &sub_cg {
@@ -514,6 +770,11 @@ fn run_throughput(
         wait_until_peak(&mut consumer, &[producer.id()], Instant::now() + budget);
     let elapsed = t0.elapsed();
     let syscalls = syscall_probe.read();
+    // Read the consumer's steady-state window if it reported one.
+    let mut out = String::new();
+    if let Some(mut so) = consumer.stdout.take() {
+        let _ = so.read_to_string(&mut out);
+    }
     let _ = wait_until(&mut producer, Instant::now() + Duration::from_secs(5));
 
     if let Some(p) = ipc_path {
@@ -523,9 +784,22 @@ fn run_throughput(
         anyhow::bail!("cell timed out after {budget:?} (consumer did not finish)");
     }
 
-    let secs = elapsed.as_secs_f64().max(1e-9);
-    let msgs_per_s = total as f64 / secs;
-    let mbps = msgs_per_s * entry.payload_bytes as f64 / 1e6;
+    // Prefer the target's own steady-state window: it discards warmup and times
+    // only the measured block, so process spawn, the connection handshake, and
+    // the warmup transfer are excluded. Targets that do not yet report a
+    // THROUGHPUT line fall back to the wall-clock over the whole block, which
+    // folds in that ramp-up (the legacy, noisier path).
+    let (msgs_per_s, mbps) = match parse_throughput_line(&out) {
+        Some((count, secs)) => {
+            let r = count as f64 / secs.max(1e-9);
+            (r, r * entry.payload_bytes as f64 / 1e6)
+        }
+        None => {
+            let secs = elapsed.as_secs_f64().max(1e-9);
+            let r = total as f64 / secs;
+            (r, r * entry.payload_bytes as f64 / 1e6)
+        }
+    };
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
     let sched = SchedCounters {
@@ -539,8 +813,9 @@ fn run_throughput(
     // Grouped memory footprint across all cell processes: the cgroup leaves when
     // root, otherwise the summed per-process VmHWM. Either way it is the whole
     // data path, not one end.
-    let peak_memory_bytes =
-        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
+    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -550,13 +825,21 @@ fn run_throughput(
         // Latency is not measured for throughput cells; the render step emits
         // null for it. A zeroed snapshot keeps the record well-formed.
         latency: LatencySnapshot {
-            count: 0, min_ns: 0, max_ns: 0, p50_ns: 0, p90_ns: 0, p99_ns: 0, p999_ns: 0,
+            count: 0,
+            min_ns: 0,
+            max_ns: 0,
+            p50_ns: 0,
+            p90_ns: 0,
+            p99_ns: 0,
+            p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
         syscalls,
         sched,
         peak_memory_bytes,
+        // Per-replicate record: the aggregator fills this in on the merged cell.
+        stability: None,
     })
 }
 
@@ -632,8 +915,9 @@ fn run_latency(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes =
-        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
+    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -647,6 +931,8 @@ fn run_latency(
         syscalls,
         sched,
         peak_memory_bytes,
+        // Per-replicate record: the aggregator fills this in on the merged cell.
+        stability: None,
     })
 }
 
@@ -676,9 +962,8 @@ fn run_multipeer(
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
     let mut others: Vec<Child> = Vec::new();
-    let measured;
 
-    if producer_binds {
+    let mut measured = if producer_binds {
         // pubsub / fanout: one producer binds and accepts `peers`; the consumers
         // connect, one measured and the rest draining.
         let prod = ProcCommand::new(binary)
@@ -711,7 +996,7 @@ fn run_multipeer(
             }
             others.push(d);
         }
-        measured = m;
+        m
     } else {
         // fanin: the single consumer (sink) binds and accepts `peers`; the
         // producers connect and send forever.
@@ -735,10 +1020,9 @@ fn run_multipeer(
             }
             others.push(p);
         }
-        measured = m;
-    }
+        m
+    };
 
-    let mut measured = measured;
     // Settle so the measured consumer's io_threads / runtime workers exist before
     // the probe enumerates threads (the fan-in sink already settled above; the
     // pubsub/fanout consumer was just spawned). A short slice of the duration
@@ -778,8 +1062,9 @@ fn run_multipeer(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes =
-        cgroup_total_memory(&sub_cg, &pub_cg).filter(|&v| v > 0).unwrap_or(rss_peak);
+    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+        .filter(|&v| v > 0)
+        .unwrap_or(rss_peak);
 
     Ok(CellRecord {
         run_id: run_id.to_string(),
@@ -787,12 +1072,20 @@ fn run_multipeer(
         entry: entry.clone(),
         meta: TargetMeta::default(),
         latency: LatencySnapshot {
-            count: 0, min_ns: 0, max_ns: 0, p50_ns: 0, p90_ns: 0, p99_ns: 0, p999_ns: 0,
+            count: 0,
+            min_ns: 0,
+            max_ns: 0,
+            p50_ns: 0,
+            p90_ns: 0,
+            p99_ns: 0,
+            p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
         cpu_seconds: (cpu1 - cpu0).max(0.0),
         syscalls,
         sched,
         peak_memory_bytes,
+        // Per-replicate record: the aggregator fills this in on the merged cell.
+        stability: None,
     })
 }

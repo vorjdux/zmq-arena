@@ -142,7 +142,7 @@
 <main id="main" hidden>
   <section class="card">
     <h2 id="evoTitle">Evolution over time</h2>
-    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category.</div>
+    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category. A hollow amber marker flags a low-confidence point whose replicates did not converge.</div>
     <div id="evoChart" class="chart"></div>
   </section>
   <div class="row2">
@@ -379,13 +379,26 @@ function mkSeries(v,data,style){
 
 function vlist(){ return VARIANTS.filter(v=>selected.has(v)); }
 
+// A record whose replicates did not converge. Such points are drawn as a hollow
+// amber marker so a noisy number is visibly distinct from a settled one.
+function lowConf(rec){ return !!(rec && rec.stability && !rec.stability.stable); }
+const LOWCONF_STYLE = { symbol:"emptyCircle", symbolSize:9,
+  itemStyle:{ color:"#f59e0b", borderColor:"#f59e0b", borderWidth:2 } };
+// Wrap a plotted value in a per-point style object when its record is
+// low-confidence; otherwise return the bare value ECharts expects.
+function evoPoint(rec,v){ if(v==null) return null;
+  return lowConf(rec) ? {value:v, ...LOWCONF_STYLE} : v; }
+function sweepPoint(rec,p,v){ if(v==null) return [p,null];
+  return lowConf(rec) ? {value:[p,v], ...LOWCONF_STYLE} : [p,v]; }
+
 function renderEvolution(){
   const m=metricDef(), kind=val("kind"), tr=val("transport"), pay=+val("payload"), pe=currentPeers();
   const vs=vlist(), sm=styleMap(vs);
   const series=vs.map(v=>{
     const data=DATES.map(d=>{
       const rec=RECORDS.find(r=>r.date===d&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===pay&&r.peers===pe);
-      const val_=rec?m.get(rec):null; return val_==null||Number.isNaN(val_)?null:+val_.toFixed(3);
+      const val_=rec?m.get(rec):null;
+      return evoPoint(rec, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3));
     });
     return mkSeries(v,data,sm[v]);
   });
@@ -405,7 +418,8 @@ function renderSweep(){
   const series=vs.map(v=>{
     const data=payloads.map(p=>{
       const rec=RECORDS.find(r=>r.date===run&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===p&&r.peers===pe);
-      const val_=rec?m.get(rec):null; return [p, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3)];
+      const val_=rec?m.get(rec):null;
+      return sweepPoint(rec, p, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3));
     });
     return mkSeries(v,data,sm[v]);
   });

@@ -248,8 +248,11 @@ int main(int argc, char** argv) {
     } else if (multipeer) {
         run_pubsub_loop(sock, a, producer);
     } else {
-        // Streaming throughput (PUSH/PULL): the producer sends the whole block,
-        // the consumer receives it; the orchestrator times it.
+        // Streaming throughput (PUSH/PULL): the producer sends the whole block;
+        // the consumer receives the warmup prefix untimed, then times only the
+        // steady-state block and prints THROUGHPUT <count> <elapsed_secs>. Timing
+        // inside the target keeps process spawn, the connection handshake, and the
+        // warmup transfer out of the reported rate.
         const uint64_t total = a.warmup + a.messages;
         std::vector<char> buf(a.payload_bytes ? a.payload_bytes : 1, 0);
         if (producer) {
@@ -257,8 +260,18 @@ int main(int argc, char** argv) {
                 if (zmq_send(sock, buf.data(), a.payload_bytes, 0) < 0) die("zmq_send");
         } else {
             std::vector<char> rx(buf.size());
-            for (uint64_t n = 0; n < total; ++n)
-                if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv");
+            // Drain the warmup prefix untimed.
+            for (uint64_t n = 0; n < a.warmup; ++n)
+                if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) die("zmq_recv (warmup)");
+            // Start the clock only once warmup has drained, then measure the block.
+            int64_t t0 = now_ns();
+            uint64_t count = 0;
+            for (; count < a.messages; ++count)
+                if (zmq_recv(sock, rx.data(), rx.size(), 0) < 0) break;  // connection closed early
+            double elapsed = static_cast<double>(now_ns() - t0) / 1e9;
+            if (elapsed < 1e-9) elapsed = 1e-9;
+            std::printf("THROUGHPUT %llu %.6f\n", static_cast<unsigned long long>(count), elapsed);
+            std::fflush(stdout);
         }
     }
 

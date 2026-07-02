@@ -131,7 +131,7 @@ fn main() -> Result<()> {
     // use monocoque's rt net types.
     LocalRuntime::new()?.block_on(async move {
         match kind.as_str() {
-            "throughput" => run_throughput(role, ep, messages + warmup, &payload).await,
+            "throughput" => run_throughput(role, ep, messages, warmup, &payload).await,
             "latency" => run_latency(role, ep, messages, warmup, &payload).await,
             "pubsub" => run_pubsub(role, ep, peers, duration, &payload).await,
             "fanout" => run_fanout(role, ep, peers, duration, &payload).await,
@@ -144,7 +144,19 @@ fn main() -> Result<()> {
 
 // ── throughput (PUSH/PULL) ──────────────────────────────────────────────────
 
-async fn run_throughput(role: Role, ep: Endpoint, total: u64, payload: &Bytes) -> Result<()> {
+/// PUSH/PULL throughput. PUB sends `messages + warmup` messages; SUB receives the
+/// `warmup` prefix untimed, then times only the `messages` steady-state block and
+/// prints `THROUGHPUT <messages> <elapsed_secs>`. Timing the measured block inside
+/// the target (not the orchestrator's wall clock) keeps process spawn, the
+/// connection handshake, and the warmup transfer out of the rate.
+async fn run_throughput(
+    role: Role,
+    ep: Endpoint,
+    messages: u64,
+    warmup: u64,
+    payload: &Bytes,
+) -> Result<()> {
+    let total = messages + warmup;
     let coalesce = SocketOptions::default().with_write_coalescing(true);
     match (role, ep) {
         (Role::Pub, Endpoint::Tcp(addr)) => {
@@ -160,13 +172,13 @@ async fn run_throughput(role: Role, ep: Endpoint, total: u64, payload: &Bytes) -
             let listener = TcpListener::bind(addr).await?;
             let (stream, _) = listener.accept().await?;
             let mut pull = PullSocket::from_tcp(stream).await?;
-            recv_block(&mut pull, total).await?;
+            recv_measured(&mut pull, warmup, messages).await?;
         }
         (Role::Sub, Endpoint::Ipc(path)) => {
             let listener = UnixListener::bind(&path).await?;
             let (stream, _) = listener.accept().await?;
             let mut pull = PullSocket::from_unix_stream(stream).await?;
-            recv_block(&mut pull, total).await?;
+            recv_measured(&mut pull, warmup, messages).await?;
         }
     }
     Ok(())
@@ -188,19 +200,32 @@ where
     Ok(())
 }
 
-async fn recv_block<S>(pull: &mut PullSocket<S>, total: u64) -> Result<()>
+/// Receive `warmup` messages untimed, then time the receipt of `messages` and
+/// print `THROUGHPUT <messages> <elapsed_secs>`. The timer starts only once the
+/// warmup prefix has drained, so the reported rate is the steady-state window.
+async fn recv_measured<S>(pull: &mut PullSocket<S>, warmup: u64, messages: u64) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut buf: Vec<Bytes> = Vec::with_capacity(4);
+    let total = warmup + messages;
     let mut count = 0u64;
+    let mut t0: Option<Instant> = None;
     while count < total {
         match pull.recv_into(&mut buf).await? {
             true => {
                 count += 1;
+                if t0.is_none() && count >= warmup {
+                    t0 = Some(Instant::now()); // warmup drained; start the clock
+                }
                 while count < total {
                     match pull.try_recv_into(&mut buf)? {
-                        true => count += 1,
+                        true => {
+                            count += 1;
+                            if t0.is_none() && count >= warmup {
+                                t0 = Some(Instant::now());
+                            }
+                        }
                         false => break,
                     }
                 }
@@ -208,6 +233,9 @@ where
             false => break, // connection closed
         }
     }
+    let elapsed = t0.map(|t| t.elapsed().as_secs_f64()).unwrap_or(1e-6).max(1e-9);
+    let measured = count.saturating_sub(warmup);
+    println!("THROUGHPUT {measured} {elapsed:.6}");
     Ok(())
 }
 

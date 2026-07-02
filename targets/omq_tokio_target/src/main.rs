@@ -125,10 +125,9 @@ async fn run(cli: Cli) -> Result<()> {
         .endpoint
         .parse()
         .map_err(|_| anyhow!("invalid endpoint: {}", cli.endpoint))?;
-    let total = cli.messages + cli.warmup;
     let duration = Duration::from_secs_f64(cli.duration_secs);
     match cli.kind.as_str() {
-        "throughput" => run_throughput(cli.role, ep, total, payload).await,
+        "throughput" => run_throughput(cli.role, ep, cli.messages, cli.warmup, payload).await,
         "latency" => run_latency(cli.role, ep, cli.messages, cli.warmup, payload).await,
         "pubsub" => run_pubsub(cli.role, ep, duration, payload).await,
         "fanout" => run_fanout(cli.role, ep, duration, payload).await,
@@ -139,16 +138,27 @@ async fn run(cli: Cli) -> Result<()> {
 
 // ── throughput (PUSH/PULL) ──────────────────────────────────────────────────
 
-async fn run_throughput(role: Role, ep: Endpoint, total: u64, payload: Bytes) -> Result<()> {
+/// PUSH/PULL throughput. PUB sends until killed; PULL receives the `warmup` prefix
+/// untimed, then times only the `messages` steady-state block and prints
+/// `THROUGHPUT <messages> <elapsed_secs>`. Timing the measured block inside the
+/// target (not the orchestrator's wall clock) keeps process spawn, the connection
+/// handshake, and the warmup transfer out of the rate.
+async fn run_throughput(role: Role, ep: Endpoint, messages: u64, warmup: u64, payload: Bytes) -> Result<()> {
     match role {
         Role::Sub => {
             let pull = Socket::new(SocketType::Pull, Options::default());
             pull.bind(ep).await?;
-            let mut count = 0u64;
-            while count < total {
+            for _ in 0..warmup {
                 pull.recv().await?;
-                count += 1;
             }
+            let t0 = Instant::now();
+            let mut measured = 0u64;
+            while measured < messages {
+                pull.recv().await?;
+                measured += 1;
+            }
+            let elapsed = t0.elapsed().as_secs_f64().max(1e-9);
+            println!("THROUGHPUT {measured} {elapsed:.6}");
         }
         Role::Pub => {
             let push = Socket::new(SocketType::Push, Options::default());

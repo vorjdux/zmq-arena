@@ -80,6 +80,31 @@ def to_archive_record(cell: dict) -> dict:
     sysc = cell.get("syscalls") or {}
     sched = cell.get("sched") or {}
 
+    # Replication spread of the primary metric. Present on records the replicated
+    # orchestrator wrote; absent on legacy single-shot records, which we surface as
+    # a single unstable-of-unknown-spread sample so the dashboard can still tell
+    # "one draw" apart from "converged estimate".
+    st = cell.get("stability")
+    if st:
+        stability = {
+            "n": st.get("n", 0),
+            "replicates": st.get("replicates", 0),
+            "outliers_dropped": st.get("outliers_dropped", 0),
+            "median": st.get("median", 0.0),
+            "iqr": st.get("iqr", 0.0),
+            "rel_iqr": st.get("rel_iqr", 0.0),
+            "cv": st.get("cv", 0.0),
+            "min": st.get("min", 0.0),
+            "max": st.get("max", 0.0),
+            "stable": bool(st.get("stable", False)),
+        }
+    else:
+        stability = {
+            "n": 1, "replicates": 1, "outliers_dropped": 0,
+            "median": 0.0, "iqr": 0.0, "rel_iqr": 0.0, "cv": 0.0,
+            "min": 0.0, "max": 0.0, "stable": False,
+        }
+
     # The target is the source of truth: prefer the `meta` block it reported via
     # `describe`, and fall back to the static REGISTRY for engine/io/threading
     # when an older record has no meta. Language falls back to the variant key
@@ -113,6 +138,7 @@ def to_archive_record(cell: dict) -> dict:
             "involuntary": sched.get("involuntary_ctxt_switches", 0),
         },
         "peak_memory_bytes": cell.get("peak_memory_bytes", 0),
+        "stability": stability,
     }
 
 
@@ -159,12 +185,25 @@ def rank_table(records, kind, transport, metric_path, lower_better, label, unit)
     rs.sort(key=lambda r: metric_path(r), reverse=not lower_better)
     direction = "lower is better" if lower_better else "higher is better"
     lines = [f"### {label}: {kind}, {transport}, {payload} B ({direction})", ""]
-    lines.append(f"| # | variant | {label} ({unit}) |")
-    lines.append("|---|---------|------|")
+    lines.append(f"| # | variant | {label} ({unit}) | spread | n | conf |")
+    lines.append("|---|---------|------|--------|---|------|")
+    any_unstable = False
     for i, r in enumerate(rs, 1):
         v = metric_path(r)
-        lines.append(f"| {i} | {r['variant']} | {v:.2f} |")
+        stab = r.get("stability") or {}
+        rel = stab.get("rel_iqr", 0.0)
+        n = stab.get("n", 1)
+        stable = stab.get("stable", False)
+        conf = "ok" if stable else "low"
+        if not stable:
+            any_unstable = True
+        lines.append(f"| {i} | {r['variant']} | {v:.2f} | {rel * 100:.1f}% | {n} | {conf} |")
     lines.append("")
+    if any_unstable:
+        lines.append("> conf=low means the cell's replicates did not converge "
+                     "(relative IQR above target); treat its rank as indicative, "
+                     "not decisive.")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -193,9 +232,16 @@ def global_ranking(records):
     ranks = {}  # variant -> list of positions
     for rs in groups.values():
         lower = primary(rs[0])[1]
-        rs = sorted(rs, key=lambda r: primary(r)[0], reverse=not lower)
-        for pos, r in enumerate(rs, 1):
-            ranks.setdefault(r["variant"], []).append(pos)
+        # Collapse any duplicate records for the same variant in this group (e.g.
+        # a stray re-run) to a single median-valued entry, so one variant occupies
+        # exactly one rank position and cannot be double-counted.
+        by_variant = {}
+        for r in rs:
+            by_variant.setdefault(r["variant"], []).append(primary(r)[0])
+        collapsed = [(v, sorted(vals)[len(vals) // 2]) for v, vals in by_variant.items()]
+        collapsed.sort(key=lambda vp: vp[1], reverse=not lower)
+        for pos, (variant, _) in enumerate(collapsed, 1):
+            ranks.setdefault(variant, []).append(pos)
 
     rows = [(v, sum(ps) / len(ps), len(ps)) for v, ps in ranks.items()]
     rows.sort(key=lambda x: x[1])

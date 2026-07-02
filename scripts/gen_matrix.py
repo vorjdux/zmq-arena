@@ -29,11 +29,13 @@ DEFAULT_SIZES = [64, 256, 1024, 4096, 16384]
 # Count-based kinds: messages per payload size. Larger payloads carry fewer
 # messages so total bytes and wall time stay bounded.
 #
-# Warmup differs by kind (see count_cell): latency discards its warmup (untimed
-# REQ round-trips), so it gets a generous 50% to reach steady state and stabilise
-# the tail -- with too little warmup the first cold round-trips dominate p99.9,
-# and too few samples make p99.9 itself noisy. Throughput folds warmup into the
-# timed window, so it keeps a modest 10%.
+# Warmup is discarded before the timed window for both kinds now: latency skips
+# its warmup round-trips, and throughput's consumer drains the warmup prefix
+# untimed before starting its steady-state clock (the target times the measured
+# block itself and reports THROUGHPUT count elapsed). Latency gets a generous 50%
+# to settle the tail -- too little warmup lets the first cold round-trips dominate
+# p99.9, and too few samples make p99.9 itself noisy. Throughput reaches steady
+# state fast, so a modest 10% discarded prefix is enough.
 THROUGHPUT_MSGS = {64: 200000, 256: 150000, 1024: 100000, 4096: 50000, 16384: 20000}
 LATENCY_MSGS = {64: 40000, 256: 40000, 1024: 30000, 4096: 20000, 16384: 20000}
 
@@ -118,6 +120,25 @@ TARGETS = [
 
 ISOLATION = {"cpuset_cpus": "0", "cpuset_mems": "0", "memory_max_bytes": 268435456}
 
+# Replication policy recorded in the matrix so a run is reproducible from the file
+# alone. Each cell is measured at least min_replicates times as fresh process
+# pairs, interleaved across cells; the adaptive loop stops a cell early once its
+# primary metric's relative IQR falls to target_rel_iqr, and always by
+# max_replicates. Outliers beyond mad_k scaled-MAD from the median are rejected
+# before the reported median is taken -- but if more than max_outlier_frac of the
+# draws have to be rejected the cell is flagged unstable rather than trusted, so a
+# bimodal cell cannot look solid just because the filter kept one mode. These
+# mirror the orchestrator defaults; a quick local run can shrink the counts with
+# `zmq-arena run --replicates N`.
+REPLICATION = {
+    "min_replicates": 5,
+    "max_replicates": 11,
+    "warmup_replicates": 1,
+    "target_rel_iqr": 0.05,
+    "mad_k": 3.0,
+    "max_outlier_frac": 0.25,
+}
+
 
 def target_spec(target, knobs_key):
     spec = {"id": target["id"], "binary": target["binary"], "knobs": target[knobs_key]}
@@ -127,8 +148,8 @@ def target_spec(target, knobs_key):
 
 
 def count_cell(target, kind, transport, size, msgs):
-    # Latency's warmup is discarded, so give it 50%; throughput folds warmup into
-    # the timed window, so keep it at 10%.
+    # Both kinds discard warmup before timing: 50% for latency (to settle the
+    # tail), a modest 10% prefix for throughput (drained before the steady clock).
     warmup = msgs // 2 if kind == "latency" else msgs // 10
     return {
         "target": target_spec(target, "count_knobs"),
@@ -192,6 +213,7 @@ def main():
             f"engine performance. Regenerate with: python3 scripts/gen_matrix.py"
         ),
         "isolation": ISOLATION,
+        "replication": REPLICATION,
         "entries": entries,
     }
     args.out.write_text(json.dumps(doc, indent=2) + "\n")

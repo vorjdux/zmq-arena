@@ -104,7 +104,7 @@ async fn run(cli: Cli) -> Result<()> {
     let role = cli.role;
     let duration = Duration::from_secs_f64(cli.duration_secs);
     match cli.kind.as_str() {
-        "throughput" => run_throughput(role, ep, cli.messages + cli.warmup, &payload).await,
+        "throughput" => run_throughput(role, ep, cli.messages, cli.warmup, &payload).await,
         "latency" => run_latency(role, ep, cli.messages, cli.warmup, &payload).await,
         "pubsub" => run_pubsub(role, ep, duration, &payload).await,
         "fanout" => bail!(
@@ -123,22 +123,39 @@ async fn run(cli: Cli) -> Result<()> {
 
 // ── throughput (PUSH/PULL) ──────────────────────────────────────────────────
 
-/// PULL binds and receives exactly `total` messages; PUSH connects and sends
-/// `total`. zmq.rs applies its own back-pressure, so the send loop blocks on the
-/// socket HWM rather than dropping.
-async fn run_throughput(role: Role, ep: &str, total: u64, payload: &ZmqMessage) -> Result<()> {
+/// PUSH connects and sends `messages + warmup` messages; PULL binds, drains the
+/// `warmup` prefix untimed, then times only the `messages` steady-state block and
+/// prints `THROUGHPUT <messages> <elapsed_secs>`. Timing the measured block inside
+/// the target (not the orchestrator's wall clock) keeps process spawn, the
+/// connection handshake, and the warmup transfer out of the rate. zmq.rs applies
+/// its own back-pressure, so the send loop blocks on the socket HWM rather than
+/// dropping.
+async fn run_throughput(
+    role: Role,
+    ep: &str,
+    messages: u64,
+    warmup: u64,
+    payload: &ZmqMessage,
+) -> Result<()> {
     match role {
         Role::Sub => {
             let mut pull = PullSocket::new();
             pull.bind(ep).await?;
-            for _ in 0..total {
+            for _ in 0..warmup {
                 pull.recv().await?;
             }
+            // Warmup drained; start the clock and time only the steady-state block.
+            let t0 = Instant::now();
+            for _ in 0..messages {
+                pull.recv().await?;
+            }
+            let elapsed = t0.elapsed().as_secs_f64().max(1e-9);
+            println!("THROUGHPUT {messages} {elapsed:.6}");
         }
         Role::Pub => {
             let mut push = PushSocket::new();
             push.connect(ep).await?;
-            for _ in 0..total {
+            for _ in 0..(messages + warmup) {
                 push.send(payload.clone()).await?;
             }
         }
