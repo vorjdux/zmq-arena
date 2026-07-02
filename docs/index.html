@@ -105,7 +105,7 @@
 </head>
 <body>
 <header>
-  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena — ZMTP benchmark battleground"></h1>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
   <div class="sub" id="dataSource">loading…</div>
 </header>
 <nav class="topnav"><a href="index.html" class="active">Overview</a><a href="explore.html">Explore</a><a href="tables.html">Tables</a></nav>
@@ -189,7 +189,7 @@ const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
 function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
-function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"—";
+function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+"G"; if(v>=1e6)return (v/1e6).toFixed(2)+"M";
   if(v>=1e3)return (v/1e3).toFixed(0)+"K"; return v.toFixed(0); }
 
@@ -344,35 +344,70 @@ function drawPanel(p){
   }, true);
 }
 
-// ── global ranking (mean rank across scenarios, selected libs) ────
-function primary(r){ if(r.latency_ns) return {v:r.latency_ns.p99, lower:true};
-  if(r.throughput) return {v:r.throughput.msgs_per_s, lower:false}; return null; }
+// ── leaderboard: geometric mean vs the libzmq baseline, per dimension ────
+// One score per dimension instead of a single blended rank, because these
+// libraries trade off differently (fast but memory-hungry, lean but slower).
+// Each number is the geomean of a variant's per-cell ratio to libzmq over the
+// cells they share: magnitude-aware, dimensionless, and higher is better. Cells
+// flagged inverted are dropped as known-wrong, and a gap smaller than the two
+// cells' combined replicate spread is counted as a tie so noise cannot decide it.
+const BASELINE_V="libzmq";
+const TPUT_KINDS=new Set(["throughput","pubsub","fanout","fanin"]);
+const relSpread=r=>(r.stability&&r.stability.rel_iqr)||0;
+function geomeanVsBase(recs, cellOk, score){
+  const groups={};
+  for(const r of recs){
+    if(!cellOk(r) || (r.stability&&r.stability.inverted)) continue;
+    const s=score(r); if(s==null||!(s>0)) continue;
+    const k=`${r.kind}|${r.transport}|${r.payload_bytes}|${r.peers}`;
+    (groups[k]=groups[k]||{})[r.variant]=[s,relSpread(r)];
+  }
+  const acc={};
+  for(const k in groups){ const d=groups[k], b=d[BASELINE_V]; if(!b) continue;
+    const bs=b[0], bsp=b[1];
+    for(const v in d){ const s=d[v][0], sp=d[v][1]; let ratio=s/bs;
+      const a=acc[v]=acc[v]||{ls:0,n:0};
+      if(Math.abs(ratio-1)<=(sp+bsp)) ratio=1;    // within combined noise: tie
+      a.ls+=Math.log(ratio); a.n++; }
+  }
+  const out={}; for(const v in acc) out[v]={x:Math.exp(acc[v].ls/acc[v].n), n:acc[v].n};
+  return out;
+}
+const DIMS=[
+  {key:"lat",  label:"Latency",    ok:r=>!!r.latency_ns,                                   score:r=>r.latency_ns.p99>0?1/r.latency_ns.p99:null},
+  {key:"tput", label:"Throughput", ok:r=>TPUT_KINDS.has(r.kind)&&!!r.throughput,           score:r=>r.throughput.msgs_per_s},
+  {key:"cpu",  label:"CPU eff.",   ok:r=>r.cpu_seconds>0&&r.messages_basis>0,              score:r=>r.messages_basis/r.cpu_seconds},
+  {key:"mem",  label:"Memory",     ok:r=>r.peak_memory_bytes>0,                            score:r=>1/r.peak_memory_bytes},
+];
 function renderGlobalRanking(){
   const run=val("run");
-  const recs=RECORDS.filter(r=>r.date===run && selected.has(r.variant) && primary(r));
-  const groups={};
-  for(const r of recs){ const k=`${r.kind}|${r.transport}|${r.payload_bytes}|${r.peers}`; (groups[k]=groups[k]||[]).push(r); }
-  const ranks={}, foot={};
-  for(const k in groups){ const g=groups[k], lower=primary(g[0]).lower;
-    g.sort((a,b)=>lower?primary(a).v-primary(b).v:primary(b).v-primary(a).v);
-    g.forEach((r,i)=>{ (ranks[r.variant]=ranks[r.variant]||[]).push(i+1); }); }
-  for(const r of recs){ (foot[r.variant]=foot[r.variant]||[]).push(r); }
-  const mean=(a,f)=>a.length?a.reduce((s,x)=>s+f(x),0)/a.length:null;
-  const rows=Object.keys(ranks).map(v=>({v,
-    mean:ranks[v].reduce((a,b)=>a+b,0)/ranks[v].length, n:ranks[v].length,
-    cpu:mean(foot[v]||[],r=>r.cpu_seconds), mem:mean(foot[v]||[],r=>r.peak_memory_bytes/1e6)}));
-  rows.sort((a,b)=>a.mean-b.mean);
-  el("rankHint").textContent=`Run ${run} · mean rank across ${Object.keys(groups).length} benchmarks over ${rows.length} libraries (lower is better; latency and throughput count equally). CPU and memory are the mean footprint across all of a cell's processes.`;
-  let h=`<table><thead><tr><th>#</th><th>Library</th><th>lib</th><th>mean rank</th><th>benchmarks</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
-  rows.forEach((r,i)=>{ const meta=VARMETA[r.v]||{};
-    h+=`<tr class="${i===0?"rank1":""}"><td>${i+1}</td>`+
-      `<td><span class="sw2" style="background:${colorOf(r.v)}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.io}·${meta.threading}</small></td>`+
-      `<td><small>${meta.lib||"—"}</small></td>`+
-      `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td>`+
-      `<td>${r.cpu==null?"—":r.cpu.toFixed(3)}</td><td>${r.mem==null?"—":r.mem.toFixed(1)}</td></tr>`;
-  });
+  const runRecs=RECORDS.filter(r=>r.date===run);          // full field, so libzmq baseline is always present
+  const boards={}; for(const d of DIMS) boards[d.key]=geomeanVsBase(runRecs, d.ok, d.score);
+  const baseN={}; for(const d of DIMS){ const b=boards[d.key][BASELINE_V]; baseN[d.key]=b?b.n:0; }
+  const vis=[...selected].filter(v=>DIMS.some(d=>boards[d.key][v]));
+  // Best (max) per dimension among the visible rows, to highlight the leader.
+  const best={}; for(const d of DIMS){ let m=0; for(const v of vis){ const c=boards[d.key][v]; if(c&&c.x>m)m=c.x; } best[d.key]=m; }
+  vis.sort((a,b)=>((boards.tput[b]||{x:0}).x)-((boards.tput[a]||{x:0}).x));   // default sort: throughput
+  el("rankHint").innerHTML=`Run ${run} · geometric mean of each library's ratio to `+
+    `<b>libzmq</b> per dimension (higher is better; 1.00x = same as libzmq). Magnitude-aware, `+
+    `inverted cells dropped, gaps inside the replicate noise counted as ties. A * marks partial `+
+    `coverage (fewer cells than libzmq), so that score is not directly comparable. On a single-core `+
+    `host these rank mechanics and contention, not absolute engine performance.`;
+  let h=`<table><thead><tr><th>Library</th><th>lib</th>`+
+    DIMS.map(d=>`<th>${d.label}</th>`).join("")+`</tr></thead><tbody>`;
+  for(const v of vis){ const meta=VARMETA[v]||{};
+    h+=`<tr><td><span class="sw2" style="background:${colorOf(v)}"></span>${VARIANT_LABEL[v]||v} <small>${meta.io}·${meta.threading}</small></td>`+
+      `<td><small>${meta.lib||"-"}</small></td>`;
+    for(const d of DIMS){ const c=boards[d.key][v];
+      if(!c){ h+=`<td>-</td>`; continue; }
+      const partial=c.n<baseN[d.key] ? `<small title="${c.n}/${baseN[d.key]} cells">*</small>` : "";
+      const lead=(best[d.key]>0 && Math.abs(c.x-best[d.key])<1e-9) ? ' class="rank1"' : "";
+      h+=`<td${lead}>${c.x.toFixed(2)}x${partial}</td>`;
+    }
+    h+=`</tr>`;
+  }
   h+="</tbody></table>";
-  if(!rows.length) h=`<div class="hint">Select libraries to rank.</div>`;
+  if(!vis.length) h=`<div class="hint">Select libraries to rank.</div>`;
   el("rankTable").innerHTML=h;
 }
 
