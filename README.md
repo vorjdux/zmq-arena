@@ -49,14 +49,19 @@ harness, where each bench peer is a separate build unit.
 |-----------|--------|----------|-----------------|-------|
 | `libzmq_cpp_target` | libzmq | C++ | system `libzmq` via CMake | epoll, the reference |
 | `rust_zmq_target` | libzmq | Rust | `zmq = "0.10"` (rust-zmq) | epoll, FFI binding over libzmq |
+| `tmq_target` | libzmq | Rust | `tmq = "0.5"` | epoll, Tokio bindings over rust-zmq |
 | `zeromq_rs_target` | zmq.rs | Rust | `zeromq = "0.6"` | epoll + tokio |
 | `omq_tokio_target` | omq-tokio | Rust | `omq-tokio = "0.21.3"` | mio, tokio |
 | `rzmq_target` | rzmq | Rust | `rzmq = "0.5.25"` | io_uring + TCP_CORK, Linux |
 | `celerity_target` | celerity | Rust | `celerity = "0.1.1"` | sans-IO ZMTP 3.1 + tokio |
 | `monocoque_target` | monocoque | Rust | `monocoque-rs = "0.4.0"` | io_uring/compio or tokio, ZMTP 3.1 |
 
-rust-zmq is the same C core as libzmq reached through the Rust binding, so the
-pair measures binding overhead. monocoque picks its runtime at compile time, so
+Three targets reach the same engine, libzmq, by different routes: `libzmq` is
+the C++ peer, `rust_zmq` is the synchronous Rust binding, and `tmq` wraps that
+binding in futures for Tokio. The gaps between the three are binding overhead
+and async-wrapper overhead, isolated from any protocol difference, which is a
+cleaner measurement than comparing two engines that differ in everything at
+once. monocoque picks its runtime at compile time, so
 its wrapper builds twice and reports two variants (compio/io_uring and
 tokio/epoll); omq-tokio likewise exposes current-thread and multi-thread runtimes
 as two variants. rzmq and celerity remain stubs until each is written against its
@@ -93,7 +98,7 @@ runs 25 cells per variant where everything else runs 35. A tier whose membership
 were a list of favoured names would not be a benchmark, and the ranking maths
 would quietly reward whichever libraries had been let into the extra cells.
 
-Eleven variants at 35 cells (25 for the three zmq.rs runtimes) is 355 cells.
+Twelve variants at 35 cells (25 for the three zmq.rs runtimes) is 390 cells.
 
 ## Benchmarks and variants
 
@@ -109,7 +114,7 @@ results before any measurement happened. So monocoque appears three times
 (compio/io_uring, tokio, smol), zmq.rs three times (tokio, async-std,
 async-dispatcher), and omq three times (tokio current-thread, tokio
 multi-thread, and its synchronous blocking API over library-owned IO threads).
-Eleven series in total.
+tmq and rust-zmq ship one runtime each. Twelve series in total.
 
 Comparing an engine against itself across runtimes is often more informative than
 comparing two engines: the protocol code is identical, so the difference is the
@@ -121,6 +126,7 @@ makes that pair a direct comparison of two implementations of the same idea.
 |---------|--------|--------|----------|-----------|-------------|
 | `libzmq` | libzmq_cpp_target | libzmq | epoll | native threads | only variant |
 | `rust_zmq` | rust_zmq_target | libzmq | epoll | native threads | only variant |
+| `tmq` | tmq_target | libzmq | epoll | native threads + tokio | only variant |
 | `zeromq_rs` | zeromq_rs_target | zmq.rs | epoll | tokio | default build |
 | `zeromq_rs_async_std` | zeromq_rs_target | zmq.rs | epoll | async-std | `--features async-std-rt` |
 | `zeromq_rs_async_dispatcher` | zeromq_rs_target | zmq.rs | epoll | async-dispatcher | `--features async-dispatcher-rt` |

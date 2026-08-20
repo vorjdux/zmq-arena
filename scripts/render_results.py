@@ -34,6 +34,7 @@ VARIANT_KEY = {
 REGISTRY = {
     "libzmq":        {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
     "rust_zmq":      {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
+    "tmq":           {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
     "zmq.rs":        {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "zeromq_rs":     {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "omq_tokio":     {"engine": "omq",       "io": "epoll",    "threading": "single"},

@@ -8,20 +8,20 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 ## Matrix
 
-| capability | libzmq | rust-zmq | zmq.rs | omq | monocoque | rzmq | celerity |
-|---|---|---|---|---|---|---|---|
-| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.6.0 | 0.21.3 | 0.4.0 | 0.5.25 | 0.1.1 |
-| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust |
-| implementation | native | FFI to libzmq | native | native | native | native | native |
-| socket types | 12 | 12 | 9 | 11 | 12 | declared | declared |
-| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc | tcp |
-| NULL | yes | yes | yes | yes | yes | declared | declared |
-| PLAIN | declared | declared | no | declared | declared | declared | declared |
-| CURVE | declared | declared | no | declared | declared | declared | declared |
-| usable without an async runtime | yes | yes | no | yes | no | no | partial |
-| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows |
-| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | None. | Go, Java, Lua, Node, Python (pyomq). | None. | None. | None. |
-| benchmarked here | headline + extended (reference) | headline | headline | headline | headline + extended | not benchmarked (target is a describe-only stub) | not benchmarked (target is a describe-only stub) |
+| capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity |
+|---|---|---|---|---|---|---|---|---|
+| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 | 0.6.0 | 0.21.3 | 0.4.0 | 0.5.25 | 0.1.1 |
+| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust |
+| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native |
+| socket types | 12 | 12 | 12 | 9 | 11 | 12 | declared | declared |
+| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc | tcp |
+| NULL | yes | yes | yes | yes | yes | yes | declared | declared |
+| PLAIN | declared | declared | declared | no | declared | declared | declared | declared |
+| CURVE | declared | declared | declared | no | declared | declared | declared | declared |
+| usable without an async runtime | yes | yes | no | no | yes | no | no | partial |
+| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows |
+| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | Go, Java, Lua, Node, Python (pyomq). | None. | None. | None. |
+| benchmarked here | headline + extended (reference) | headline | headline + extended | headline | headline | headline + extended | not benchmarked (target is a describe-only stub) | not benchmarked (target is a describe-only stub) |
 
 ## Notes
 
@@ -36,6 +36,13 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
 - Runtime: Inherits libzmq's synchronous API and IO threads; it is a binding, so capability follows the linked libzmq.
 - Source: erickt/rust-zmq README; capability is the linked libzmq's
+
+### tmq 0.5.0
+
+- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
+- Runtime: Requires Tokio: its sockets are futures Sinks and Streams. The libzmq underneath still runs its own IO threads, so the Tokio runtime drives only the wrapper.
+- Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options.
+- Source: cetra3/tmq README and crates.io; capability is the linked libzmq's
 
 ### zmq.rs 0.6.0
 

@@ -1,0 +1,58 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build independently: `cd targets/tmq_target && cargo build --release`.
+# Owns its dependency closure, release profile, lockfile, and toolchain pin so
+# the engine is benchmarked exactly as it ships.
+# Empty [workspace] table makes this its own workspace root. Without it, Cargo
+# walks up, finds the orchestrator's root Cargo.toml, and refuses to build
+# because this package is not one of its members.
+[workspace]
+
+[package]
+name = "tmq-target"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: tmq (Tokio bindings over libzmq via rust-zmq)."
+
+[[bin]]
+name = "tmq-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# tmq: async ZeroMQ for Tokio. It is not an engine of its own; it drives the
+# `zmq` crate (rust-zmq), which binds the system libzmq. So this target measures
+# libzmq reached through two layers of Rust, and the interesting comparison is
+# against `libzmq` (the C++ peer) and `rust_zmq` (the same binding used
+# synchronously): the deltas are binding overhead and async wrapper overhead.
+# Verified latest on crates.io: 0.5.0.
+tmq = "0.5"
+# The binding tmq sits on. Declared directly so `describe` can report the libzmq
+# version through zmq::version() the way the rust-zmq target does.
+zmq = "0.10"
+# tmq's sockets are futures Sinks and Streams, so the send/recv loops need the
+# SinkExt / StreamExt combinators.
+futures = "0.3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Strict lints, matching the control plane's policy in the root Cargo.toml. A
+# target is measured code: a subtle mistake here shows up as a benchmark number
+# rather than a crash, so it gets the same scrutiny as the harness. The allows
+# are the same justified set (numeric conversions between counters, byte sizes
+# and f64; benchmark vocabulary that is genuinely repetitive).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"

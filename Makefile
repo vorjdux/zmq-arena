@@ -25,7 +25,7 @@ GEN_MATRIX ?= matrix.linode.json
 regen = @if [ "$(MATRIX)" = "$(GEN_MATRIX)" ]; then python3 scripts/gen_matrix.py; fi
 
 .PHONY: all build orchestrator reporter libzmq monocoque monocoque-tokio monocoque-smol \
-        zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq omq-tokio \
+        zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
         targets-all matrix bench render charts run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
@@ -35,7 +35,7 @@ all: build run            ## build everything, then run + render
 # variant. omq selects its third model (blocking) at run time, so one build
 # covers all three of its variants.
 build: orchestrator reporter libzmq monocoque monocoque-tokio monocoque-smol \
-       zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq omq-tokio  ## build the control plane and every runnable variant
+       zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio  ## build the control plane and every runnable variant
 
 matrix:                   ## regenerate matrix.linode.json (payload sweep, all kinds)
 	python3 scripts/gen_matrix.py
@@ -74,6 +74,9 @@ zeromq-rs-async-dispatcher: ## build the zmq.rs async-dispatcher variant
 
 rust-zmq:                 ## build the rust-zmq target (links system libzmq)
 	cd targets/rust_zmq_target && cargo build --release
+
+tmq:                      ## build the tmq target (Tokio bindings over libzmq)
+	cd targets/tmq_target && cargo build --release
 
 omq-tokio:                ## build the omq target (one binary; its three variants
                           ## current-thread, multi-thread and blocking are selected by --variant)
@@ -117,7 +120,8 @@ clean:                    ## remove scratch and all build artifacts
 		targets/monocoque_target/target targets/monocoque_target/target-tokio targets/monocoque_target/target-smol \
 		targets/zeromq_rs_target/target targets/zeromq_rs_target/target-async-std \
 		targets/zeromq_rs_target/target-async-dispatcher \
-		targets/rust_zmq_target/target targets/omq_tokio_target/target
+		targets/rust_zmq_target/target targets/tmq_target/target \
+		targets/omq_tokio_target/target
 
 help:                     ## list these targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) \

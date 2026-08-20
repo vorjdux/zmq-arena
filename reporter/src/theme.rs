@@ -33,6 +33,9 @@ pub struct Impl {
 // re-learning the legend. No engine is styled to stand out from the others.
 pub const C_LIBZMQ: RGBColor = RGBColor(250, 204, 21);
 pub const C_RUST_ZMQ: RGBColor = RGBColor(245, 158, 11);
+// tmq's engine IS libzmq, so it takes a third shade of the libzmq family rather
+// than a hue of its own: the three yellows are three ways of reaching one engine.
+pub const C_TMQ: RGBColor = RGBColor(180, 83, 9);
 // One hue family per engine, one shade per runtime, so a reader can tell at a
 // glance which lines are the same engine and which are different engines. Every
 // engine gets the same treatment: an evenly spaced light/mid/dark ramp within
@@ -70,6 +73,12 @@ pub const IMPLS: &[Impl] = &[
         label: "rust-zmq",
         note: "FFI to libzmq",
         color: C_RUST_ZMQ,
+    },
+    Impl {
+        key: "tmq",
+        label: "tmq",
+        note: "tokio over libzmq",
+        color: C_TMQ,
     },
     Impl {
         key: "zeromq_rs",

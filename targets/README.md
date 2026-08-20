@@ -40,7 +40,7 @@ target is the source of truth.
 
 | field | meaning |
 |-------|---------|
-| `engine` | the implementation being measured (libzmq, zmq.rs, omq, rzmq, celerity, monocoque) |
+| `engine` | the implementation being measured (libzmq, zmq.rs, omq, rzmq, celerity, monocoque). A binding reports the engine it binds, not itself: rust-zmq and tmq both report `libzmq` |
 | `lib_version` | the engine's own version. Read it from the linked library where possible (libzmq: `zmq_version()`); a build script that parses Cargo.lock supplies it for pure-Rust crates, so it tracks the lockfile |
 | `binding_version` | for an FFI binding, the binding crate's version; `null` when native |
 | `lib_language` | the engine's implementation language (libzmq is C++; the pure-Rust engines are Rust) |
@@ -85,13 +85,23 @@ the same binary in different runtime modes.
 | variant | binary / target dir | engine | io model | threading | how selected |
 |---------|---------------------|--------|----------|-----------|--------------|
 | `libzmq` | libzmq_cpp_target | libzmq | epoll | native threads | single variant |
-| `zmq.rs` | zeromq_rs_target | zmq.rs | epoll | tokio | single variant |
+| `rust_zmq` | rust_zmq_target | libzmq | epoll | native threads | single variant |
+| `tmq` | tmq_target | libzmq | epoll | native threads + tokio | single variant |
+| `zeromq_rs` | zeromq_rs_target | zmq.rs | epoll | tokio | default build |
+| `zeromq_rs_async_std` | zeromq_rs_target | zmq.rs | epoll | async-std | separate build, see below |
+| `zeromq_rs_async_dispatcher` | zeromq_rs_target | zmq.rs | epoll | async-dispatcher | separate build, see below |
 | `omq_tokio` | omq_tokio_target | omq | mio/epoll | current-thread | `--variant default` |
 | `omq_tokio_mt` | omq_tokio_target | omq | mio/epoll | multi-thread | `--variant multi_thread` |
-| `rzmq` | rzmq_target | rzmq | io_uring | tokio | single variant |
-| `celerity` | celerity_target | celerity | epoll | tokio | single variant |
+| `omq_blocking` | omq_tokio_target | omq | mio/epoll | sync API, omq-owned IO threads | `--variant blocking` |
 | `monocoque` | monocoque_target | monocoque | io_uring (compio) | thread-per-core | default build |
 | `monocoque_tokio` | monocoque_target | monocoque | epoll (tokio) | thread-per-core | separate build, see below |
+| `monocoque_smol` | monocoque_target | monocoque | epoll (smol) | thread-per-core | separate build, see below |
+| `rzmq` | rzmq_target | rzmq | io_uring | tokio | stub, not benchmarked |
+| `celerity` | celerity_target | celerity | epoll | tokio | stub, not benchmarked |
+
+Every runtime an engine ships is its own variant. Where the runtime is a
+compile-time choice the wrapper is built once per runtime into its own target
+dir; where it is a run-time choice it is selected with `--variant`.
 
 The wrapper maps `--variant` to its engine's runtime configuration (for omq-tokio
 this is the tokio runtime flavor). Where an engine picks its runtime at compile
