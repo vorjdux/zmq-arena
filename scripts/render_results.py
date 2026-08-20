@@ -58,6 +58,60 @@ def meta(vkey: str) -> dict:
     return REGISTRY.get(vkey, {"engine": vkey, "io": "unknown", "threading": "unknown"})
 
 
+def build_id(vkey: str, engine: str, lib_version: str, binding_version) -> str:
+    """Stable identity for one *build* of a variant: what ran, at what version.
+
+    A variant key like `tmq` says which series a cell belongs to; it does not say
+    which version produced the number. The archive needs both, because an archive
+    is history: when monocoque goes 0.4.0 -> 0.5.0, last month's run must keep
+    reporting 0.4.0 forever. So the id carries every version in the measured
+    stack, and changes the moment any of them does:
+
+        monocoque@0.4.0                 a native engine, its own version
+        tmq@0.5.0+libzmq-4.3.4          a binding, its version AND the engine's
+
+    Including the engine version for bindings is the part that is easy to get
+    wrong. `tmq@0.5.0` alone would stay identical across a libzmq 4.3.4 -> 4.3.5
+    upgrade, silently merging two different measured stacks under one id.
+    """
+    own = binding_version or lib_version or "unknown"
+    ident = f"{vkey}@{own}"
+    if binding_version and lib_version:
+        ident += f"+{engine}-{lib_version}"
+    return ident
+
+
+def build_of(cell: dict) -> tuple:
+    """The (id, classification) pair for the build that produced this cell.
+
+    Returned separately from the measurement so the archive can list each build
+    once. Everything here is a property of the binary that ran, never of the
+    individual cell, which is exactly why repeating it per record was waste.
+    """
+    target = cell["entry"]["target"]
+    vkey = variant_key(target["id"], target.get("variant"))
+    m = meta(vkey)
+    tm = cell.get("meta") or {}
+    engine = tm.get("engine") or m["engine"]
+    language = tm.get("language") or ("C++" if vkey == "libzmq" else "Rust")
+    lib_version = tm.get("lib_version", "")
+    binding_version = tm.get("binding_version")
+    ident = build_id(vkey, engine, lib_version, binding_version)
+    return ident, {
+        "variant": vkey,
+        "engine": engine,
+        "io": tm.get("io") or m["io"],
+        "threading": tm.get("threading") or m["threading"],
+        "language": language,
+        "lib_version": lib_version,
+        "binding_version": binding_version,
+        "lib_language": tm.get("lib_language", language),
+        "impl": tm.get("impl", ""),
+        "ffi_to": tm.get("ffi_to"),
+        "concurrency": tm.get("concurrency", ""),
+    }
+
+
 def to_archive_record(cell: dict) -> dict:
     """Map one orchestrator CellRecord into a dashboard archive record."""
     entry = cell["entry"]
@@ -141,14 +195,11 @@ def to_archive_record(cell: dict) -> dict:
     threading = tm.get("threading") or m["threading"]
     language = tm.get("language") or ("C++" if vkey == "libzmq" else "Rust")
     return {
-        "variant": vkey, "engine": engine, "io": io, "threading": threading,
-        "language": language,
-        "lib_version": tm.get("lib_version", ""),
-        "binding_version": tm.get("binding_version"),
-        "lib_language": tm.get("lib_language", language),
-        "impl": tm.get("impl", ""),
-        "ffi_to": tm.get("ffi_to"),
-        "concurrency": tm.get("concurrency", ""),
+        # Identity by reference. The build's classification and versions live
+        # once in the archive's `builds` map; repeating eleven fields on every
+        # cell cost about a fifth of the file to say the same eight things over
+        # and over.
+        "build": build_of(cell)[0],
         "kind": kind, "transport": entry["transport"],
         "payload_bytes": entry["payload_bytes"], "peers": entry.get("peers"),
         "latency_ns": latency_ns, "throughput": throughput,
@@ -189,7 +240,7 @@ def flag_inversions(records: list, margin: float = 0.15) -> None:
 
     Throughput in msgs/s must fall as the payload grows: a bigger message can
     never carry at a higher message rate on the same path. So within one
-    (variant, kind, transport, peers) sweep, a cell whose rate is beaten by a
+    (build, kind, transport, peers) sweep, a cell whose rate is beaten by a
     LARGER payload is physically suspect, usually a measurement or socket-config
     artifact (the monocoque TCP 64 B Nagle case is the canonical example). Such a
     cell is flagged inverted.
@@ -203,7 +254,10 @@ def flag_inversions(records: list, margin: float = 0.15) -> None:
     for r in records:
         if r["kind"] not in THROUGHPUT_KINDS or not r.get("throughput"):
             continue
-        key = (r["variant"], r["kind"], r["transport"], r.get("peers"))
+        # Grouped by build, not by variant: two versions of one library are two
+        # different sweeps, and comparing a cell against a different version's
+        # curve would flag a real version-to-version change as an artifact.
+        key = (r["build"], r["kind"], r["transport"], r.get("peers"))
         groups.setdefault(key, []).append(r)
     for rs in groups.values():
         rs.sort(key=lambda r: r["payload_bytes"])
@@ -215,11 +269,25 @@ def flag_inversions(records: list, margin: float = 0.15) -> None:
             r.setdefault("stability", {})["inverted"] = bool(inverted)
 
 
-def write_archive(docs: Path, run_id: str, date: str, hardware: dict, records: list) -> str:
+def write_archive(
+    docs: Path, run_id: str, date: str, hardware: dict, records: list, builds: dict
+) -> str:
     hist = docs / "history"
     hist.mkdir(parents=True, exist_ok=True)
     fname = f"{date}-run.json"
-    run = {"run_id": run_id, "date": date, "hardware": hardware, "records": records}
+    # schema 2: records reference a build id; `builds` resolves it. The map is
+    # written into the archive rather than looked up in variants.json at read
+    # time because an archive is immutable history and variants.json is current.
+    # A run from before a version bump has to keep reporting the version that
+    # actually ran, forever.
+    run = {
+        "schema": 2,
+        "run_id": run_id,
+        "date": date,
+        "hardware": hardware,
+        "builds": builds,
+        "records": records,
+    }
     (hist / fname).write_text(json.dumps(run, separators=(",", ":")))
 
     index_path = hist / "index.json"
@@ -251,10 +319,11 @@ def main():
     date = args.date or run_id
     cells = load_cells(args.scratch)
     records = [to_archive_record(c) for c in cells]
+    builds = dict(build_of(c) for c in cells)
     flag_inversions(records)  # payload-monotonicity correctness check across the sweep
     hardware = {"cpu": args.hardware_cpu, "note": args.hardware_note}
 
-    fname = write_archive(args.docs, run_id, date, hardware, records)
+    fname = write_archive(args.docs, run_id, date, hardware, records, builds)
     print(f"rendered {len(records)} records -> docs/history/{fname}, updated index.json")
 
 

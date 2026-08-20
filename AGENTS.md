@@ -66,6 +66,13 @@ would distort every ratio computed against the baseline.
 
 ## Changing the reporting
 
+- An archive record is a measurement plus a `build` reference. The build's
+  classification and versions live once per run in the archive's `builds` map,
+  keyed by an id that names every version in the stack
+  (`tmq@0.5.0+libzmq-4.3.4`). Never resolve those facts out of `variants.json`
+  instead: that file is current and an archive is history, so a run from before
+  a version bump must carry the versions that actually ran. `variants.json` is
+  presentation only.
 - `scripts/render_results.py` turns a scratch directory into the run archive.
   It does data transformation only, never measurement, and never summarises:
   the run archive is the one canonical form of a result and the dashboard is

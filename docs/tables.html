@@ -162,6 +162,26 @@ async function loadVariants(){
   VORDER = d.variants.map(v => v.key);
 }
 
+// Archive schema 2 stores each build's classification once in `builds` and has
+// records reference it by id, instead of repeating eleven fields on every cell.
+// Flatten it back out on load so everything downstream sees one record shape.
+//
+// The map lives in the archive rather than being looked up in variants.json,
+// because an archive is history: a run from before a version bump has to keep
+// reporting the version that actually ran. variants.json is current, and only
+// supplies presentation.
+//
+// Schema 1 archives (and any run restored from an older deployment) already
+// carry the fields inline, so they pass through untouched.
+function denormalize(data){
+  const builds = data.builds;
+  if(!builds) return data.records || [];
+  return (data.records || []).map(r => {
+    const b = builds[r.build];
+    return b ? {...b, ...r} : r;
+  });
+}
+
 async function load(){
   await loadVariants();
   let runs, isSample=false;
@@ -169,7 +189,7 @@ async function load(){
   catch(e){ runs=await loadFrom("sample/"); isSample=true; }
   runs.sort((a,b)=>a.date.localeCompare(b.date));
   RECORDS=[];
-  for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
+  for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   VARMETA={};
   for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();

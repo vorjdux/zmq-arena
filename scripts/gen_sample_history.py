@@ -128,22 +128,47 @@ def telemetry(rng, v, payload):
     return sysc, sched, mem, cpu
 
 
-def base_record(vid, v, kind, transport, payload, peers, run_idx):
-    # The C++ libzmq_cpp_target is the only C++ entry; rust_zmq drives the same
-    # core through the Rust binding. Key language off the variant id.
+def build_of(vid, v, run_idx):
+    """(id, classification) for one build, matching render_results.build_id().
+
+    The sample data has to carry the same shape as a real archive, including the
+    version-scoped build id, or the pages would be exercised against a schema
+    nothing else produces.
+    """
     language = "C++" if vid == "libzmq" else "Rust"
     m = META[vid]
-    return {
+    lib_version = version_at(vid, run_idx)
+    binding = m["binding"]
+    own = binding or lib_version or "unknown"
+    ident = f"{vid}@{own}"
+    if binding and lib_version:
+        ident += f"+{v['engine']}-{lib_version}"
+    return ident, {
         "variant": vid, "engine": v["engine"], "io": v["io"],
         "threading": v["threading"], "language": language,
-        "lib_version": version_at(vid, run_idx),
-        "binding_version": m["binding"],
+        "lib_version": lib_version,
+        "binding_version": binding,
         "lib_language": m["lib_lang"],
         "impl": m["impl"], "ffi_to": m["ffi_to"],
         "concurrency": m["concurrency"],
+    }
+
+
+def base_record(vid, v, kind, transport, payload, peers, run_idx):
+    return {
+        "build": build_of(vid, v, run_idx)[0],
         "kind": kind, "transport": transport,
         "payload_bytes": payload, "peers": peers,
     }
+
+
+def build_map(run_idx):
+    """Every build present in this run, listed once."""
+    return dict(
+        build_of(vid, v, run_idx)
+        for vid, v in VARIANTS.items()
+        if run_idx >= v["since"]
+    )
 
 
 def build_records(rng, run_idx):
@@ -205,9 +230,11 @@ def main():
     for run_idx, date in enumerate(RUN_DATES):
         rng = random.Random(f"{date}-seed-v2")
         run = {
+            "schema": 2,
             "run_id": date, "date": date, "sample": True,
             "hardware": {"cpu": "AMD EPYC 9554P (bare metal)",
                          "note": "turbo off, C-states locked, performance governor"},
+            "builds": build_map(run_idx),
             "records": build_records(rng, run_idx),
         }
         fname = f"{date}-run.json"

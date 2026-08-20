@@ -211,6 +211,33 @@ under `docs/history/`, and the dashboard is the one thing that interprets it:
 nothing else ranks, summarises, or re-renders those numbers. There is no second
 ledger to drift out of step.
 
+### What an archive holds
+
+A cell record is a measurement and a reference, nothing else. Everything about
+*what produced* the number lives once per run in a `builds` map:
+
+```json
+{ "schema": 2,
+  "builds": {
+    "monocoque@0.4.0":            { "variant": "monocoque", "engine": "monocoque", "io": "io_uring", "lib_version": "0.4.0", "...": "..." },
+    "tmq@0.5.0+libzmq-4.3.4":     { "variant": "tmq", "engine": "libzmq", "binding_version": "0.5.0", "lib_version": "4.3.4", "...": "..." }
+  },
+  "records": [ { "build": "monocoque@0.4.0", "kind": "throughput", "payload_bytes": 64, "...": "..." } ] }
+```
+
+A build id names every version in the measured stack, so it changes the moment
+any of them does. `tmq@0.5.0` alone would have stayed identical across a libzmq
+4.3.4 to 4.3.5 upgrade and silently merged two different stacks under one name.
+
+**The map is written into the archive rather than looked up in `variants.json`,
+and that is the point.** An archive is history; `variants.json` is current. When
+monocoque goes 0.4.0 to 0.5.0, last month's run has to keep reporting 0.4.0
+forever, so it carries its own versions. `variants.json` supplies only
+presentation, which is safe to keep current because a variant key never changes.
+
+Readers accept schema 1 archives, which repeated those fields on every record,
+so history published before the change still loads.
+
 The pages are self-contained (Apache ECharts, no build step) and fall back to
 synthetic sample data in `docs/sample/`, with a banner saying so, until a real
 run is published.
