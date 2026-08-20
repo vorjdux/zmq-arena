@@ -9,12 +9,10 @@
 # weekly-arena.yml on the bare-metal runner, which deploys the site itself once
 # it has fresh results.
 #
-# Run archives are deliberately not in git (docs/history/* is gitignored, so
-# dev-host runs never churn the repo). The site itself is therefore the store:
-# sync_history.py downloads what is already published and puts it back before the
-# upload, so a deploy from a clean checkout does not wipe the run history the
-# Explore page plots over. First deploy just starts empty and the dashboard falls
-# back to the synthetic sample data.
+# Run archives are committed under docs/history/, so a deploy is just an upload
+# of what the repository already contains. Nothing is fetched or reconstructed:
+# what you can see in git is what the site will serve. Until the first run is
+# committed the dashboard falls back to the synthetic sample data and says so.
 
 name: pages
 
@@ -25,7 +23,6 @@ on:
       - "docs/**"
       - "features.json"
       - "scripts/render_features.py"
-      - "scripts/sync_history.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch: {}
 
@@ -60,14 +57,6 @@ jobs:
         # Curated data, but regenerating guarantees docs/features.json matches
         # features.json even if someone edited only the source.
         run: python3 scripts/render_features.py
-
-      - name: Restore the published run history
-        # ${{ steps.pages.outputs.base_url }} is not available before configure,
-        # so derive the site root from the repository coordinates instead.
-        run: |
-          BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
-          echo "restoring from $BASE"
-          python3 scripts/sync_history.py --base-url "$BASE" --keep 26
 
       - uses: actions/configure-pages@v6
         id: pages

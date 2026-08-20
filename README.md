@@ -271,26 +271,16 @@ lands at
 `https://<owner>.github.io/zmq-arena/`; every path in `docs/` is relative, so the
 project subpath needs no configuration.
 
-Run archives are the one subtlety. `docs/history/*` is gitignored so dev-host
-runs never churn the repo, which means a CI checkout starts with no archives at
-all and a naive deploy would publish a site containing only the newest run,
-flattening the Explore page's evolution chart. So the published site is itself
-the store: `scripts/sync_history.py` downloads the archives already live and
-restores them before the upload, then rebuilds `history/index.json` from what is
-actually on disk. `--keep` bounds it (26 runs by default, about six months of
-weekly runs), so the deployment stays a fixed size however long the grid runs.
-The weekly job also uploads each archive as a 90-day CI artifact, so a botched
-deploy cannot take a run's raw data with it.
+Run archives are committed under `docs/history/` like any other output, so a
+deploy is a plain upload of what the repository contains. What you can see in
+git is what the site serves; nothing is fetched or reconstructed.
 
-The split of duties is deliberate:
-
-| what | where it lives |
-|---|---|
-| `FEATURES.md`, `docs/features.json`, `docs/variants.json` | curated registries, committed to `main` and overwritten in place, so the file count is fixed |
-| `docs/history/*-run.json` | never committed; carried forward by the Pages deployment |
-
-That keeps `main` code-only and stops it growing without bound as
-implementations release and get re-benchmarked.
+They were gitignored at first, to keep dev-host numbers out of the repo. That
+turned out to leave no path at all from a run to the dashboard: CI deploys from
+a fresh checkout, so an archive that is not in git is invisible to it, and the
+site could only ever show sample data. A run that should not be published should
+not be rendered; every archive records the host it came from either way. The
+cost is about 300 KB per run.
 
 `pages.yml` runs on a GitHub-hosted runner and only assembles and uploads the
 site, so it is safe to trigger by hand at any time; it measures nothing. Until
