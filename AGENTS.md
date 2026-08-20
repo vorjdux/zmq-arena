@@ -18,7 +18,7 @@ regression than a slow socket loop.
 orchestrator/   control plane: cgroups, spawn isolation, telemetry, replication
 targets/        one standalone project per implementation, NOT workspace members
 scripts/        matrix generation, result rendering, feature matrix rendering
-docs/           dashboard (5 pages, no build step) + generated charts
+docs/           dashboard (5 pages, no build step) + committed run archives
 features.json   curated capability matrix, the source for FEATURES.md
 variants.json   how each measured series is labelled and coloured
 ```

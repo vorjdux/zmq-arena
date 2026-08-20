@@ -89,27 +89,22 @@ jobs:
         run: python3 scripts/render_features.py
 
       - name: Commit the repo-facing results
-        # Only the curated registries, which are overwritten in place. Results
-        # are NOT committed: the run archive is the canonical result and it
-        # reaches readers through the Pages deployment below, so main stays code
-        # and configuration only.
-        #
-        # The run archive is deliberately NOT committed. docs/history/* is
-        # gitignored, and one new ~250 KB file per week would grow main without
-        # bound as implementations release and get re-benchmarked. The archive
-        # reaches the world through the Pages deployment below instead, so main
-        # stays code-only.
+        # The run archive is committed alongside the curated registries. It is
+        # the canonical result, and committing it is what lets the deploy below
+        # be a plain upload of the repository rather than a reconstruction of
+        # history from whatever happens to be live. About 300 KB per run.
         run: |
           git config user.name "arena-bot"
           git config user.email "arena-bot@users.noreply.github.com"
-          git add FEATURES.md docs/features.json docs/variants.json
+          git add FEATURES.md docs/features.json docs/variants.json \
+            "docs/history/${RUN_ID}-run.json" docs/history/index.json
           git commit -m "weekly grid: ${RUN_ID}" || echo "nothing to commit"
           git push || echo "push skipped"
 
-      - name: Keep the archive recoverable
-        # The deployed site is the only long-term store for run archives, so hold
-        # a copy outside it too. Without this a botched deploy would take the
-        # run's raw data with it.
+      - name: Keep the raw telemetry
+        # The archive itself is in git; this keeps the scratch directory it was
+        # rendered from, so a run can be re-rendered if the record schema
+        # changes.
         uses: actions/upload-artifact@v7
         with:
           name: run-archive-${{ env.RUN_ID }}
@@ -117,14 +112,6 @@ jobs:
             docs/history/${{ env.RUN_ID }}-run.json
             scratch/${{ env.RUN_ID }}
           retention-days: 90
-
-      - name: Restore the previously published run history
-        # This run produced one archive. Everything older lives on the published
-        # site, so pull it back before uploading or the deploy would replace the
-        # whole history with a single run and flatten the Evolution chart.
-        run: |
-          BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
-          python3 scripts/sync_history.py --base-url "$BASE" --keep 26
 
       - uses: actions/upload-pages-artifact@v5
         with:
