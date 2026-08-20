@@ -156,10 +156,14 @@
 
 // ── registries ────────────────────────────────────────────────────
 const VARIANT_LABEL = {
-  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "tmq":"tmq",
+  "zeromq_rs":"zmq.rs", "zeromq_rs_async_std":"zmq.rs (async-std)",
+  "zeromq_rs_async_dispatcher":"zmq.rs (async-dispatcher)", "zmq.rs":"zmq.rs",
+  "omq_tokio":"omq-tokio", "omq_tokio_mt":"omq-tokio (MT)", "omq_blocking":"omq (blocking)",
+  "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)", "monocoque_smol":"monocoque (smol)",
+  "rzmq":"rzmq", "celerity":"celerity",
   // Retired upstream, kept so archived runs still render a name, not a raw key.
-  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
-  "rzmq":"rzmq", "celerity":"celerity", "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",
+  "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
 };
 // One stable colour per library so the same line is the same colour in every panel.
 const VARIANT_COLOR = {
@@ -207,7 +211,8 @@ async function load(){
   for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
   DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]=
+    {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version};
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort(varSort);
   selected=new Set(VARIANTS);
 
@@ -247,6 +252,16 @@ function applyLayout(mode){
 }
 
 // ── library chips (shared legend + filter) ────────────────────────
+// A binding's own version is its identity; the engine underneath is context.
+// Rendering only lib_version produced labels like "tmq 4.3.4", which reads as a
+// tmq release that does not exist. Native engines have no binding version and
+// keep the plain one.
+function verLabel(m){
+  if(!m) return "";
+  if(m.binding) return m.lib ? `${m.binding} (${m.engine} ${m.lib})` : m.binding;
+  return m.lib || "";
+}
+
 function buildChips(){
   const box=el("chips"); box.innerHTML="";
   for(const v of VARIANTS){
@@ -254,7 +269,7 @@ function buildChips(){
     const c=document.createElement("span");
     c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
     c.innerHTML=`<span class="sw" style="background:${colorOf(v)}"></span>${VARIANT_LABEL[v]||v}`+
-      `${m.lib?` <small>${m.lib}</small>`:""} <small>${m.io}</small>`;
+      `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
     box.appendChild(c);

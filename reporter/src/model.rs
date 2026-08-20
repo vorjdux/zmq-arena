@@ -34,7 +34,13 @@ pub struct Record {
     #[serde(default)]
     pub peers: Option<u32>,
     #[serde(default)]
+    pub engine: Option<String>,
+    #[serde(default)]
     pub lib_version: Option<String>,
+    /// Set only by bindings: the wrapper crate's own version. `lib_version` is
+    /// then the engine underneath it, not this crate.
+    #[serde(default)]
+    pub binding_version: Option<String>,
     #[serde(default)]
     pub latency_ns: Option<Latency>,
     #[serde(default)]
@@ -110,14 +116,27 @@ impl Archive {
         out
     }
 
-    /// Library version per variant, for the legend. Takes the first seen; a run
+    /// Version string per variant, for the legend. Takes the first seen; a run
     /// measures one build of each engine.
+    ///
+    /// For a binding the wrapper's own version is the identity and the engine
+    /// underneath is context, so it reads `0.5.0 (libzmq 4.3.4)`. Showing only
+    /// `lib_version` there was actively misleading: it rendered as "tmq 4.3.4",
+    /// which looks like a tmq release that does not exist. Native engines have
+    /// no binding version and keep the plain `lib_version`.
     pub fn versions(&self) -> BTreeMap<String, String> {
         let mut out = BTreeMap::new();
         for r in &self.records {
-            if let Some(v) = &r.lib_version {
-                out.entry(r.variant.clone()).or_insert_with(|| v.clone());
-            }
+            let label = match (&r.binding_version, &r.lib_version) {
+                (Some(b), Some(l)) => {
+                    let engine = r.engine.as_deref().unwrap_or("engine");
+                    format!("{b} ({engine} {l})")
+                }
+                (Some(b), None) => b.clone(),
+                (None, Some(l)) => l.clone(),
+                (None, None) => continue,
+            };
+            out.entry(r.variant.clone()).or_insert(label);
         }
         out
     }

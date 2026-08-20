@@ -10,7 +10,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 | capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity |
 |---|---|---|---|---|---|---|---|---|
-| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 | 0.6.0 | 0.21.3 | 0.4.0 | 0.5.25 | 0.1.1 |
+| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.3 | 0.4.0 | 0.5.25 | 0.1.1 |
 | language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust |
 | implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native |
 | socket types | 12 | 12 | 12 | 9 | 11 | 12 | declared | declared |
@@ -37,7 +37,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 - Runtime: Inherits libzmq's synchronous API and IO threads; it is a binding, so capability follows the linked libzmq.
 - Source: erickt/rust-zmq README; capability is the linked libzmq's
 
-### tmq 0.5.0
+### tmq 0.5.0 (libzmq 4.3.4)
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
 - Runtime: Requires Tokio: its sockets are futures Sinks and Streams. The libzmq underneath still runs its own IO threads, so the Tokio runtime drives only the wrapper.

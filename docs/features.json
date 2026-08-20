@@ -104,7 +104,7 @@
       "label": "tmq",
       "language": "Rust",
       "impl": "ffi",
-      "version": "0.5.0",
+      "version": "0.5.0 (libzmq 4.3.4)",
       "socket_types": [
         "REQ",
         "REP",

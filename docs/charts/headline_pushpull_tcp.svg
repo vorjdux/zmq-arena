@@ -208,7 +208,7 @@ C++, epoll
 </text>
 <rect x="200" y="392" width="10" height="10" opacity="1" fill="#F59E0B" stroke="none"/>
 <text x="216" y="391" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
-rust-zmq 4.3.4
+rust-zmq 0.10.0 (libzmq 4.3.4)
 </text>
 <text x="216" y="405" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 FFI to libzmq

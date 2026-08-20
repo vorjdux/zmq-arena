@@ -96,10 +96,14 @@
 "use strict";
 
 const VARIANT_LABEL = {
-  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "tmq":"tmq",
+  "zeromq_rs":"zmq.rs", "zeromq_rs_async_std":"zmq.rs (async-std)",
+  "zeromq_rs_async_dispatcher":"zmq.rs (async-dispatcher)", "zmq.rs":"zmq.rs",
+  "omq_tokio":"omq-tokio", "omq_tokio_mt":"omq-tokio (MT)", "omq_blocking":"omq (blocking)",
+  "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)", "monocoque_smol":"monocoque (smol)",
+  "rzmq":"rzmq", "celerity":"celerity",
   // Retired upstream, kept so archived runs still render a name, not a raw key.
-  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
-  "rzmq":"rzmq", "celerity":"celerity", "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",
+  "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
 };
 const ENGINE_COLOR = {
   "libzmq":"#eab308", "zmq.rs":"#2563eb", "omq":"#7c3aed",
