@@ -1,0 +1,284 @@
+{
+  "_comment": "Capability matrix for the implementations zmq-arena knows about. IMPORTANT: unlike everything else in this repo, these rows are CURATED, not measured. Each row records where it was read from and when. A capability the arena has not exercised is a claim by its project, not a result, and is marked accordingly. Regenerate FEATURES.md with: python3 scripts/render_features.py",
+  "verified_on": "2026-08-20",
+  "legend": {
+    "yes": "the project documents it and zmq-arena has exercised it",
+    "declared": "the project documents it; zmq-arena does not exercise it",
+    "no": "documented as absent, or absent from the API",
+    "partial": "present with caveats, see the note"
+  },
+  "implementations": [
+    {
+      "id": "libzmq",
+      "label": "libzmq",
+      "language": "C++",
+      "impl": "native",
+      "version": "4.3.5",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR",
+        "STREAM"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc",
+        "udp",
+        "pgm",
+        "epgm",
+        "tipc",
+        "vmci"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "yes",
+      "runtime_note": "Synchronous API over library-owned background IO threads; no async runtime in the caller.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows",
+        "BSD"
+      ],
+      "bindings": "Reference implementation; bindings exist for most languages.",
+      "arena_tier": "headline + extended (reference)",
+      "source": "zeromq/libzmq README and zmq_socket(3)"
+    },
+    {
+      "id": "rust_zmq",
+      "label": "rust-zmq",
+      "language": "Rust",
+      "impl": "ffi",
+      "version": "0.10 (libzmq 4.3.4)",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR",
+        "STREAM"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc",
+        "udp",
+        "pgm",
+        "epgm"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "yes",
+      "runtime_note": "Inherits libzmq's synchronous API and IO threads; it is a binding, so capability follows the linked libzmq.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows"
+      ],
+      "bindings": "Is itself the Rust binding to libzmq.",
+      "arena_tier": "headline",
+      "source": "erickt/rust-zmq README; capability is the linked libzmq's"
+    },
+    {
+      "id": "zeromq_rs",
+      "label": "zmq.rs",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.6.0",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "PUSH",
+        "PULL"
+      ],
+      "transports": [
+        "tcp",
+        "ipc"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "no",
+        "curve": "no"
+      },
+      "runtime_free": "no",
+      "runtime_note": "Requires an async runtime, chosen by feature: tokio (default), async-std, or async-dispatcher. All three are benchmarked.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows (tcp only; ipc is unix-only)"
+      ],
+      "bindings": "None.",
+      "arena_tier": "headline",
+      "notes": "Its PUSH/PULL does not multiplex several peers on the bound side, so it cannot fan out or fan in. The project's own README opens by stating it does not implement all of ZeroMQ's feature set. All three of its runtimes are benchmarked as separate variants.",
+      "source": "zeromq/zmq.rs README"
+    },
+    {
+      "id": "omq_tokio",
+      "label": "omq",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.21.3",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc",
+        "udp",
+        "ws",
+        "wss",
+        "lz4+tcp",
+        "zstd+tcp"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "yes",
+      "runtime_note": "Offers both: `Context::new().blocking_socket(...)` is a sync socket over OMQ-owned IO threads, and `Context::current()` embeds in an existing tokio runtime.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows"
+      ],
+      "bindings": "Go, Java, Lua, Node, Python (pyomq).",
+      "arena_tier": "headline",
+      "notes": "All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set.",
+      "source": "paddor/omq.rs README (8 stable transports; NULL/PLAIN/CURVE)"
+    },
+    {
+      "id": "monocoque",
+      "label": "monocoque",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.4.0",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR",
+        "STREAM"
+      ],
+      "transports": [
+        "tcp",
+        "ipc"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "no",
+      "runtime_note": "Requires a runtime, chosen at compile time: compio (io_uring, default), tokio, or smol. Sockets are !Send and the runtime is thread-per-core.",
+      "platforms": [
+        "Linux (io_uring, 5.6+ for the compio backend)",
+        "portable via the tokio/smol backends"
+      ],
+      "bindings": "None.",
+      "arena_tier": "headline + extended",
+      "notes": "All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 0.4.0 replaced the CURVE message cipher with the real RFC-26 construction and verified live interop against a CURVE-enabled libzmq, so CURVE moved from present-but-broken to working. PUB is the one socket that takes no SocketOptions: its broadcast path ignores buffer sizes and write coalescing, so only its worker count can be tuned.",
+      "source": "vorjdux/monocoque README and CHANGELOG 0.4.0"
+    },
+    {
+      "id": "rzmq",
+      "label": "rzmq",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.5.25",
+      "socket_types": [
+        "declared: REQ, REP, DEALER, ROUTER, PUB, SUB, PUSH, PULL"
+      ],
+      "transports": [
+        "tcp",
+        "ipc"
+      ],
+      "security": {
+        "null": "declared",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "no",
+      "runtime_note": "tokio, with an io_uring path on Linux.",
+      "platforms": [
+        "Linux"
+      ],
+      "bindings": "None.",
+      "arena_tier": "not benchmarked (target is a describe-only stub)",
+      "notes": "Every row here is the project's claim. The arena has not run a single cell against rzmq, so nothing in it is verified.",
+      "source": "crates.io/rzmq"
+    },
+    {
+      "id": "celerity",
+      "label": "celerity",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.1.1",
+      "socket_types": [
+        "declared: sans-IO ZMTP 3.1 core"
+      ],
+      "transports": [
+        "tcp"
+      ],
+      "security": {
+        "null": "declared",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "partial",
+      "runtime_note": "The protocol core is sans-IO, so it can be driven without a runtime; the shipped driver is tokio.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows"
+      ],
+      "bindings": "None.",
+      "arena_tier": "not benchmarked (target is a describe-only stub)",
+      "notes": "Every row here is the project's claim. The arena has not run a single cell against celerity. The target also pinned a nonexistent 0.2.0 until it was corrected to 0.1.1, so it could not even resolve, let alone measure.",
+      "source": "crates.io/celerity"
+    }
+  ]
+}

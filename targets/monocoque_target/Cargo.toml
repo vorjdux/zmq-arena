@@ -1,6 +1,6 @@
 # Standalone project. NOT a member of the orchestrator workspace.
 #
-# Engine: monocoque (monocoque-rs 0.1.6), a Rust-native ZMTP 3.1 runtime. Its
+# Engine: monocoque (monocoque-rs 0.4.0), a Rust-native ZMTP 3.1 runtime. Its
 # runtime is a compile-time choice, so this one wrapper builds two binaries:
 #   compio (io_uring, default):  cd targets/monocoque_target && cargo build --release
 #   tokio  (epoll):              cargo build --release --no-default-features \
@@ -27,17 +27,18 @@ default = ["compio"]
 # monocoque-rs so its rt facade resolves to the chosen runtime.
 compio = ["monocoque-rs/runtime-compio"]
 tokio = ["monocoque-rs/runtime-tokio"]
+smol = ["monocoque-rs/runtime-smol"]
 
 [dependencies]
 anyhow = "1"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
-# Verified on crates.io: monocoque-rs 0.1.6 (lib name `monocoque`), MIT. The
+# Verified on crates.io: monocoque-rs 0.4.0 (lib name `monocoque`), MIT. The
 # runtime feature is selected by this crate's compio/tokio feature above.
-monocoque-rs = { version = "0.1.6", default-features = false, features = ["zmq"] }
+monocoque-rs = { version = "0.4.0", default-features = false, features = ["zmq"] }
 # monocoque's IO trait abstraction, used for the generic PushSocket<S> bounds. It
 # is a non-optional dependency of monocoque-core for both backends.
-compio-io = "0.2"
+compio-io = "0.10"
 
 [profile.release]
 opt-level = 3
@@ -45,3 +46,22 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Strict lints, matching the control plane's policy in the root Cargo.toml. A
+# target is measured code: a subtle mistake here shows up as a benchmark number
+# rather than a crash, so it gets the same scrutiny as the harness. The allows
+# are the same justified set (numeric conversions between counters, byte sizes
+# and f64; benchmark vocabulary that is genuinely repetitive).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# monocoque's runtime is thread-per-core and its sockets are deliberately !Send,
+# so every future in this wrapper is !Send by construction. The lint is firing on
+# the engine's design, not on a defect in the wrapper, and there is nothing to
+# fix short of not using the library.
+future_not_send = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"

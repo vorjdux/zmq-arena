@@ -10,7 +10,7 @@
 //! process and its limits. This respects the cgroup v2 "no internal processes"
 //! rule: only leaves carry tasks, intermediate nodes only delegate controllers.
 //!
-//! Requires CAP_SYS_ADMIN (root) and a cgroup v2 host. On a systemd host the
+//! Requires `CAP_SYS_ADMIN` (root) and a cgroup v2 host. On a systemd host the
 //! root `cgroup.subtree_control` is managed by systemd; enabling controllers at
 //! the root may fail, in which case run the arena inside a delegated subtree.
 //! Enabling is best-effort per level and idempotent.

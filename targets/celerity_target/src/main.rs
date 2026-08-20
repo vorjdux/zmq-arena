@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -34,7 +34,11 @@ enum Transport {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "celerity-target", version, about = "zmq-arena celerity wrapper")]
+#[command(
+    name = "celerity-target",
+    version,
+    about = "zmq-arena celerity wrapper"
+)]
 struct Cli {
     #[arg(long, value_enum)]
     role: Role,
@@ -56,7 +60,7 @@ struct Cli {
     /// Subscriber/pusher count (pubsub/fanout/fanin); omitted otherwise.
     #[arg(long)]
     peers: Option<u32>,
-    /// Runtime variant selector (engine-specific, e.g. "multi_thread").
+    /// Runtime variant selector (engine-specific, e.g. "`multi_thread`").
     #[arg(long, default_value = "default")]
     variant: String,
     #[arg(long = "knob", value_parser = parse_knob)]
@@ -96,7 +100,14 @@ async fn main() -> Result<()> {
 
     eprintln!(
         "celerity-target: role={:?} pattern={:?} transport={:?} endpoint={} payload={}B msgs={} warmup={} knobs={:?}",
-        cli.role, cli.pattern, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, knobs
+        cli.role,
+        cli.pattern,
+        cli.transport,
+        cli.endpoint,
+        cli.payload_bytes,
+        cli.messages,
+        cli.warmup,
+        knobs
     );
 
     match cli.role {
@@ -105,11 +116,22 @@ async fn main() -> Result<()> {
     }
 }
 
-/// TODO(maintainer): celerity producer (PUSH/PUB via CelerityPeer + Tokio io).
+// Both are `async` with nothing to await because they are unimplemented stubs.
+// The signature is the contract the real socket loop will fill in, and dropping
+// `async` now would only force whoever writes it to put it back.
+#[allow(
+    clippy::unused_async,
+    reason = "stub signatures held for the real socket loops"
+)]
+/// TODO(maintainer): celerity producer (PUSH/PUB via `CelerityPeer` + Tokio io).
 async fn run_publisher(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
     bail!("celerity publisher loop not implemented");
 }
 
+#[allow(
+    clippy::unused_async,
+    reason = "stub signatures held for the real socket loops"
+)]
 /// TODO(maintainer): celerity consumer (PULL/SUB), receive exactly messages.
 async fn run_subscriber(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
     bail!("celerity subscriber loop not implemented");

@@ -1,4 +1,4 @@
-//! Emit the engine crate's resolved version as ENGINE_VERSION so the `describe`
+//! Emit the engine crate's resolved version as `ENGINE_VERSION` so the `describe`
 //! output reports the real library version, and tracks it as the lockfile moves.
 //! Reading the committed Cargo.lock keeps this deterministic with the build.
 
@@ -23,10 +23,8 @@ fn lock_version(crate_name: &str) -> Option<String> {
         let line = line.trim();
         if line == needle {
             in_pkg = true;
-        } else if in_pkg {
-            if let Some(rest) = line.strip_prefix("version = \"") {
-                return Some(rest.trim_end_matches('"').to_string());
-            }
+        } else if in_pkg && let Some(rest) = line.strip_prefix("version = \"") {
+            return Some(rest.trim_end_matches('"').to_string());
         }
     }
     None

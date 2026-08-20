@@ -10,10 +10,10 @@
 //!     a cgroup is available (run as root), the counters are cgroup-scoped
 //!     (`PERF_FLAG_PID_CGROUP`, one per CPU in the cpuset), which counts every
 //!     task in the leaf regardless of which thread makes the syscall or when it is
-//!     created. That captures the io_threads and runtime workers that do the
+//!     created. That captures the `io_threads` and runtime workers that do the
 //!     actual socket I/O, which per-thread enumeration missed. Without a cgroup it
 //!     falls back to per-thread counters across `/proc/<pid>/task`. Both need
-//!     perf (root or CAP_PERFMON, tracefs, `perf_event_paranoid <= 1`) and degrade
+//!     perf (root or `CAP_PERFMON`, tracefs, `perf_event_paranoid <= 1`) and degrade
 //!     to zero with a one-time note.
 //!   - Latency is measured inside the target (REQ/REP) and reported on stdout,
 //!     so the orchestrator only stores the quantiles, not a histogram.
@@ -76,7 +76,7 @@ pub fn rusage_children() -> (f64, SchedCounters) {
     // SAFETY: getrusage writes into a zeroed, correctly-typed rusage struct.
     unsafe {
         let mut ru: libc::rusage = std::mem::zeroed();
-        if libc::getrusage(libc::RUSAGE_CHILDREN, &mut ru) != 0 {
+        if libc::getrusage(libc::RUSAGE_CHILDREN, &raw mut ru) != 0 {
             return (0.0, SchedCounters::default());
         }
         let cpu = ru.ru_utime.tv_sec as f64
@@ -117,7 +117,7 @@ enum SyscallKind {
 }
 
 /// Per-syscall tracepoint counters for a process. The socket syscalls of these
-/// engines run on background threads (libzmq's io_threads, the async runtimes'
+/// engines run on background threads (libzmq's `io_threads`, the async runtimes'
 /// workers), not the process's first thread, so a single PID-scoped counter
 /// misses them. This opens a counter on every thread in `/proc/<pid>/task` and
 /// also sets `inherit`, so threads that exist when the probe attaches are counted
@@ -145,7 +145,7 @@ impl SyscallProbe {
     /// Scope counters to a cgroup with `PERF_FLAG_PID_CGROUP`. This is the robust
     /// path: a cgroup-scoped counter counts every task in the cgroup (all threads,
     /// however and whenever they are created), so it captures the syscalls that
-    /// libzmq's io_threads and the async runtimes' workers make, which per-thread
+    /// libzmq's `io_threads` and the async runtimes' workers make, which per-thread
     /// enumeration kept missing. cgroup mode requires a per-CPU counter, so one is
     /// opened per CPU in the cell's cpuset and summed. Falls back to the per-thread
     /// path if the cgroup counters cannot be opened.
@@ -166,7 +166,7 @@ impl SyscallProbe {
             }
         }
         if !counters.is_empty() {
-            return SyscallProbe { counters };
+            return Self { counters };
         }
         // cgroup scoping unavailable; fall back to per-thread enumeration.
         Self::open(pid)
@@ -188,7 +188,7 @@ impl SyscallProbe {
                  (make run-root) for these counts."
             );
         }
-        SyscallProbe { counters }
+        Self { counters }
     }
 
     pub fn read(&self) -> SyscallCounters {
@@ -268,7 +268,7 @@ fn open_tracepoint(pid: u32, name: &str) -> Option<i32> {
     attr.set_inherit(1);
     // SAFETY: attr is fully initialized; pid scoping with cpu=-1 counts the task
     // across all CPUs. Returns a non-negative fd on success.
-    let fd = unsafe { perf::perf_event_open(&mut attr, pid as i32, -1, -1, 0) };
+    let fd = unsafe { perf::perf_event_open(&raw mut attr, pid as i32, -1, -1, 0) };
     if fd < 0 { None } else { Some(fd) }
 }
 
@@ -295,11 +295,11 @@ fn open_tracepoint_cgroup(cgroup_fd: i32, cpu: u32, name: &str) -> Option<i32> {
     // SAFETY: attr is initialized; cgroup_fd is a directory fd; cpu is valid.
     let fd = unsafe {
         perf::perf_event_open(
-            &mut attr,
+            &raw mut attr,
             cgroup_fd,
             cpu as i32,
             -1,
-            perf::bindings::PERF_FLAG_PID_CGROUP as u64,
+            u64::from(perf::bindings::PERF_FLAG_PID_CGROUP),
         )
     };
     if fd < 0 { None } else { Some(fd) }
@@ -308,6 +308,6 @@ fn open_tracepoint_cgroup(cgroup_fd: i32, cpu: u32, name: &str) -> Option<i32> {
 fn read_counter(fd: i32) -> u64 {
     let mut v: u64 = 0;
     // SAFETY: a perf_event counter fd yields a u64 count on read.
-    let n = unsafe { libc::read(fd, (&mut v as *mut u64).cast::<libc::c_void>(), 8) };
+    let n = unsafe { libc::read(fd, (&raw mut v).cast::<libc::c_void>(), 8) };
     if n == 8 { v } else { 0 }
 }

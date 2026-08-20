@@ -2,8 +2,12 @@
 # Build: `cd targets/omq_tokio_target && cargo build --release`.
 #
 # Engine: omq-tokio (paddor/omq.rs), pure-Rust ZMTP, multi-thread tokio + mio.
-# omq-tokio is published on crates.io, but pinning by git rev keeps the grid
-# reproducible against an exact commit. Replace `rev` with the commit you certify.
+#
+# Pinned to a crates.io release rather than a git branch. The previous git
+# dependency carried no `rev`, so it floated to whatever main happened to be at
+# resolve time: two grid runs weeks apart could silently measure two different
+# engines and the lockfile was the only record of which. A published version is
+# both reproducible and what a user of the library would actually get.
 [workspace]
 
 [package]
@@ -21,9 +25,9 @@ path = "src/main.rs"
 anyhow = "1"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
-# omq-tokio: pure-Rust ZMTP on tokio (mio/epoll). The Cargo.lock pins the exact
-# commit; replace with an explicit rev/tag before a certified grid run.
-omq-tokio = { git = "https://github.com/paddor/omq.rs", package = "omq-tokio" }
+# Verified on crates.io: omq-tokio 0.21.3 (ISC), the tokio backend for omq,
+# built on the omq-proto sans-IO core.
+omq-tokio = "0.21.3"
 # The wrapper builds the runtime itself (current-thread for the default variant,
 # multi-thread for the multi_thread variant), so it needs both flavors plus the
 # time and io drivers enable_all turns on.
@@ -35,3 +39,17 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Strict lints, matching the control plane's policy in the root Cargo.toml. A
+# target is measured code: a subtle mistake here shows up as a benchmark number
+# rather than a crash, so it gets the same scrutiny as the harness. The allows
+# are the same justified set (numeric conversions between counters, byte sizes
+# and f64; benchmark vocabulary that is genuinely repetitive).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"

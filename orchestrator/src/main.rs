@@ -186,7 +186,7 @@ fn cell_id(entry: &MatrixEntry, index: usize) -> String {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Run(args) => run(args),
+        Command::Run(args) => run(&args),
     }
 }
 
@@ -204,7 +204,16 @@ struct CellAcc<'a> {
     done: bool,
 }
 
-fn run(args: RunArgs) -> anyhow::Result<()> {
+// The run loop reads as one sequence on purpose: load the matrix, resolve the
+// replication policy, expand the plan, then measure cell by cell. Splitting it
+// to satisfy a line count would scatter that order across helpers that each need
+// most of the same state passed in, and the order is the thing a reader of a
+// benchmark harness most needs to be able to follow.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one readable sequence; splitting it would obscure the run order"
+)]
+fn run(args: &RunArgs) -> anyhow::Result<()> {
     let cfg = RunConfig::load(&args.matrix)
         .with_context(|| format!("loading matrix {}", args.matrix.display()))?;
 
@@ -295,7 +304,7 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
             round + 1,
             rep.max_replicates
         );
-        for cell in cells.iter_mut() {
+        for cell in &mut cells {
             if cell.done {
                 continue;
             }
@@ -366,7 +375,7 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
 /// not the p99/p99.9 tail, drives the stability gate because the tail on a
 /// shared core never fully settles; the tail percentiles are still reported, as
 /// the median across replicates.
-fn primary_metric(kind: Kind, r: &CellRecord) -> f64 {
+const fn primary_metric(kind: Kind, r: &CellRecord) -> f64 {
     match kind {
         Kind::Latency => r.latency.p50_ns as f64,
         _ => r.throughput.msgs_per_s,
@@ -620,7 +629,7 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
 /// from `/proc/<pid>/status` on each poll, and returns their summed high-water
 /// mark in bytes. This is the grouped, unprivileged memory-footprint path: it
 /// needs neither root nor a cgroup, and the sum is what a library actually costs
-/// to run its full data path, not just one end. VmHWM is itself a kernel
+/// to run its full data path, not just one end. `VmHWM` is itself a kernel
 /// high-water mark, so tracking each process's max across polls (then summing)
 /// captures the peak even if a process exits before the loop ends.
 fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, u64) {
@@ -656,7 +665,7 @@ static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
 
 fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup> {
     let cg = Cgroup::new(run_id, leaf, isolation.clone());
-    if let Err(e) = cg.create().and_then(|_| cg.apply_limits()) {
+    if let Err(e) = cg.create().and_then(|()| cg.apply_limits()) {
         // Warn once per run, not once per leaf.
         if !CGROUP_WARNED.swap(true, Ordering::Relaxed) {
             eprintln!(
@@ -697,7 +706,7 @@ fn parse_cpus(spec: &str) -> Vec<u32> {
 /// task in the leaf, the robust path) when the cgroup and cpuset are available,
 /// otherwise per-thread enumeration on the pid.
 fn open_syscall_probe(
-    cg: &Option<Cgroup>,
+    cg: Option<&Cgroup>,
     cpus: &[u32],
     pid: u32,
 ) -> crate::telemetry::SyscallProbe {
@@ -711,10 +720,10 @@ fn open_syscall_probe(
 
 /// Summed memory high-water mark across the cell's cgroup leaves (consumer side
 /// plus producer side), so it covers every process the way the unprivileged
-/// VmHWM sum does. Returns None when neither leaf is available (not root).
-fn cgroup_total_memory(sub: &Option<Cgroup>, pubc: &Option<Cgroup>) -> Option<u64> {
-    let a = sub.as_ref().and_then(|c| c.peak_memory_bytes().ok());
-    let b = pubc.as_ref().and_then(|c| c.peak_memory_bytes().ok());
+/// `VmHWM` sum does. Returns None when neither leaf is available (not root).
+fn cgroup_total_memory(sub: Option<&Cgroup>, pubc: Option<&Cgroup>) -> Option<u64> {
+    let a = sub.and_then(|c| c.peak_memory_bytes().ok());
+    let b = pubc.and_then(|c| c.peak_memory_bytes().ok());
     match (a, b) {
         (None, None) => None,
         _ => Some(a.unwrap_or(0) + b.unwrap_or(0)),
@@ -753,7 +762,7 @@ fn run_throughput(
     // so every thread of the consumer is counted; the measured receive loop starts
     // only once the producer connects, below, so it is fully covered.
     let cpus = parse_cpus(&isolation.cpuset_cpus);
-    let syscall_probe = open_syscall_probe(&sub_cg, &cpus, consumer.id());
+    let syscall_probe = open_syscall_probe(sub_cg.as_ref(), &cpus, consumer.id());
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
@@ -789,16 +798,13 @@ fn run_throughput(
     // the warmup transfer are excluded. Targets that do not yet report a
     // THROUGHPUT line fall back to the wall-clock over the whole block, which
     // folds in that ramp-up (the legacy, noisier path).
-    let (msgs_per_s, mbps) = match parse_throughput_line(&out) {
-        Some((count, secs)) => {
-            let r = count as f64 / secs.max(1e-9);
-            (r, r * entry.payload_bytes as f64 / 1e6)
-        }
-        None => {
-            let secs = elapsed.as_secs_f64().max(1e-9);
-            let r = total as f64 / secs;
-            (r, r * entry.payload_bytes as f64 / 1e6)
-        }
+    let (msgs_per_s, mbps) = if let Some((count, secs)) = parse_throughput_line(&out) {
+        let r = count as f64 / secs.max(1e-9);
+        (r, r * f64::from(entry.payload_bytes) / 1e6)
+    } else {
+        let secs = elapsed.as_secs_f64().max(1e-9);
+        let r = total as f64 / secs;
+        (r, r * f64::from(entry.payload_bytes) / 1e6)
     };
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
@@ -813,7 +819,7 @@ fn run_throughput(
     // Grouped memory footprint across all cell processes: the cgroup leaves when
     // root, otherwise the summed per-process VmHWM. Either way it is the whole
     // data path, not one end.
-    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+    let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
         .unwrap_or(rss_peak);
 
@@ -883,7 +889,7 @@ fn run_latency(
     // discarded warmup and covers the whole measured round-trip loop.
     std::thread::sleep(Duration::from_millis(120));
     let cpus = parse_cpus(&isolation.cpuset_cpus);
-    let syscall_probe = open_syscall_probe(&pub_cg, &cpus, client.id());
+    let syscall_probe = open_syscall_probe(pub_cg.as_ref(), &cpus, client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
     let (ok, rss_peak) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
@@ -901,9 +907,8 @@ fn run_latency(
         anyhow::bail!("latency cell timed out after {budget:?}");
     }
 
-    let latency = match parse_latency(&out) {
-        Some(l) => l,
-        None => anyhow::bail!("no LATENCY line in client output: {out:?}"),
+    let Some(latency) = parse_latency(&out) else {
+        anyhow::bail!("no LATENCY line in client output: {out:?}")
     };
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
@@ -915,7 +920,7 @@ fn run_latency(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+    let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
         .unwrap_or(rss_peak);
 
@@ -942,6 +947,13 @@ fn run_latency(
 /// producer is the coordinator (`producer_binds = true`); for fanin the single
 /// consumer (the sink) is the coordinator (`producer_binds = false`). msgs/s is
 /// per measured consumer. TCP only.
+// Same reasoning as `run`: spawning N peers, arming telemetry, timing the
+// window and tearing down is a single ordered procedure, and the order is what
+// makes the measurement auditable.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one readable sequence; splitting it would obscure the measurement order"
+)]
 fn run_multipeer(
     run_id: &str,
     cell_id: &str,
@@ -1029,11 +1041,11 @@ fn run_multipeer(
     // window is uncounted as a result, acceptable for a characterization metric.
     std::thread::sleep(Duration::from_millis(150));
     let cpus = parse_cpus(&isolation.cpuset_cpus);
-    let syscall_probe = open_syscall_probe(&sub_cg, &cpus, measured.id());
+    let syscall_probe = open_syscall_probe(sub_cg.as_ref(), &cpus, measured.id());
     let budget = Duration::from_secs_f64(duration + 15.0);
     // Sample every peer process too, so the memory footprint covers the whole
     // fan-out / fan-in topology, not just the measured consumer.
-    let other_pids: Vec<u32> = others.iter().map(|c| c.id()).collect();
+    let other_pids: Vec<u32> = others.iter().map(std::process::Child::id).collect();
     let (ok, rss_peak) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
@@ -1051,7 +1063,7 @@ fn run_multipeer(
     let (count, elapsed) = parse_throughput_line(&out)
         .ok_or_else(|| anyhow::anyhow!("no THROUGHPUT line from consumer: {out:?}"))?;
     let msgs_per_s = count as f64 / elapsed.max(1e-9);
-    let mbps = msgs_per_s * entry.payload_bytes as f64 / 1e6;
+    let mbps = msgs_per_s * f64::from(entry.payload_bytes) / 1e6;
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
     let sched = SchedCounters {
@@ -1062,7 +1074,7 @@ fn run_multipeer(
             .involuntary_ctxt_switches
             .saturating_sub(sched0.involuntary_ctxt_switches),
     };
-    let peak_memory_bytes = cgroup_total_memory(&sub_cg, &pub_cg)
+    let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
         .unwrap_or(rss_peak);
 

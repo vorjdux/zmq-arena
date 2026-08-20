@@ -1,6 +1,6 @@
 //! zmq-arena target wrapper: rust-zmq (the `zmq` crate, a safe binding over libzmq).
 //!
-//! Same engine as libzmq_cpp_target (the C ZeroMQ core); the difference is the
+//! Same engine as `libzmq_cpp_target` (the C `ZeroMQ` core); the difference is the
 //! path to it, a Rust FFI binding instead of the C++ C API. Running both isolates
 //! the binding overhead. The sockets are blocking and each role runs as its own
 //! process, so libzmq handles peer fan-out and fan-in on the bound socket and all
@@ -13,13 +13,13 @@
 //!   fanout      PUSH(pub) binds,  PULL(sub) connect   (--bind on pub)
 //!   fanin       PULL(sub) binds,  PUSH(pub) connect   (--bind on sub)
 //!
-//! Knobs: io_threads (on the context), sndhwm and rcvhwm (on the socket), matching
+//! Knobs: `io_threads` (on the context), sndhwm and rcvhwm (on the socket), matching
 //! the libzmq C++ target. Duration-based kinds are TCP only, like the orchestrator.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -29,7 +29,11 @@ enum Role {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "rust-zmq-target", version, about = "zmq-arena rust-zmq wrapper")]
+#[command(
+    name = "rust-zmq-target",
+    version,
+    about = "zmq-arena rust-zmq wrapper"
+)]
 struct Cli {
     #[arg(long, value_enum)]
     role: Role,
@@ -77,7 +81,9 @@ fn describe() -> String {
             "\"lib_language\":\"C++\",\"impl\":\"ffi\",\"ffi_to\":\"C\",",
             "\"language\":\"Rust\",\"concurrency\":\"sync\",\"threading\":\"native\",\"io\":\"epoll\"}}"
         ),
-        maj, min, pat,
+        maj,
+        min,
+        pat,
         env!("BINDING_VERSION")
     )
 }
@@ -91,7 +97,14 @@ fn main() -> Result<()> {
     let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
     eprintln!(
         "rust-zmq-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={} variant={}",
-        cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
+        cli.role,
+        cli.kind,
+        cli.transport,
+        cli.endpoint,
+        cli.payload_bytes,
+        cli.messages,
+        cli.warmup,
+        cli.variant
     );
 
     let payload = vec![b'x'; cli.payload_bytes as usize];
@@ -147,7 +160,8 @@ fn run_throughput(
         Role::Sub => {
             let sock = ctx.socket(zmq::PULL)?;
             apply_hwm(&sock, knobs)?;
-            sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
+            sock.bind(&cli.endpoint)
+                .with_context(|| format!("bind {}", cli.endpoint))?;
             let mut buf = vec![0u8; payload.len().max(1)];
             // Drain the warmup prefix untimed, then time the measured block.
             let mut count = 0u64;
@@ -172,7 +186,8 @@ fn run_throughput(
         Role::Pub => {
             let sock = ctx.socket(zmq::PUSH)?;
             apply_hwm(&sock, knobs)?;
-            sock.connect(&cli.endpoint).with_context(|| format!("connect {}", cli.endpoint))?;
+            sock.connect(&cli.endpoint)
+                .with_context(|| format!("connect {}", cli.endpoint))?;
             for _ in 0..total {
                 sock.send(payload, 0)?;
             }
@@ -196,18 +211,18 @@ fn run_latency(
     match cli.role {
         Role::Sub => {
             let sock = ctx.socket(zmq::REP)?;
-            sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
+            sock.bind(&cli.endpoint)
+                .with_context(|| format!("bind {}", cli.endpoint))?;
             let mut buf = vec![0u8; payload.len().max(1)];
-            loop {
-                match sock.recv_into(&mut buf, 0) {
-                    Ok(n) => sock.send(&buf[..n.min(buf.len())], 0)?,
-                    Err(_) => break, // context terminated
-                }
+            // Echo until the context is terminated, which is how this side ends.
+            while let Ok(n) = sock.recv_into(&mut buf, 0) {
+                sock.send(&buf[..n.min(buf.len())], 0)?;
             }
         }
         Role::Pub => {
             let sock = ctx.socket(zmq::REQ)?;
-            sock.connect(&cli.endpoint).with_context(|| format!("connect {}", cli.endpoint))?;
+            sock.connect(&cli.endpoint)
+                .with_context(|| format!("connect {}", cli.endpoint))?;
             let mut buf = vec![0u8; payload.len().max(1)];
             for _ in 0..warmup {
                 sock.send(payload, 0)?;
@@ -252,14 +267,20 @@ fn print_latency(rtts: &mut [u64]) {
 
 /// PUB binds and broadcasts forever (killed by the orchestrator). SUB connects,
 /// subscribes to everything, and counts for the window. TCP only.
-fn run_pubsub(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, payload: &[u8]) -> Result<()> {
+fn run_pubsub(
+    cli: &Cli,
+    knobs: &BTreeMap<String, String>,
+    duration: Duration,
+    payload: &[u8],
+) -> Result<()> {
     require_tcp("pubsub", &cli.endpoint)?;
     let ctx = make_context(knobs)?;
     match cli.role {
         Role::Pub => {
             let sock = ctx.socket(zmq::PUB)?;
             apply_hwm(&sock, knobs)?;
-            sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
+            sock.bind(&cli.endpoint)
+                .with_context(|| format!("bind {}", cli.endpoint))?;
             loop {
                 if sock.send(payload, 0).is_err() {
                     break;
@@ -269,7 +290,8 @@ fn run_pubsub(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, p
         Role::Sub => {
             let sock = ctx.socket(zmq::SUB)?;
             apply_hwm(&sock, knobs)?;
-            sock.connect(&cli.endpoint).with_context(|| format!("connect {}", cli.endpoint))?;
+            sock.connect(&cli.endpoint)
+                .with_context(|| format!("connect {}", cli.endpoint))?;
             sock.set_subscribe(b"")?;
             count_window(&sock, duration, payload.len())?;
         }
@@ -281,14 +303,20 @@ fn run_pubsub(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, p
 
 /// PUSH binds and load-balances forever; libzmq round-robins across the
 /// connected PULLs. Each PULL connects and counts its slice. TCP only.
-fn run_fanout(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, payload: &[u8]) -> Result<()> {
+fn run_fanout(
+    cli: &Cli,
+    knobs: &BTreeMap<String, String>,
+    duration: Duration,
+    payload: &[u8],
+) -> Result<()> {
     require_tcp("fanout", &cli.endpoint)?;
     let ctx = make_context(knobs)?;
     match cli.role {
         Role::Pub => {
             let sock = ctx.socket(zmq::PUSH)?;
             apply_hwm(&sock, knobs)?;
-            sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
+            sock.bind(&cli.endpoint)
+                .with_context(|| format!("bind {}", cli.endpoint))?;
             loop {
                 if sock.send(payload, 0).is_err() {
                     break;
@@ -298,7 +326,8 @@ fn run_fanout(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, p
         Role::Sub => {
             let sock = ctx.socket(zmq::PULL)?;
             apply_hwm(&sock, knobs)?;
-            sock.connect(&cli.endpoint).with_context(|| format!("connect {}", cli.endpoint))?;
+            sock.connect(&cli.endpoint)
+                .with_context(|| format!("connect {}", cli.endpoint))?;
             count_window(&sock, duration, payload.len())?;
         }
     }
@@ -307,22 +336,29 @@ fn run_fanout(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, p
 
 // ── fan-in (N PUSH -> 1 PULL) ────────────────────────────────────────────────
 
-/// PULL binds and fair-queues the merged stream from N PUSHers, counting for the
+/// PULL binds and fair-queues the merged stream from N `PUSHers`, counting for the
 /// window. Each PUSH connects and sends forever. TCP only.
-fn run_fanin(cli: &Cli, knobs: &BTreeMap<String, String>, duration: Duration, payload: &[u8]) -> Result<()> {
+fn run_fanin(
+    cli: &Cli,
+    knobs: &BTreeMap<String, String>,
+    duration: Duration,
+    payload: &[u8],
+) -> Result<()> {
     require_tcp("fanin", &cli.endpoint)?;
     let ctx = make_context(knobs)?;
     match cli.role {
         Role::Sub => {
             let sock = ctx.socket(zmq::PULL)?;
             apply_hwm(&sock, knobs)?;
-            sock.bind(&cli.endpoint).with_context(|| format!("bind {}", cli.endpoint))?;
+            sock.bind(&cli.endpoint)
+                .with_context(|| format!("bind {}", cli.endpoint))?;
             count_window(&sock, duration, payload.len())?;
         }
         Role::Pub => {
             let sock = ctx.socket(zmq::PUSH)?;
             apply_hwm(&sock, knobs)?;
-            sock.connect(&cli.endpoint).with_context(|| format!("connect {}", cli.endpoint))?;
+            sock.connect(&cli.endpoint)
+                .with_context(|| format!("connect {}", cli.endpoint))?;
             loop {
                 if sock.send(payload, 0).is_err() {
                     break;
@@ -345,7 +381,8 @@ fn count_window(sock: &zmq::Socket, duration: Duration, payload_len: usize) -> R
     loop {
         match sock.recv_into(&mut buf, 0) {
             Ok(_) => break,
-            Err(zmq::Error::EAGAIN) => continue, // still waiting for the first message
+            // Timed out with nothing yet: keep waiting for the first message.
+            Err(zmq::Error::EAGAIN) => {}
             Err(e) => {
                 println!("THROUGHPUT 0 0.000001");
                 return Err(e.into());

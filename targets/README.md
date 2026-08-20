@@ -79,7 +79,7 @@ included for parity with omq and flagged as such in the records.
 
 A single target binary may expose more than one runtime. Each runtime is a
 distinct measured series (a *variant*), selected with `--variant`. This mirrors
-omq, where `omq-tokio` / `omq-tokio-mt` and `omq-compio` / `omq-compio-st` are
+omq, where `omq-tokio` / `omq-tokio-mt` are
 the same binary in different runtime modes.
 
 | variant | binary / target dir | engine | io model | threading | how selected |
@@ -88,14 +88,16 @@ the same binary in different runtime modes.
 | `zmq.rs` | zeromq_rs_target | zmq.rs | epoll | tokio | single variant |
 | `omq_tokio` | omq_tokio_target | omq | mio/epoll | current-thread | `--variant default` |
 | `omq_tokio_mt` | omq_tokio_target | omq | mio/epoll | multi-thread | `--variant multi_thread` |
-| `omq_compio` | omq_compio_target | omq | io_uring | default | `--variant default` |
-| `omq_compio_st` | omq_compio_target | omq | io_uring | single-thread | `--variant single_thread` |
 | `rzmq` | rzmq_target | rzmq | io_uring | tokio | single variant |
 | `celerity` | celerity_target | celerity | epoll | tokio | single variant |
-| `monocoque` | monocoque_target | monocoque | io_uring | thread-per-core | placeholder |
+| `monocoque` | monocoque_target | monocoque | io_uring (compio) | thread-per-core | default build |
+| `monocoque_tokio` | monocoque_target | monocoque | epoll (tokio) | thread-per-core | separate build, see below |
 
 The wrapper maps `--variant` to its engine's runtime configuration (for omq-tokio
-this is the tokio runtime flavor; for omq-compio the compio runtime). Each
+this is the tokio runtime flavor). Where an engine picks its runtime at compile
+time rather than at run time, as monocoque does, one wrapper is built twice into
+separate target directories and the two binaries are listed as separate variants
+in the matrix; `--variant` cannot express a choice the binary already made. Each
 variant carries category tags (engine, io model, threading) in the result
 record, so the dashboard can compare any subset of variants or group them by
 category. Variants in the same category (for example all `io_uring` engines, or
@@ -107,6 +109,11 @@ Tuning belongs to the implementation, not the harness. The harness never sets a
 socket option itself; it forwards whatever `--knob key=value` pairs the matrix
 declared. A wrapper applies the knobs it understands and ignores keys it does
 not, so the matrix can carry one superset of knobs across every implementation.
+
+Knobs in use today: `sndhwm`, `rcvhwm` and `io_threads` (libzmq and rust-zmq),
+and `pub_workers` (monocoque, which fans PUB out from a worker pool that would
+otherwise size itself from the host CPU count and make the cell's process count a
+property of the machine rather than of the matrix).
 
 Recommended keys where the underlying library supports them:
 

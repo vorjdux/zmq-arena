@@ -18,17 +18,36 @@ description = "zmq-arena target wrapper: zmq.rs (the `zeromq` crate, epoll + Tok
 name = "zeromq-rs-target"
 path = "src/main.rs"
 
+# zmq.rs selects its async runtime by feature, so like every other engine that
+# makes that a compile-time choice, this wrapper is built once per runtime and
+# each build is reported as its own variant. The engine code is identical across
+# them; only the executor and reactor differ.
+[features]
+default = ["tokio-rt"]
+tokio-rt = ["zeromq/tokio-runtime", "dep:tokio"]
+async-std-rt = ["zeromq/async-std-runtime", "dep:async-std"]
+async-dispatcher-rt = ["zeromq/async-dispatcher-runtime", "dep:async-dispatcher"]
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 # zmq.rs, the canonical pure-Rust ZeroMQ. Verified crate identity from the
-# omq comparison harness: `zeromq = "0.6"`. Default features carry the
-# tokio-runtime and all transports; ipc-transport is listed for intent.
-zeromq = { version = "0.6", features = ["ipc-transport"] }
-# zmq.rs runs on tokio. Its accept/connect background tasks need a real reactor,
-# so the wrapper drives it on a multi-thread runtime (a current-thread runtime
-# would starve those tasks while the send/recv loop holds the worker).
-tokio = { version = "1", features = ["rt-multi-thread"] }
+# omq comparison harness: `zeromq = "0.6"`. default-features is off so the
+# runtime comes from this crate's feature above rather than being pinned to
+# tokio; the transports are requested explicitly.
+zeromq = { version = "0.6", default-features = false, features = ["ipc-transport", "tcp-transport"] }
+# Drivers, one per runtime feature. zmq.rs's accept/connect background tasks need
+# a real reactor, so the tokio build uses a multi-thread runtime (a
+# current-thread runtime would starve those tasks while the send/recv loop holds
+# the worker). async-std's executor is multi-threaded by default and needs no
+# equivalent choice.
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+async-std = { version = "1", features = ["attributes"], optional = true }
+# async-dispatcher runs tasks on a caller-supplied dispatcher rather than owning
+# a thread pool. It is Zed's runtime, meant to hand scheduling to a host
+# application's event loop; `thread_dispatcher()` is the crate's own headless
+# implementation, which is what a benchmark peer needs.
+async-dispatcher = { version = "0.1.2", optional = true }
 
 [profile.release]
 opt-level = 3
@@ -36,3 +55,17 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Strict lints, matching the control plane's policy in the root Cargo.toml. A
+# target is measured code: a subtle mistake here shows up as a benchmark number
+# rather than a crash, so it gets the same scrutiny as the harness. The allows
+# are the same justified set (numeric conversions between counters, byte sizes
+# and f64; benchmark vocabulary that is genuinely repetitive).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"

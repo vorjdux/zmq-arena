@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zmq-arena · features</title>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b21; --panel2:#1d2229; --line:#2a313a;
+    --fg:#e6e9ee; --muted:#9aa4b2; --accent:#4f9cf9; --warn:#f59e0b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#e2e6eb;
+            --fg:#161a1e; --muted:#5b6573; --accent:#2563eb; --warn:#b45309; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 24px 6px; display:flex; align-items:center;
+    justify-content:space-between; gap:8px 24px; flex-wrap:wrap; }
+  h1.logo { margin:0; line-height:0; flex:0 0 auto; }
+  h1.logo img { height:104px; width:auto; max-width:100%; display:block; }
+  .sub { color:var(--muted); flex:1 1 300px; text-align:right; min-width:0; }
+  .sub code { color:var(--fg); }
+  .topnav { display:flex; gap:2px; padding:0 24px; border-bottom:1px solid var(--line); }
+  .topnav a { padding:9px 15px; color:var(--muted); text-decoration:none;
+    border-bottom:2px solid transparent; font-size:14px; }
+  .topnav a:hover { color:var(--fg); }
+  .topnav a.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  @media (max-width:640px){ .topnav{ padding:0 8px; } }
+  .sub a { color:var(--accent); }
+  .controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap;
+    align-items:flex-end; gap:13px 16px; padding:13px 24px; margin-top:12px;
+    background:color-mix(in srgb,var(--bg) 90%,transparent);
+    backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+  .ctl { display:flex; flex-direction:column; gap:4px; }
+  .ctl label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:7px; padding:7px 9px; font-size:13px; min-width:150px; }
+  .banner { margin:12px 24px 0; padding:8px 12px; border-radius:8px;
+    background:color-mix(in srgb,var(--warn) 18%,transparent);
+    border:1px solid var(--warn); font-size:13px; }
+  .banner.hidden { display:none; }
+  .intro { padding:12px 24px 0; color:var(--muted); font-size:13px; max-width:1000px; }
+  .intro b { color:var(--fg); }
+  main { padding:14px 24px 28px; display:grid; gap:16px;
+    grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); }
+  .board { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .board h2 { margin:0 0 2px; font-size:14px; }
+  .board .note { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line); }
+  th:nth-child(2),td:nth-child(2) { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  td small { color:var(--muted); }
+  .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .lead td { font-weight:700; color:var(--accent); }
+  .partial { color:var(--warn); cursor:help; }
+  .cap-yes { color:#34d399; font-weight:600; }
+  .cap-declared { color:var(--warn); }
+  .cap-no { color:var(--muted); }
+  .cap-partial { color:var(--accent); }
+  /* The matrix is one wide table, not a card: it must span every column of the
+     grid main lays out, and scroll inside itself rather than stretching the page. */
+  .wrap { grid-column:1 / -1; overflow-x:auto; margin-bottom:6px; }
+  .wrap table { min-width:900px; }
+  .wrap th, .wrap td { vertical-align:top; }
+  .wrap tbody td:first-child { color:var(--muted); white-space:nowrap; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; margin:0 0 14px; }
+  .card h2 { margin:0 0 6px; font-size:15px; }
+  .card ul { margin:6px 0 0; padding-left:18px; }
+  .card li { margin:3px 0; color:var(--muted); font-size:13px; }
+  .card li b { color:var(--fg); font-weight:600; }
+  .hint { color:var(--muted); font-size:13px; }
+  .err { padding:24px; color:var(--warn); }
+  footer { color:var(--muted); font-size:12px; text-align:center;
+    padding:18px 24px 22px; background:var(--panel2); border-top:1px solid var(--line); }
+  footer div { max-width:900px; margin:0 auto; }
+  footer a { color:var(--accent); }
+  @media (max-width:640px){
+    header,.controls,footer,.intro{ padding-left:14px; padding-right:14px; }
+    main{ padding:10px 14px 24px; grid-template-columns:1fr; }
+    .banner{ margin-left:14px; margin-right:14px; }
+    header{ justify-content:center; }
+    h1.logo{ flex:1 1 100%; }
+    h1.logo img{ width:100%; height:auto; }
+    .sub{ flex-basis:100%; text-align:center; }
+    select{ min-width:0; width:100%; }
+    .ctl{ flex:1 1 150px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
+  <div class="sub" id="dataSource">loading...</div>
+</header>
+<nav class="topnav"><a href="index.html">Overview</a><a href="rankings.html">Rankings</a><a href="explore.html">Explore</a><a href="tables.html">Tables</a><a href="features.html" class="active">Features</a></nav>
+<div class="banner hidden" id="sampleBanner"></div>
+
+<div class="intro" id="intro"></div>
+<main id="main" hidden></main>
+<div class="err" id="err" hidden></div>
+<footer id="footer"></footer>
+
+<script>
+"use strict";
+
+// The feature matrix is the one page here that does not come from a run. It
+// reads the curated features.json, and it is emphatic about which cells are
+// verified and which are a project's own claim, because a capability table that
+// looks measured but is hand-written is worse than none.
+
+const el = id => document.getElementById(id);
+const CAP_CLASS = { yes:"cap-yes", declared:"cap-declared", no:"cap-no", partial:"cap-partial" };
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function cap(v){
+  const cls = CAP_CLASS[v] || "";
+  return `<span class="${cls}">${esc(v)}</span>`;
+}
+
+function socketCount(i){
+  const first = String(i.socket_types[0] || "");
+  return first.startsWith("declared") ? cap("declared") : `${i.socket_types.length}`;
+}
+
+const ROWS = [
+  ["version",                          i => esc(i.version)],
+  ["language",                         i => esc(i.language)],
+  ["implementation",                   i => i.impl === "native" ? "native" : "FFI to libzmq"],
+  ["socket types",                     socketCount],
+  ["transports",                       i => i.transports.map(esc).join(", ")],
+  ["NULL",                             i => cap(i.security.null)],
+  ["PLAIN",                            i => cap(i.security.plain)],
+  ["CURVE",                            i => cap(i.security.curve)],
+  ["usable without an async runtime",  i => cap(i.runtime_free)],
+  ["platforms",                        i => i.platforms.map(esc).join(", ")],
+  ["bindings",                         i => esc(i.bindings)],
+  ["benchmarked here",                 i => esc(i.arena_tier)],
+];
+
+function matrix(impls){
+  let h = `<div class="wrap"><table><thead><tr><th>capability</th>` +
+    impls.map(i => `<th>${esc(i.label)}</th>`).join("") + `</tr></thead><tbody>`;
+  for (const [label, fn] of ROWS){
+    h += `<tr><td>${esc(label)}</td>` + impls.map(i => `<td>${fn(i)}</td>`).join("") + `</tr>`;
+  }
+  return h + `</tbody></table></div>`;
+}
+
+function notes(impls){
+  return impls.map(i => {
+    const extra = i.notes ? `<li>${esc(i.notes)}</li>` : "";
+    return `<section class="card"><h2>${esc(i.label)} ${esc(i.version)}</h2><ul>` +
+      `<li><b>Socket types:</b> ${i.socket_types.map(esc).join(", ")}</li>` +
+      `<li><b>Runtime:</b> ${esc(i.runtime_note)}</li>` +
+      extra +
+      `<li><b>Source:</b> ${esc(i.source)}</li>` +
+      `</ul></section>`;
+  }).join("");
+}
+
+async function load(){
+  const r = await fetch("features.json?_=" + Date.now(), {cache:"no-store"});
+  if(!r.ok) throw new Error("features.json -> " + r.status);
+  const data = await r.json();
+  const impls = data.implementations;
+
+  el("dataSource").innerHTML = `${impls.length} implementations - curated, ` +
+    `read on <code>${esc(data.verified_on)}</code>`;
+  el("intro").innerHTML =
+    `What each implementation supports, next to what it measures. A fast library that ` +
+    `lacks the socket type you need, or whose CURVE does not interoperate, is not a ` +
+    `candidate wherever it lands on a chart. <b>This page is curated, not measured:</b> ` +
+    `<span class="cap-yes">yes</span> means the project documents it and zmq-arena ` +
+    `exercises it, <span class="cap-declared">declared</span> means we are repeating the ` +
+    `project's claim and have not tested it. Edit <code>features.json</code> and run ` +
+    `<code>scripts/render_features.py</code> to change it.`;
+
+  el("main").innerHTML = matrix(impls) + notes(impls);
+  el("main").hidden = false;
+}
+
+el("footer").innerHTML =
+  `<div>zmq-arena - feature matrix - curated from each project's documentation, ` +
+  `not from a run - <a href="index.html">overview</a></div>` +
+  `<div style="margin-top:6px">(c) ${new Date().getFullYear()} Matheus Santos - ` +
+  `<a href="https://github.com/vorjdux/zmq-arena">github.com/vorjdux/zmq-arena</a></div>`;
+
+load().catch(e => {
+  el("dataSource").textContent = "failed to load features.json";
+  const err = el("err"); err.hidden = false;
+  err.textContent = "Could not load features.json: " + e.message +
+    ". Serve this folder over HTTP (browsers block file:// fetches).";
+});
+</script>
+</body>
+</html>

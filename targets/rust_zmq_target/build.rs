@@ -1,6 +1,6 @@
-//! Emit the binding crate's resolved version as BINDING_VERSION so `describe`
+//! Emit the binding crate's resolved version as `BINDING_VERSION` so `describe`
 //! reports which rust-zmq release produced the numbers. The underlying libzmq
-//! version is read at runtime from zmq::version(), since that is the engine.
+//! version is read at runtime from `zmq::version()`, since that is the engine.
 
 use std::{env, fs, path::Path};
 
@@ -23,10 +23,8 @@ fn lock_version(crate_name: &str) -> Option<String> {
         let line = line.trim();
         if line == needle {
             in_pkg = true;
-        } else if in_pkg {
-            if let Some(rest) = line.strip_prefix("version = \"") {
-                return Some(rest.trim_end_matches('"').to_string());
-            }
+        } else if in_pkg && let Some(rest) = line.strip_prefix("version = \"") {
+            return Some(rest.trim_end_matches('"').to_string());
         }
     }
     None
