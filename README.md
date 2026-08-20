@@ -211,6 +211,19 @@ Anything else is published with the reasons attached, and every dashboard page
 shows a **not admissible** badge next to the host. Nobody has to remember to
 write the caveat, and nobody can leave it out.
 
+The restrictions the run applied are recorded the same way, in `_run.json`:
+
+| field | why it is separate from the matrix |
+|---|---|
+| `isolation.requested` | the cpuset and memory cap the matrix asked for |
+| `isolation.applied` | whether a cgroup leaf was actually created. Without root it is not, and the cells run unpinned on the whole machine, which is a different experiment than the matrix describes |
+| `replication` | the policy actually used, since `--replicates` overrides the matrix |
+| `syscall_counting.captured` | whether perf registered. A host that cannot open the tracepoints records zero syscalls, which is "not measured", not "no syscalls" |
+
+The dashboard shows all of it beside the host, and badges anything unapplied.
+A run pinned to `cpuset 0-3` and one that silently ran unpinned produce numbers
+that look alike and mean different things.
+
 A word on what a shared host can and cannot tell you. Each cell is pinned to a
 4-core cpuset, so the producer and consumer no longer time-share one core and
 the numbers stopped measuring core contention. That is a real improvement and

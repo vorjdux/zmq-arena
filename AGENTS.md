@@ -66,8 +66,11 @@ would distort every ratio computed against the baseline.
 
 ## Changing the reporting
 
-- Provenance is sampled by the orchestrator into `_host.json`, never passed in
-  as a flag, and admissibility is derived from it. If you add a condition that
+- Provenance is sampled by the orchestrator into `_host.json` and `_run.json`,
+  never passed in as a flag, and admissibility is derived from it. Record
+  requested and applied separately for anything the harness asks the kernel for:
+  isolation is skipped without root, and a reader cannot tell a pinned run from
+  an unpinned one by looking at the numbers. If you add a condition that
   makes a run untrustworthy, encode it there so the data carries its own caveat.
 - An archive record is a measurement plus a `build` reference. The build's
   classification and versions live once per run in the archive's `builds` map,

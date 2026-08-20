@@ -226,6 +226,7 @@ def to_archive_record(cell: dict) -> dict:
 # Run-level files the orchestrator drops next to the cell records. Prefixed so
 # they cannot be mistaken for a cell by the glob below.
 HOST_FILE = "_host.json"
+RUN_FILE = "_run.json"
 
 
 def load_cells(scratch: Path) -> list:
@@ -254,6 +255,23 @@ def load_host(scratch: Path) -> dict:
             "admissible": False,
             "note": "host not recorded: this run predates provenance capture",
         }
+    return json.loads(path.read_text())
+
+
+def load_run(scratch: Path) -> dict:
+    """What the run actually did: isolation requested vs applied, the replication
+    policy, and whether syscall counting registered.
+
+    The matrix asks for a cpuset and a memory cap, but without root it silently
+    does not get one and the cells run unpinned on the whole machine. That is a
+    different experiment than the matrix describes, so the archive records both
+    what was asked for and what was applied rather than only the request.
+    """
+    path = scratch / RUN_FILE
+    if not path.exists():
+        print(f"warning: {path} missing; this scratch dir predates run capture",
+              file=sys.stderr)
+        return {}
     return json.loads(path.read_text())
 
 
@@ -296,7 +314,13 @@ def flag_inversions(records: list, margin: float = 0.15) -> None:
 
 
 def write_archive(
-    docs: Path, run_id: str, date: str, hardware: dict, records: list, builds: dict
+    docs: Path,
+    run_id: str,
+    date: str,
+    hardware: dict,
+    records: list,
+    builds: dict,
+    run_meta: dict,
 ) -> str:
     hist = docs / "history"
     hist.mkdir(parents=True, exist_ok=True)
@@ -311,6 +335,9 @@ def write_archive(
         "run_id": run_id,
         "date": date,
         "hardware": hardware,
+        # Isolation as requested by the matrix and as actually applied, the
+        # replication policy, and whether syscall counting registered.
+        "run": run_meta,
         "builds": builds,
         "records": records,
     }
@@ -346,8 +373,9 @@ def main():
     builds = dict(build_of(c) for c in cells)
     flag_inversions(records)  # payload-monotonicity correctness check across the sweep
     hardware = load_host(args.scratch)
+    run_meta = load_run(args.scratch)
 
-    fname = write_archive(args.docs, run_id, date, hardware, records, builds)
+    fname = write_archive(args.docs, run_id, date, hardware, records, builds, run_meta)
     print(f"rendered {len(records)} records -> docs/history/{fname}, updated index.json")
 
 
