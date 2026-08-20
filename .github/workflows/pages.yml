@@ -48,7 +48,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Refresh the feature matrix
         # Curated data, but regenerating guarantees docs/features.json matches
@@ -63,12 +63,19 @@ jobs:
           echo "restoring from $BASE"
           python3 scripts/sync_history.py --base-url "$BASE" --keep 26
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         id: pages
+        with:
+          # Create the Pages site (build_type: workflow) if the repository does
+          # not have one yet, instead of failing with "Get Pages site failed".
+          # Without this the very first deploy needs someone to click through
+          # Settings > Pages by hand, which is a poor bootstrap for a workflow
+          # whose whole job is to publish. Idempotent once the site exists.
+          enablement: true
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         id: deployment
