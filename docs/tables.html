@@ -194,8 +194,14 @@ function hwLine(hw, run){
   // says that, so show only the reasons after it rather than saying it twice.
   const note = (hw.note||"").replace(/^not admissible:\s*/, "");
   const tail = note ? " \u00b7 " + note : "";
-  const badge = hw.admissible === false
-    ? ` <span class="warn-tag">not admissible</span>` : "";
+  // Three states, not two. `false` means the run measured its host and the host
+  // did not qualify. `undefined` means nothing was recorded, which is not the
+  // same as fine: it is an archive whose conditions nobody can check. Rendering
+  // that as an unbadged host would let the oldest, least verifiable runs look
+  // like the most trustworthy ones.
+  let badge = "";
+  if(hw.admissible === false) badge = ` <span class="warn-tag">not admissible</span>`;
+  else if(hw.admissible !== true) badge = ` <span class="warn-tag">provenance not recorded</span>`;
   return cpu + badge + tail + isoLine(run);
 }
 
