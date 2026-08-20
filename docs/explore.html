@@ -91,6 +91,9 @@
     border-top:1px solid var(--line); }
   footer div { max-width:900px; margin:0 auto; }
   a { color:var(--accent); }
+  .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
+    white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -276,6 +279,20 @@ function denormalize(data){
   });
 }
 
+// Provenance strip. `admissible` is derived by the orchestrator from the machine
+// it measured on (governor, turbo, virtualisation, root), not typed by whoever
+// rendered the run, so a run that cannot support a verdict says so in its own
+// data. Flag it visibly: a reader who misses it will quote the numbers.
+function hwLine(hw){
+  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
+  // The note already opens with "not admissible: " when it is one; the badge
+  // says that, so show only the reasons after it rather than saying it twice.
+  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
+  const tail = note ? " \u00b7 " + note : "";
+  if(hw.admissible === false) return `${cpu} <span class="warn-tag">not admissible</span>${tail}`;
+  return cpu + tail;
+}
+
 async function load(){
   await loadVariants();
   let runs, isSample=false;
@@ -299,7 +316,7 @@ async function load(){
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} variants · ${DATES.length} runs · `+
-    `${DATES[0]} → ${DATES[DATES.length-1]} · <code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""} · `+
+    `${DATES[0]} → ${DATES[DATES.length-1]} · ` + hwLine(hw) + ` · `+
     `<a href="tables.html">results tables →</a>`;
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }

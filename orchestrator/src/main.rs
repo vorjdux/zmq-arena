@@ -17,6 +17,7 @@
 
 mod cgroups;
 mod config;
+mod host;
 mod stats;
 mod telemetry;
 
@@ -263,6 +264,26 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&args.out)
         .with_context(|| format!("creating output dir {}", args.out.display()))?;
+
+    // Provenance is sampled here, on the machine that is about to measure, and
+    // written next to the cell records. The render step reads it from there
+    // rather than being told what the host was: the two can be different
+    // machines, and an operator-supplied "turbo off" is not evidence.
+    let host = host::Host::probe();
+    let host_path = args.out.join("_host.json");
+    std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
+        .with_context(|| format!("writing {}", host_path.display()))?;
+    println!(
+        "zmq-arena: host {} ({} cpus, kernel {}) -> {}",
+        host.cpu,
+        host.cpu_count,
+        host.kernel,
+        if host.admissible {
+            "admissible".to_string()
+        } else {
+            format!("NOT admissible: {}", host.inadmissible_reasons.join("; "))
+        }
+    );
 
     let mut cells: Vec<CellAcc> = cfg
         .entries

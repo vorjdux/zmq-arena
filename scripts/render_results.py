@@ -223,12 +223,38 @@ def to_archive_record(cell: dict) -> dict:
     }
 
 
+# Run-level files the orchestrator drops next to the cell records. Prefixed so
+# they cannot be mistaken for a cell by the glob below.
+HOST_FILE = "_host.json"
+
+
 def load_cells(scratch: Path) -> list:
-    files = sorted(scratch.glob("*.json"))
+    files = sorted(f for f in scratch.glob("*.json") if not f.name.startswith("_"))
     if not files:
         print(f"ERROR: no *.json cell records in {scratch}", file=sys.stderr)
         sys.exit(1)
     return [json.loads(f.read_text()) for f in files]
+
+
+def load_host(scratch: Path) -> dict:
+    """The machine that ran the benchmark, as it recorded itself.
+
+    Read from the scratch directory rather than taken from a flag, because the
+    render step can run somewhere else entirely and an operator-supplied "turbo
+    off" is a claim, not evidence. A scratch directory written before the
+    orchestrator captured this says so, rather than inheriting whatever the
+    rendering machine happens to look like.
+    """
+    path = scratch / HOST_FILE
+    if not path.exists():
+        print(f"warning: {path} missing; this scratch dir predates host capture",
+              file=sys.stderr)
+        return {
+            "cpu": "unknown host",
+            "admissible": False,
+            "note": "host not recorded: this run predates provenance capture",
+        }
+    return json.loads(path.read_text())
 
 
 # The throughput-family kinds, all measured in msgs/s.
@@ -311,8 +337,6 @@ def main():
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--date", default=None, help="archive date (default: run-id or UTC today)")
     ap.add_argument("--docs", default=REPO / "docs", type=Path)
-    ap.add_argument("--hardware-cpu", default="unknown host")
-    ap.add_argument("--hardware-note", default="")
     args = ap.parse_args()
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -321,7 +345,7 @@ def main():
     records = [to_archive_record(c) for c in cells]
     builds = dict(build_of(c) for c in cells)
     flag_inversions(records)  # payload-monotonicity correctness check across the sweep
-    hardware = {"cpu": args.hardware_cpu, "note": args.hardware_note}
+    hardware = load_host(args.scratch)
 
     fname = write_archive(args.docs, run_id, date, hardware, records, builds)
     print(f"rendered {len(records)} records -> docs/history/{fname}, updated index.json")

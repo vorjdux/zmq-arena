@@ -74,11 +74,13 @@ jobs:
         run: |
           # Reads scratch/$RUN_ID/*.json (orchestrator CellRecords) and writes
           # docs/history/$RUN_ID-run.json and docs/history/index.json.
+          # No hardware flags: the orchestrator recorded the machine it measured
+          # on into scratch/$RUN_ID/_host.json, and that is what gets published.
+          # A pasted "turbo off, C-states locked" would be a claim about this
+          # runner, not evidence from it.
           python3 scripts/render_results.py \
             --scratch "scratch/$RUN_ID" \
-            --run-id "$RUN_ID" \
-            --hardware-cpu "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ *//')" \
-            --hardware-note "turbo off, C-states locked, performance governor"
+            --run-id "$RUN_ID"
 
       - name: Publish the variant registry
         run: python3 scripts/render_variants.py

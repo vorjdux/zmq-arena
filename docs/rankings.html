@@ -56,6 +56,8 @@
   .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .lead td { font-weight:700; color:var(--accent); }
   .partial { color:var(--warn); cursor:help; }
+  .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .hint { color:var(--muted); font-size:13px; }
   .err { padding:24px; color:var(--warn); }
   footer { color:var(--muted); font-size:12px; text-align:center;
@@ -208,6 +210,20 @@ function denormalize(data){
   });
 }
 
+// Provenance strip. `admissible` is derived by the orchestrator from the machine
+// it measured on (governor, turbo, virtualisation, root), not typed by whoever
+// rendered the run, so a run that cannot support a verdict says so in its own
+// data. Flag it visibly: a reader who misses it will quote the numbers.
+function hwLine(hw){
+  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
+  // The note already opens with "not admissible: " when it is one; the badge
+  // says that, so show only the reasons after it rather than saying it twice.
+  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
+  const tail = note ? " \u00b7 " + note : "";
+  if(hw.admissible === false) return `${cpu} <span class="warn-tag">not admissible</span>${tail}`;
+  return cpu + tail;
+}
+
 async function load(){
   await loadVariants();
   let runs, isSample=false;
@@ -221,7 +237,7 @@ async function load(){
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
-    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
+    hwLine(hw);
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements."; }
   el("intro").innerHTML=`Each board ranks libraries by <b>one</b> metric, as the geometric mean of `+

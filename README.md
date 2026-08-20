@@ -195,6 +195,22 @@ cleanly if you are not root; memory and CPU still record without them. Syscall
 counts need perf, so they read zero unless you run under sudo (`make run-root`)
 on a host with tracefs and `perf_event_paranoid <= 1`.
 
+### Provenance is measured, not declared
+
+The orchestrator samples the machine it is about to measure on and writes
+`_host.json` next to the cell records: CPU model and count, kernel, cpufreq
+governor across every online CPU, turbo/boost state, whether the CPU reports the
+hypervisor flag, and whether it is running as root. The render step reads that
+file. It is not told what the host was, because the render can run on a different
+machine and a pasted "turbo off, C-states locked" is a claim rather than
+evidence.
+
+From those facts the run derives its own `admissible` flag: a comparison counts
+only on bare metal, with the performance governor, turbo disabled, as root.
+Anything else is published with the reasons attached, and every dashboard page
+shows a **not admissible** badge next to the host. Nobody has to remember to
+write the caveat, and nobody can leave it out.
+
 A word on what a shared host can and cannot tell you. Each cell is pinned to a
 4-core cpuset, so the producer and consumer no longer time-share one core and
 the numbers stopped measuring core contention. That is a real improvement and
