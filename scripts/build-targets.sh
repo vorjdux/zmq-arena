@@ -18,7 +18,6 @@ cd "$repo_root"
 # sparse checkout), or not the repository root at all.
 required_dirs=(
   orchestrator
-  reporter
   targets/libzmq_cpp_target
   targets/monocoque_target
   targets/zeromq_rs_target

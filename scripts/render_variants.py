@@ -4,7 +4,7 @@
 `variants.json` is the single source of truth for how a measured series is
 presented: its display label, its colour, and the runtime note that tells two
 series of one engine apart. Everything that draws a series reads it -- the four
-dashboard pages, the SVG reporter, and the result renderer.
+dashboard pages and the result renderer.
 
 The check matters more than the copy. Adding a variant to the matrix without
 adding it here used to produce a chart series labelled with its raw key and

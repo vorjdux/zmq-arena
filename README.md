@@ -21,7 +21,7 @@ async runtime. A fast library that lacks the socket type you need is not a
 candidate wherever it lands on a chart.
 
 Status: work in progress. The data and reporting side is real and tested: run
-archives, rankings, static charts, and the dashboard all work. The measurement
+archives, rankings, and the dashboard all work. The measurement
 side is mostly real: process isolation, cgroup pinning, all five run paths,
 replication with outlier rejection, and scheduler/CPU/memory/syscall capture
 work. Per-cell network namespaces are not wired (the `tcp_netns` transport runs
@@ -144,13 +144,10 @@ which is what lets the dashboard group and compare by category.
 
 ## Build
 
-The control plane is a small workspace with two members, the orchestrator (which
-runs and measures) and the reporter (which draws the charts):
+The orchestrator is a small workspace; build it on its own:
 
 ```
-cargo build --release            # both members
 cargo build --release -p zmq-arena-orchestrator
-cargo build --release -p zmq-arena-reporter
 ```
 
 The libzmq target builds through CMake and links `libzmq` (install `libzmq3-dev`
@@ -276,69 +273,14 @@ curated from each project's documentation and marks every unverified row
 [FEATURES.md](FEATURES.md).
 
 How a series is labelled and coloured comes from `variants.json`, which every
-surface reads: the dashboard pages fetch it, the SVG reporter bakes it in at
-compile time, and the result renderer takes its category tags from it. That is
+surface reads: the dashboard pages fetch it and the result renderer takes its
+category tags from it. That is
 one file to edit when a variant is added, and `scripts/render_variants.py`
 (`make variants`) fails the build if the matrix contains a variant it does not
 describe, which is what used to produce chart series labelled with a raw key.
 
 Serve the dashboard locally with `cd docs && python3 -m http.server`, since
 browsers block `fetch` over `file://`.
-
-## Charts
-
-`docs/charts/*.svg` are static payload-sweep charts drawn by the reporter
-(`cargo run --release -p zmq-arena-reporter -- --latest docs/history --out docs/charts`,
-or `make charts`). They are the fixed, linkable picture: what a reader gets from
-the repo without a browser and a web server, in the same visual language as the
-OMQ comparison charts. `make run` redraws them after every run.
-
-Every chart draws every implementation that produced cells for it; a library is
-absent from a chart only when it did not, or could not, run that pattern. Each
-one stamps the run date, the host, and the hardware note onto the image, and
-footnotes how many plotted cells failed to converge across replicates. Cells that
-replication flagged as inverted are never drawn.
-
-> **The images below are whatever the last committed run produced.** Read the
-> provenance line stamped on each one before quoting a number from it: a run
-> whose note says "dev host" validated the harness, it did not rank anything.
-
-### Headline: every implementation, over tcp
-
-<p align="center">
-  <img src="docs/charts/headline_reqrep_tcp.svg" alt="REQ/REP latency over TCP: p50 and p99 against payload size" width="950">
-</p>
-
-<p align="center">
-  <img src="docs/charts/headline_pushpull_tcp.svg" alt="PUSH/PULL throughput over TCP: message rate and byte rate against payload size" width="950">
-</p>
-
-<p align="center">
-  <img src="docs/charts/headline_pubsub_tcp.svg" alt="PUB/SUB throughput over TCP at 32 subscribers" width="950">
-</p>
-
-### Extended: ipc and the fan patterns
-
-<p align="center">
-  <img src="docs/charts/extended_pushpull_ipc.svg" alt="PUSH/PULL throughput over IPC" width="950">
-</p>
-
-<p align="center">
-  <img src="docs/charts/extended_reqrep_ipc.svg" alt="REQ/REP latency over IPC" width="950">
-</p>
-
-<p align="center">
-  <img src="docs/charts/extended_fanout_tcp.svg" alt="PUSH fan-out over TCP at 4 workers" width="950">
-</p>
-
-<p align="center">
-  <img src="docs/charts/extended_fanin_tcp.svg" alt="PULL fan-in over TCP at 4 workers" width="950">
-</p>
-
-Each series carries the classification and library version the target reported
-through `describe`. A binding shows its own version with the engine in
-parentheses, so a legend reads `tmq 0.5.0 (libzmq 4.3.4)` next to the C++
-`libzmq 4.3.5`.
 
 ## Publishing to GitHub Pages
 
@@ -366,7 +308,7 @@ The split of duties is deliberate:
 
 | what | where it lives |
 |---|---|
-| `RANKING.md`, `FEATURES.md`, `docs/features.json`, `docs/charts/*.svg` | committed to `main`, overwritten in place each run, so the file count is fixed |
+| `RANKING.md`, `FEATURES.md`, `docs/features.json`, `docs/variants.json` | committed to `main`, overwritten in place each run, so the file count is fixed |
 | `docs/history/*-run.json` | never committed; carried forward by the Pages deployment |
 
 That keeps `main` code-only and stops it growing without bound as
@@ -382,8 +324,7 @@ behaviour rather than an empty page.
 
 `.github/workflows/weekly-arena.yml` runs the grid on a self-hosted bare-metal
 runner with Turbo off and C-states locked. It builds everything, regenerates the
-matrix, runs it, renders `RANKING.md` and the run archive, redraws the charts,
-commits the repo-facing documents, and deploys the refreshed site. It asserts the
+matrix, runs it, renders `RANKING.md` and the run archive, commits the repo-facing documents, and deploys the refreshed site. It asserts the
 runner is performance-locked before measuring anything.
 
 **Its weekly `schedule:` is commented out on purpose.** The job needs a runner
@@ -434,7 +375,6 @@ cheating entry fails the cell rather than the review.
 | target classification + library version | done; every target self-reports via `describe`, the orchestrator embeds it per record, versions tracked per run |
 | render and ranking generator | done and tested; emits per-metric boards scored as the geometric mean of each library's ratio to the libzmq baseline, and stamps the run's host and admissibility onto `RANKING.md` |
 | interactive dashboard | done; five pages (Overview, Rankings, Explore, Tables, Features); filters and color-by across engine, io, threading, sync/async, native/ffi, language; library versions shown |
-| static SVG charts | done; `reporter/` draws the headline and extended payload sweeps with plotters into `docs/charts/` |
 | feature matrix | done; curated in `features.json`, rendered to `FEATURES.md` and `docs/features.html`, with unverified rows marked `declared` |
 | matrix tiering | done; split by pattern, not by library. headline (tcp, the three universal patterns) + extended (ipc, fan-out, fan-in), each run by every implementation capable of it |
 

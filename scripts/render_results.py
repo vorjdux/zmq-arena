@@ -32,7 +32,7 @@ VARIANT_KEY = {
 }
 # Category tags per variant key, read from variants.json rather than repeated
 # here. That file is the single source of truth the dashboard pages and the SVG
-# reporter also read; keeping a second copy in this script is how a variant ends
+# pages also read; keeping a second copy in this script is how a variant ends
 # up classified one way in a record and another way in the UI.
 def _load_registry() -> dict:
     data = json.loads((REPO / "variants.json").read_text())
@@ -427,8 +427,7 @@ def write_ranking(repo: Path, date: str, records: list, hardware: dict | None = 
     parts = [
         "# Ranking\n",
         f"From the run on {date}. This file is rewritten on every run; for the full "
-        f"history and interactive charts, open the dashboard under `docs/`, and for "
-        f"the payload-sweep charts see `docs/charts/`.\n",
+        f"history and interactive charts, open the dashboard under `docs/`.\n",
         # Provenance first, because a ranking without the host it ran on is not a
         # result. docs/history/ is gitignored precisely so dev-host runs do not
         # churn the repo, but this file IS committed, so it has to carry the same

@@ -1,5 +1,5 @@
 {
-  "_comment": "Single source of truth for how a measured series is presented. Every surface reads this file: the four dashboard pages, the SVG reporter, and the result renderer. Before it existed the same facts were duplicated in six places, which is how tmq, monocoque_smol, omq_blocking and the zmq.rs runtimes ended up rendering as raw grey keys after being added to the matrix. Add a variant here and nowhere else. Regenerate the published copy with: python3 scripts/render_variants.py",
+  "_comment": "Single source of truth for how a measured series is presented. Every surface reads this file: the four dashboard pages and the result renderer. Before it existed the same facts were duplicated in six places, which is how tmq, monocoque_smol, omq_blocking and the zmq.rs runtimes ended up rendering as raw grey keys after being added to the matrix. Add a variant here and nowhere else. Regenerate the published copy with: python3 scripts/render_variants.py",
   "schema": 1,
   "engines": {
     "libzmq": "#facc15",

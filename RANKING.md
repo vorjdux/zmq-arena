@@ -1,12 +1,12 @@
 # Ranking
 
-From the run on 2026-07-03. This file is rewritten on every run; for the full history and interactive charts, open the dashboard under `docs/`, and for the payload-sweep charts see `docs/charts/`.
+From the run on 2026-07-03. This file is rewritten on every run; for the full history and interactive charts, open the dashboard under `docs/`.
 
 Host: `13th Gen Intel(R) Core(TM) i7-1355U` - dev host; functional test, not admissible tail data
 
 > **These numbers are not a verdict.** This run self-identifies as a dev-host functional test, which means it validates that the harness and the targets work, not how the libraries compare. A ranking is only meaningful from a dedicated, pinned bench host.
 
-> **Read this first.** These boards are only as good as the host they ran on. Each cell runs in a 4-core cpuset so the producer, consumer and peers do not time-share one core, but this is still a shared host, not a dedicated bench. Read the numbers as the payload trend and the relative shape between libraries, not a final absolute verdict.
+> **Read this first.** These boards are only as good as the host they ran on. Each cell runs in a 4-core cpuset so the producer and consumer do not time-share one core; the 32-subscriber pub/sub cell necessarily oversubscribes it, which is inherent to the workload and applies equally to every library. This is still a shared host, not a dedicated bench. Read the numbers as the payload trend and the relative shape between libraries, not a final absolute verdict.
 
 Each board is the **geometric mean of every variant's ratio to the `libzmq` baseline**, over the cells they share. This is magnitude-aware (a 3x win counts as 3x, unlike averaging rank positions) and dimensionless (so payloads and transports combine cleanly). Cells flagged as inverted are dropped as known-wrong; a win smaller than the two cells' combined replicate spread is counted as a tie (the `ties` column), so noisy cells do not decide the order. Higher is better on every board. `cells` shows coverage against the baseline; a partial count means the variant did not run every benchmark and its score is not directly comparable to a full-coverage one.
 
