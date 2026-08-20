@@ -1,8 +1,11 @@
 # Weekly grid run.
 #
-# Place at .github/workflows/weekly-arena.yml to activate. It lives under
-# workflows/ in the scaffold so the repository layout matches the spec without
-# the cron firing before the bare-metal runner is registered.
+# THE SCHEDULE IS DELIBERATELY COMMENTED OUT. This job only runs on a
+# self-hosted runner labelled [self-hosted, bare-metal, perf-locked]. Until such
+# a runner is registered, a live cron would queue a job every Monday that no
+# runner can pick up, so it would sit pending and then fail, once a week,
+# forever. Uncomment the `schedule:` block below the moment the runner exists.
+# `workflow_dispatch` stays enabled so the grid can still be triggered by hand.
 #
 # Execution environment requirements (enforced on the runner, not here):
 #   - Bare-metal instance (e.g. AWS *.metal) or dedicated bare-metal CI runner.
@@ -16,9 +19,9 @@
 name: weekly-arena
 
 on:
-  schedule:
-    # 04:00 UTC every Monday. Once per week, deterministic slot.
-    - cron: "0 4 * * 1"
+  # schedule:
+  #   # 04:00 UTC every Monday. Once per week, deterministic slot.
+  #   - cron: "0 4 * * 1"
   workflow_dispatch: {}
 
 permissions:

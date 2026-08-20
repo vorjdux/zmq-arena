@@ -300,9 +300,10 @@ browsers block `fetch` over `file://`.
 
 ## Publishing to GitHub Pages
 
-The dashboard is deployed by `workflows/pages.yml`. Move it (and
-`weekly-arena.yml`) into `.github/workflows/` and set **Settings > Pages >
-Source** to **GitHub Actions**. The site then lands at
+The dashboard is deployed by `.github/workflows/pages.yml`. Set **Settings >
+Pages > Source** to **GitHub Actions** and it runs on the next push that touches
+`docs/`, or immediately from the Actions tab via **Run workflow**. The site lands
+at
 `https://<owner>.github.io/zmq-arena/`; every path in `docs/` is relative, so the
 project subpath needs no configuration.
 
@@ -335,12 +336,17 @@ behaviour rather than an empty page.
 
 ## The weekly grid
 
-`workflows/weekly-arena.yml` runs once a week on a self-hosted bare-metal runner
-with Turbo off and C-states locked. It builds everything, regenerates the matrix,
-runs it, renders `RANKING.md` and the run archive, redraws the charts, commits
-the repo-facing documents, and deploys the refreshed site. Move the file to
-`.github/workflows/` to activate it once a suitable runner exists; it asserts the
+`.github/workflows/weekly-arena.yml` runs the grid on a self-hosted bare-metal
+runner with Turbo off and C-states locked. It builds everything, regenerates the
+matrix, runs it, renders `RANKING.md` and the run archive, redraws the charts,
+commits the repo-facing documents, and deploys the refreshed site. It asserts the
 runner is performance-locked before measuring anything.
+
+**Its weekly `schedule:` is commented out on purpose.** The job needs a runner
+labelled `[self-hosted, bare-metal, perf-locked]`, and until one is registered a
+live cron would queue a job every Monday that nothing can pick up. Uncomment the
+block once the runner exists; `workflow_dispatch` is enabled meanwhile, so the
+grid can be triggered by hand from the Actions tab.
 
 Deployment is a separate `publish` job so the multi-hour measuring job does not
 hold the Pages concurrency lock, and it shares that lock with `pages.yml` so the
