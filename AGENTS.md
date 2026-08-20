@@ -21,6 +21,7 @@ targets/        one standalone project per implementation, NOT workspace members
 scripts/        matrix generation, result rendering, feature matrix rendering
 docs/           dashboard (5 pages, no build step) + generated charts
 features.json   curated capability matrix, the source for FEATURES.md
+variants.json   how each measured series is labelled and coloured
 ```
 
 `orchestrator/` and `reporter/` are the only Cargo workspace members. Targets are
@@ -74,6 +75,14 @@ would distort every ratio computed against the baseline.
   dashboard has to work from a plain static file server.
 - `features.json` is curated. Every row carries its source, and anything the
   arena has not exercised is `declared`, not `yes`.
+- `variants.json` is the ONLY place a series' label, colour and legend order
+  live. The dashboard pages fetch it, the SVG reporter bakes it in, and
+  `render_results.py` reads its category tags. Never add a label or colour
+  literal to a page or to the reporter: those facts were duplicated in six
+  places once, and new variants shipped rendering as raw keys in fallback grey
+  twice before it was noticed. `scripts/render_variants.py` fails if the matrix
+  contains a variant the file does not describe, so run it after touching the
+  roster.
 
 ## Conventions
 

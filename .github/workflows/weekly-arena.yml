@@ -84,6 +84,9 @@ jobs:
         run: |
           ./target/release/zmq-arena-report --latest docs/history --out docs/charts
 
+      - name: Publish the variant registry
+        run: python3 scripts/render_variants.py
+
       - name: Refresh the feature matrix
         # Curated data, but regenerating keeps FEATURES.md and docs/features.json
         # in step with features.json if someone edited only the source.
@@ -102,7 +105,7 @@ jobs:
         run: |
           git config user.name "arena-bot"
           git config user.email "arena-bot@users.noreply.github.com"
-          git add RANKING.md FEATURES.md docs/features.json docs/charts
+          git add RANKING.md FEATURES.md docs/features.json docs/variants.json docs/charts
           git commit -m "weekly grid: ${RUN_ID}" || echo "nothing to commit"
           git push || echo "push skipped"
 

@@ -154,23 +154,13 @@
 <script>
 "use strict";
 
+// Series identity, filled from variants.json by loadVariants() before anything
+// renders. Declared up here because the sort and colour helpers below close
+// over them.
+let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+
 // ── registries ────────────────────────────────────────────────────
-const VARIANT_LABEL = {
-  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "tmq":"tmq",
-  "zeromq_rs":"zmq.rs", "zeromq_rs_async_std":"zmq.rs (async-std)",
-  "zeromq_rs_async_dispatcher":"zmq.rs (async-dispatcher)", "zmq.rs":"zmq.rs",
-  "omq_tokio":"omq-tokio", "omq_tokio_mt":"omq-tokio (MT)", "omq_blocking":"omq (blocking)",
-  "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)", "monocoque_smol":"monocoque (smol)",
-  "rzmq":"rzmq", "celerity":"celerity",
-  // Retired upstream, kept so archived runs still render a name, not a raw key.
-  "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
-};
 // One stable colour per library so the same line is the same colour in every panel.
-const VARIANT_COLOR = {
-  "libzmq":"#eab308", "rust_zmq":"#f59e0b", "zmq.rs":"#3b82f6",
-  "omq_tokio":"#8b5cf6", "omq_tokio_mt":"#a855f7", "omq_compio":"#c026d3", "omq_compio_st":"#e879f9",
-  "rzmq":"#22c55e", "celerity":"#ec4899", "monocoque":"#14b8a6", "monocoque_tokio":"#06b6d4",
-};
 const colorOf = v => VARIANT_COLOR[v] || "#8892a0";
 const KIND_LABEL = { throughput:"Throughput", latency:"Latency", pubsub:"Pub/Sub", fanout:"Fan-out", fanin:"Fan-in" };
 const KIND_ORDER = ["throughput","latency","pubsub","fanout","fanin"];
@@ -186,7 +176,6 @@ const val = id => el(id).value;
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 let RECORDS=[], DATES=[], VARIANTS=[], VARMETA={}, selected=new Set(), PANELS=[];
-const VORDER = Object.keys(VARIANT_LABEL);
 const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
@@ -203,7 +192,24 @@ async function loadFrom(base){
   if(!m.runs||!m.runs.length) throw new Error("empty manifest");
   return Promise.all(m.runs.map(async run=>({date:run.date,data:await fetchJSON(base+run.file)})));
 }
+// ── series identity ────────────────────────────────────────────
+// Labels, colours and legend order come from variants.json, the single source of
+// truth shared with the SVG reporter and the result renderer. They used to be
+// literals in each of these pages, which meant adding a variant to the matrix
+// silently produced a chart series labelled with its raw key and drawn in
+// fallback grey. Add a series in variants.json and nowhere else.
+
+async function loadVariants(){
+  const r = await fetch("variants.json?_=" + Date.now(), {cache:"no-store"});
+  if(!r.ok) throw new Error("variants.json -> " + r.status);
+  const d = await r.json();
+  ENGINE_COLOR = d.engines || {};
+  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color; }
+  VORDER = d.variants.map(v => v.key);
+}
+
 async function load(){
+  await loadVariants();
   let runs, isSample=false;
   try { runs=await loadFrom("history/"); } catch(e){ runs=await loadFrom("sample/"); isSample=true; }
   runs.sort((a,b)=>a.date.localeCompare(b.date));

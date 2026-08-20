@@ -1,0 +1,80 @@
+{
+  "_comment": "Single source of truth for how a measured series is presented. Every surface reads this file: the four dashboard pages, the SVG reporter, and the result renderer. Before it existed the same facts were duplicated in six places, which is how tmq, monocoque_smol, omq_blocking and the zmq.rs runtimes ended up rendering as raw grey keys after being added to the matrix. Add a variant here and nowhere else. Regenerate the published copy with: python3 scripts/render_variants.py",
+  "schema": 1,
+  "engines": {
+    "libzmq": "#facc15",
+    "zmq.rs": "#3b82f6",
+    "omq": "#ef4444",
+    "monocoque": "#14b8a6",
+    "rzmq": "#22c55e",
+    "celerity": "#ec4899"
+  },
+  "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
+  "variants": [
+    {
+      "key": "libzmq", "label": "libzmq (C++)", "note": "C++, epoll", "color": "#facc15",
+      "engine": "libzmq", "io": "epoll", "threading": "native"
+    },
+    {
+      "key": "rust_zmq", "label": "rust-zmq", "note": "FFI to libzmq", "color": "#f59e0b",
+      "engine": "libzmq", "io": "epoll", "threading": "native"
+    },
+    {
+      "key": "tmq", "label": "tmq", "note": "tokio over libzmq", "color": "#b45309",
+      "engine": "libzmq", "io": "epoll", "threading": "native"
+    },
+    {
+      "key": "zeromq_rs", "label": "zmq.rs", "note": "tokio", "color": "#93c5fd",
+      "engine": "zmq.rs", "io": "epoll", "threading": "multi"
+    },
+    {
+      "key": "zeromq_rs_async_std", "label": "zmq.rs (async-std)", "note": "async-std", "color": "#3b82f6",
+      "engine": "zmq.rs", "io": "epoll", "threading": "multi"
+    },
+    {
+      "key": "zeromq_rs_async_dispatcher", "label": "zmq.rs (async-dispatcher)", "note": "async-dispatcher", "color": "#1e40af",
+      "engine": "zmq.rs", "io": "epoll", "threading": "multi"
+    },
+    {
+      "key": "omq_tokio", "label": "omq-tokio", "note": "tokio CT", "color": "#fca5a5",
+      "engine": "omq", "io": "epoll", "threading": "single"
+    },
+    {
+      "key": "omq_tokio_mt", "label": "omq-tokio (MT)", "note": "tokio MT", "color": "#ef4444",
+      "engine": "omq", "io": "epoll", "threading": "multi"
+    },
+    {
+      "key": "omq_blocking", "label": "omq (blocking)", "note": "blocking", "color": "#991b1b",
+      "engine": "omq", "io": "epoll", "threading": "single"
+    },
+    {
+      "key": "monocoque", "label": "monocoque", "note": "compio io_uring", "color": "#5eead4",
+      "engine": "monocoque", "io": "io_uring", "threading": "single"
+    },
+    {
+      "key": "monocoque_tokio", "label": "monocoque (tokio)", "note": "tokio", "color": "#14b8a6",
+      "engine": "monocoque", "io": "epoll", "threading": "single"
+    },
+    {
+      "key": "monocoque_smol", "label": "monocoque (smol)", "note": "smol", "color": "#0f645f",
+      "engine": "monocoque", "io": "epoll", "threading": "single"
+    },
+    {
+      "key": "rzmq", "label": "rzmq", "note": "io_uring", "color": "#22c55e",
+      "engine": "rzmq", "io": "io_uring", "threading": "multi", "stub": true
+    },
+    {
+      "key": "celerity", "label": "celerity", "note": "tokio", "color": "#ec4899",
+      "engine": "celerity", "io": "epoll", "threading": "multi", "stub": true
+    },
+    {
+      "key": "omq_compio", "label": "omq-compio", "note": "io_uring", "color": "#c026d3",
+      "engine": "omq", "io": "io_uring", "threading": "single", "retired": true
+    },
+    {
+      "key": "omq_compio_st", "label": "omq-compio (ST)", "note": "io_uring ST", "color": "#e879f9",
+      "engine": "omq", "io": "io_uring", "threading": "single", "retired": true
+    }
+  ],
+  "_retired_note": "Retired entries stay so archived runs that measured them still render a name and a colour instead of a raw key. Stub entries are targets with no socket loop yet; they never produce records, but keeping them here means adding the loop needs no presentation change."
+}

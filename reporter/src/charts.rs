@@ -234,7 +234,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "tcp_netns",
             peers: None,
         },
-        IMPLS,
+        &IMPLS,
     )?;
     rate_chart(
         a,
@@ -247,7 +247,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "tcp_netns",
             peers: None,
         },
-        IMPLS,
+        &IMPLS,
     )?;
     rate_chart(
         a,
@@ -260,7 +260,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "tcp_netns",
             peers: Some(pubsub_peers),
         },
-        IMPLS,
+        &IMPLS,
     )?;
 
     // ── extended: monocoque against the reference ──
@@ -275,7 +275,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "ipc",
             peers: None,
         },
-        IMPLS,
+        &IMPLS,
     )?;
     latency_chart(
         a,
@@ -288,7 +288,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "ipc",
             peers: None,
         },
-        IMPLS,
+        &IMPLS,
     )?;
     rate_chart(
         a,
@@ -301,7 +301,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "tcp_netns",
             peers: Some(fan_peers),
         },
-        IMPLS,
+        &IMPLS,
     )?;
     rate_chart(
         a,
@@ -314,7 +314,7 @@ pub fn render_all(a: &Archive, out: &Path, pubsub_peers: u32, fan_peers: u32) ->
             transport: "tcp_netns",
             peers: Some(fan_peers),
         },
-        IMPLS,
+        &IMPLS,
     )?;
     Ok(())
 }

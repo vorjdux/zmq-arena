@@ -30,29 +30,19 @@ VARIANT_KEY = {
     ("omq_tokio", "blocking"): "omq_blocking",
     ("monocoque", "tokio"): "monocoque_tokio",
 }
-# Category tags per variant key.
-REGISTRY = {
-    "libzmq":        {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
-    "rust_zmq":      {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
-    "tmq":           {"engine": "libzmq",    "io": "epoll",    "threading": "native"},
-    "zmq.rs":        {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
-    "zeromq_rs":     {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
-    "omq_tokio":     {"engine": "omq",       "io": "epoll",    "threading": "single"},
-    "omq_tokio_mt":  {"engine": "omq",       "io": "epoll",    "threading": "multi"},
-    "omq_blocking":  {"engine": "omq",       "io": "epoll",    "threading": "single"},
-    # Retired: omq's compio (io_uring) backend no longer exists upstream, so no
-    # new run can produce these. Kept so re-rendering an archived scratch dir
-    # from before the removal still resolves its categories.
-    "omq_compio":    {"engine": "omq",       "io": "io_uring", "threading": "single"},
-    "omq_compio_st": {"engine": "omq",       "io": "io_uring", "threading": "single"},
-    "rzmq":          {"engine": "rzmq",      "io": "io_uring", "threading": "multi"},
-    "celerity":      {"engine": "celerity",  "io": "epoll",    "threading": "multi"},
-    "monocoque":       {"engine": "monocoque", "io": "io_uring", "threading": "single"},
-    "monocoque_tokio": {"engine": "monocoque", "io": "epoll",    "threading": "single"},
-    "monocoque_smol":  {"engine": "monocoque", "io": "epoll",    "threading": "single"},
-    "zeromq_rs_async_std":        {"engine": "zmq.rs", "io": "epoll", "threading": "multi"},
-    "zeromq_rs_async_dispatcher": {"engine": "zmq.rs", "io": "epoll", "threading": "multi"},
-}
+# Category tags per variant key, read from variants.json rather than repeated
+# here. That file is the single source of truth the dashboard pages and the SVG
+# reporter also read; keeping a second copy in this script is how a variant ends
+# up classified one way in a record and another way in the UI.
+def _load_registry() -> dict:
+    data = json.loads((REPO / "variants.json").read_text())
+    return {
+        v["key"]: {"engine": v["engine"], "io": v["io"], "threading": v["threading"]}
+        for v in data["variants"]
+    }
+
+
+REGISTRY = _load_registry()
 
 
 def variant_key(target_id: str, variant) -> str:

@@ -69,6 +69,12 @@ message rate (higher is better)
 16 KiB
 </text>
 <polyline fill="none" opacity="1" stroke="#9AA4B2" stroke-width="1" points="452,354 452,359 "/>
+<polyline fill="none" opacity="1" stroke="#C026D3" stroke-width="2" points="84,343 176,343 268,344 360,347 452,349 "/>
+<circle cx="84" cy="343" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="176" cy="343" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="268" cy="344" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="360" cy="347" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="452" cy="349" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
 <polyline fill="none" opacity="1" stroke="#14B8A6" stroke-width="2" points="84,161 176,191 268,292 360,330 452,351 "/>
 <circle cx="84" cy="161" r="2" opacity="1" fill="#14B8A6" stroke="none" stroke-width="1"/>
 <circle cx="176" cy="191" r="2" opacity="1" fill="#14B8A6" stroke="none" stroke-width="1"/>
@@ -160,6 +166,12 @@ byte rate (higher is better)
 16 KiB
 </text>
 <polyline fill="none" opacity="1" stroke="#9AA4B2" stroke-width="1" points="927,354 927,359 "/>
+<polyline fill="none" opacity="1" stroke="#C026D3" stroke-width="2" points="559,352 651,348 743,333 835,296 927,204 "/>
+<circle cx="559" cy="352" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="651" cy="348" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="743" cy="333" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="835" cy="296" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
+<circle cx="927" cy="204" r="2" opacity="1" fill="#C026D3" stroke="none" stroke-width="1"/>
 <polyline fill="none" opacity="1" stroke="#14B8A6" stroke-width="2" points="559,328 651,267 743,222 835,153 927,274 "/>
 <circle cx="559" cy="328" r="2" opacity="1" fill="#14B8A6" stroke="none" stroke-width="1"/>
 <circle cx="651" cy="267" r="2" opacity="1" fill="#14B8A6" stroke="none" stroke-width="1"/>
@@ -203,7 +215,7 @@ byte rate (higher is better)
 <circle cx="927" cy="285" r="2" opacity="1" fill="#FACC15" stroke="none" stroke-width="1"/>
 <rect x="18" y="392" width="10" height="10" opacity="1" fill="#FACC15" stroke="none"/>
 <text x="34" y="391" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
-libzmq 4.3.5
+libzmq (C++) 4.3.5
 </text>
 <text x="34" y="405" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 C++, epoll
@@ -224,14 +236,14 @@ tokio
 </text>
 <rect x="564" y="392" width="10" height="10" opacity="1" fill="#FCA5A5" stroke="none"/>
 <text x="580" y="391" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
-omq 0.14.6
+omq-tokio 0.14.6
 </text>
 <text x="580" y="405" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 tokio CT
 </text>
 <rect x="746" y="392" width="10" height="10" opacity="1" fill="#EF4444" stroke="none"/>
 <text x="762" y="391" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
-omq 0.14.6
+omq-tokio (MT) 0.14.6
 </text>
 <text x="762" y="405" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 tokio MT
@@ -245,10 +257,17 @@ compio io_uring
 </text>
 <rect x="200" y="422" width="10" height="10" opacity="1" fill="#14B8A6" stroke="none"/>
 <text x="216" y="421" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
-monocoque 0.1.7
+monocoque (tokio) 0.1.7
 </text>
 <text x="216" y="435" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 tokio
+</text>
+<rect x="382" y="422" width="10" height="10" opacity="1" fill="#C026D3" stroke="none"/>
+<text x="398" y="421" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#E6E9EE">
+omq-compio 0.12.5
+</text>
+<text x="398" y="435" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
+io_uring
 </text>
 <text x="475" y="456" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#9AA4B2">
 15 plotted cell(s) did not converge across replicates; read the shape, not the exact value. Inverted cells are omitted.

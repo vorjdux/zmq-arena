@@ -50,6 +50,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Publish the variant registry
+        # The dashboard pages fetch variants.json for their labels and colours,
+        # and this also fails the build if the matrix grew a variant that has no
+        # presentation entry.
+        run: python3 scripts/render_variants.py
+
       - name: Refresh the feature matrix
         # Curated data, but regenerating guarantees docs/features.json matches
         # features.json even if someone edited only the source.

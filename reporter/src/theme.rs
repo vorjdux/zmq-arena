@@ -9,7 +9,14 @@ use plotters::style::text_anchor::{HPos, Pos, VPos};
 
 use crate::model::Series;
 
-// ── palette ────────────────────────────────────────────────────
+// ── palette and series identity ────────────────────────────────
+// Read from variants.json, the single source of truth shared with the dashboard
+// pages and the result renderer. It is baked in at compile time rather than read
+// from disk so the binary stays self-contained, but there is still exactly one
+// copy of these facts in the repository: adding a series means editing that file
+// and nothing else. Before this, the same labels and colours lived in six
+// places, and new variants silently rendered as raw keys in fallback grey.
+//
 // Dark only, and deliberately so: an SVG cannot follow the reader's colour
 // scheme the way the dashboard's CSS can, so it commits to one look rather than
 // being illegible in half of them.
@@ -19,122 +26,68 @@ pub const AXIS: RGBColor = RGBColor(154, 164, 178); // dashboard --muted
 pub const TEXT: RGBColor = RGBColor(230, 233, 238); // dashboard --fg
 pub const MUTED: RGBColor = RGBColor(154, 164, 178);
 
+const VARIANTS_JSON: &str = include_str!("../../variants.json");
+
+#[derive(serde::Deserialize)]
+struct VariantsFile {
+    variants: Vec<VariantEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct VariantEntry {
+    key: String,
+    label: String,
+    #[serde(default)]
+    note: String,
+    color: String,
+}
+
 /// One plotted library. `key` is the record's `variant`.
 pub struct Impl {
-    pub key: &'static str,
-    pub label: &'static str,
-    pub note: &'static str,
+    pub key: String,
+    pub label: String,
+    pub note: String,
     pub color: RGBColor,
 }
 
-// Engine colours. libzmq takes yellow because it is the ratio baseline and the
-// eye should find it first; the rest follow the hues the same engines carry in
-// the OMQ comparison charts, so a reader moving between the two projects is not
-// re-learning the legend. No engine is styled to stand out from the others.
-pub const C_LIBZMQ: RGBColor = RGBColor(250, 204, 21);
-pub const C_RUST_ZMQ: RGBColor = RGBColor(245, 158, 11);
-// tmq's engine IS libzmq, so it takes a third shade of the libzmq family rather
-// than a hue of its own: the three yellows are three ways of reaching one engine.
-pub const C_TMQ: RGBColor = RGBColor(180, 83, 9);
-// One hue family per engine, one shade per runtime, so a reader can tell at a
-// glance which lines are the same engine and which are different engines. Every
-// engine gets the same treatment: an evenly spaced light/mid/dark ramp within
-// its family, and no engine is given a brighter or more prominent colour.
-//
-// The ramps are spread wide on purpose. Adjacent shades of one hue are the
-// hardest pairs to separate on a dark background, and those are exactly the
-// pairs a reader most wants to compare, since they are the same protocol code on
-// two different runtimes.
-pub const C_ZMQRS: RGBColor = RGBColor(147, 197, 253);
-pub const C_ZMQRS_ASYNC_STD: RGBColor = RGBColor(59, 130, 246);
-pub const C_ZMQRS_DISPATCHER: RGBColor = RGBColor(30, 64, 175);
-pub const C_OMQ: RGBColor = RGBColor(252, 165, 165);
-pub const C_OMQ_MT: RGBColor = RGBColor(239, 68, 68);
-pub const C_OMQ_BLOCKING: RGBColor = RGBColor(153, 27, 27);
-pub const C_MONOCOQUE: RGBColor = RGBColor(94, 234, 212);
-pub const C_MONOCOQUE_TOKIO: RGBColor = RGBColor(20, 184, 166);
-pub const C_MONOCOQUE_SMOL: RGBColor = RGBColor(15, 100, 95);
+/// `#rrggbb` to a plotters colour. Falls back to the muted grey rather than
+/// panicking: a malformed colour should cost one series its hue, not the chart.
+fn parse_hex(hex: &str) -> RGBColor {
+    let h = hex.trim_start_matches('#');
+    if h.len() != 6 {
+        return MUTED;
+    }
+    match (
+        u8::from_str_radix(&h[0..2], 16),
+        u8::from_str_radix(&h[2..4], 16),
+        u8::from_str_radix(&h[4..6], 16),
+    ) {
+        (Ok(r), Ok(g), Ok(b)) => RGBColor(r, g, b),
+        _ => MUTED,
+    }
+}
 
-/// Every variant the arena knows how to plot, in legend order.
+/// Every variant the arena knows how to plot, in the order variants.json lists
+/// them, which is also legend order.
 ///
 /// One list for every chart. There is deliberately no per-chart subset: a chart
 /// that hardcoded which libraries may appear would decide the comparison before
 /// the data did. Which entries are actually drawn is decided by [`present`],
 /// purely from whether the run produced cells for them.
-pub const IMPLS: &[Impl] = &[
-    Impl {
-        key: "libzmq",
-        label: "libzmq",
-        note: "C++, epoll",
-        color: C_LIBZMQ,
-    },
-    Impl {
-        key: "rust_zmq",
-        label: "rust-zmq",
-        note: "FFI to libzmq",
-        color: C_RUST_ZMQ,
-    },
-    Impl {
-        key: "tmq",
-        label: "tmq",
-        note: "tokio over libzmq",
-        color: C_TMQ,
-    },
-    Impl {
-        key: "zeromq_rs",
-        label: "zmq.rs",
-        note: "tokio",
-        color: C_ZMQRS,
-    },
-    Impl {
-        key: "zeromq_rs_async_std",
-        label: "zmq.rs",
-        note: "async-std",
-        color: C_ZMQRS_ASYNC_STD,
-    },
-    Impl {
-        key: "zeromq_rs_async_dispatcher",
-        label: "zmq.rs",
-        note: "async-dispatcher",
-        color: C_ZMQRS_DISPATCHER,
-    },
-    Impl {
-        key: "omq_tokio",
-        label: "omq",
-        note: "tokio CT",
-        color: C_OMQ,
-    },
-    Impl {
-        key: "omq_tokio_mt",
-        label: "omq",
-        note: "tokio MT",
-        color: C_OMQ_MT,
-    },
-    Impl {
-        key: "omq_blocking",
-        label: "omq",
-        note: "blocking",
-        color: C_OMQ_BLOCKING,
-    },
-    Impl {
-        key: "monocoque",
-        label: "monocoque",
-        note: "compio io_uring",
-        color: C_MONOCOQUE,
-    },
-    Impl {
-        key: "monocoque_tokio",
-        label: "monocoque",
-        note: "tokio",
-        color: C_MONOCOQUE_TOKIO,
-    },
-    Impl {
-        key: "monocoque_smol",
-        label: "monocoque",
-        note: "smol",
-        color: C_MONOCOQUE_SMOL,
-    },
-];
+pub static IMPLS: std::sync::LazyLock<Vec<Impl>> = std::sync::LazyLock::new(|| {
+    let parsed: VariantsFile =
+        serde_json::from_str(VARIANTS_JSON).expect("variants.json is malformed");
+    parsed
+        .variants
+        .into_iter()
+        .map(|v| Impl {
+            color: parse_hex(&v.color),
+            key: v.key,
+            label: v.label,
+            note: v.note,
+        })
+        .collect()
+});
 
 // ── formatting ─────────────────────────────────────────────────
 
@@ -211,7 +164,7 @@ pub fn series_max(series: &Series, impls: &[&Impl]) -> f64 {
         .flat_map(|per_variant| {
             impls
                 .iter()
-                .filter_map(move |i| per_variant.get(i.key).copied())
+                .filter_map(move |i| per_variant.get(i.key.as_str()).copied())
         })
         .fold(0.0f64, f64::max)
 }
@@ -225,7 +178,7 @@ pub fn present<'a>(series: &[&Series], impls: &'a [Impl]) -> Vec<&'a Impl> {
         .filter(|i| {
             series
                 .iter()
-                .any(|s| s.values().any(|per| per.contains_key(i.key)))
+                .any(|s| s.values().any(|per| per.contains_key(i.key.as_str())))
         })
         .collect()
 }
@@ -278,7 +231,7 @@ pub fn draw_panel(
         let pts: Vec<(f64, f64)> = sizes
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| series.get(s)?.get(imp.key).map(|&v| (i as f64, v)))
+            .filter_map(|(i, s)| series.get(s)?.get(imp.key.as_str()).map(|&v| (i as f64, v)))
             .collect();
         if pts.is_empty() {
             continue;
@@ -337,7 +290,7 @@ pub fn draw_legend(
             imp.color.filled(),
         ))?;
         let ver = versions
-            .get(imp.key)
+            .get(imp.key.as_str())
             .map(|v| format!(" {v}"))
             .unwrap_or_default();
         area.draw_text(
@@ -346,7 +299,7 @@ pub fn draw_legend(
             (x + 16, y - 1),
         )?;
         if !imp.note.is_empty() {
-            area.draw_text(imp.note, &font(9, MUTED), (x + 16, y + 13))?;
+            area.draw_text(&imp.note, &font(9, MUTED), (x + 16, y + 13))?;
         }
     }
     Ok(())

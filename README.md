@@ -275,6 +275,16 @@ curated from each project's documentation and marks every unverified row
 `features.json`; `scripts/render_features.py` regenerates it and
 [FEATURES.md](FEATURES.md).
 
+How a series is labelled and coloured comes from `variants.json`, which every
+surface reads: the dashboard pages fetch it, the SVG reporter bakes it in at
+compile time, and the result renderer takes its category tags from it. That is
+one file to edit when a variant is added, and `scripts/render_variants.py`
+(`make variants`) fails the build if the matrix contains a variant it does not
+describe, which is what used to produce chart series labelled with a raw key.
+
+Serve the dashboard locally with `cd docs && python3 -m http.server`, since
+browsers block `fetch` over `file://`.
+
 ## Charts
 
 `docs/charts/*.svg` are static payload-sweep charts drawn by the reporter
@@ -283,26 +293,52 @@ or `make charts`). They are the fixed, linkable picture: what a reader gets from
 the repo without a browser and a web server, in the same visual language as the
 OMQ comparison charts. `make run` redraws them after every run.
 
-Three headline charts (tcp) and four extended ones (ipc and the fan patterns).
 Every chart draws every implementation that produced cells for it; a library is
-absent from a chart only when it did not, or could not, run that pattern:
+absent from a chart only when it did not, or could not, run that pattern. Each
+one stamps the run date, the host, and the hardware note onto the image, and
+footnotes how many plotted cells failed to converge across replicates. Cells that
+replication flagged as inverted are never drawn.
 
-| chart | contents |
-|---|---|
-| `headline_reqrep_tcp.svg` | REQ/REP p50 and p99 against payload size |
-| `headline_pushpull_tcp.svg` | 1-to-1 PUSH/PULL, message rate and byte rate |
-| `headline_pubsub_tcp.svg` | PUB/SUB at 32 subscribers, aggregate rate |
-| `extended_pushpull_ipc.svg`, `extended_reqrep_ipc.svg` | the same two patterns over unix sockets |
-| `extended_fanout_tcp.svg`, `extended_fanin_tcp.svg` | fan-out and fan-in at 4 workers |
+> **The images below are whatever the last committed run produced.** Read the
+> provenance line stamped on each one before quoting a number from it: a run
+> whose note says "dev host" validated the harness, it did not rank anything.
 
-Each chart stamps the run date, the host, and the hardware note onto the image,
-and footnotes how many plotted cells failed to converge across replicates. Cells
-that replication flagged as inverted are never drawn.
+### Headline: every implementation, over tcp
+
+<p align="center">
+  <img src="docs/charts/headline_reqrep_tcp.svg" alt="REQ/REP latency over TCP: p50 and p99 against payload size" width="950">
+</p>
+
+<p align="center">
+  <img src="docs/charts/headline_pushpull_tcp.svg" alt="PUSH/PULL throughput over TCP: message rate and byte rate against payload size" width="950">
+</p>
+
+<p align="center">
+  <img src="docs/charts/headline_pubsub_tcp.svg" alt="PUB/SUB throughput over TCP at 32 subscribers" width="950">
+</p>
+
+### Extended: ipc and the fan patterns
+
+<p align="center">
+  <img src="docs/charts/extended_pushpull_ipc.svg" alt="PUSH/PULL throughput over IPC" width="950">
+</p>
+
+<p align="center">
+  <img src="docs/charts/extended_reqrep_ipc.svg" alt="REQ/REP latency over IPC" width="950">
+</p>
+
+<p align="center">
+  <img src="docs/charts/extended_fanout_tcp.svg" alt="PUSH fan-out over TCP at 4 workers" width="950">
+</p>
+
+<p align="center">
+  <img src="docs/charts/extended_fanin_tcp.svg" alt="PULL fan-in over TCP at 4 workers" width="950">
+</p>
 
 Each series carries the classification and library version the target reported
-through `describe`, so a row reads, say, `rust-zmq 4.3.4` next to the C++
-`libzmq 4.3.5`. Serve locally with `cd docs && python3 -m http.server`, since
-browsers block `fetch` over `file://`.
+through `describe`. A binding shows its own version with the engine in
+parentheses, so a legend reads `tmq 0.5.0 (libzmq 4.3.4)` next to the C++
+`libzmq 4.3.5`.
 
 ## Publishing to GitHub Pages
 

@@ -26,7 +26,7 @@ regen = @if [ "$(MATRIX)" = "$(GEN_MATRIX)" ]; then python3 scripts/gen_matrix.p
 
 .PHONY: all build orchestrator reporter libzmq monocoque monocoque-tokio monocoque-smol \
         zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
-        targets-all matrix bench render charts run run-root dry dashboard clean help
+        targets-all matrix bench render charts variants run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
 
@@ -96,6 +96,9 @@ render: bench             ## run, then render the result into docs/ + RANKING.md
 
 charts:                   ## redraw docs/charts/*.svg from the newest run archive
 	$(REPORT) --latest docs/history --out docs/charts
+
+variants:                 ## publish docs/variants.json and check it covers the matrix
+	python3 scripts/render_variants.py
 
 run: render               ## alias: run the matrix and render (assumes built)
 
