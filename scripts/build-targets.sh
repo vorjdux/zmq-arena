@@ -11,6 +11,35 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+# Preflight: every target directory this script builds must be present before we
+# start, so an incomplete checkout is reported as an incomplete checkout rather
+# than as a compiler or CMake error twenty lines into the build. All of these are
+# tracked in git, so a missing one means the working copy is stale, partial (a
+# sparse checkout), or not the repository root at all.
+required_dirs=(
+  orchestrator
+  targets/libzmq_cpp_target
+  targets/monocoque_target
+  targets/zeromq_rs_target
+  targets/rust_zmq_target
+  targets/tmq_target
+  targets/omq_tokio_target
+  targets/rzmq_target
+  targets/celerity_target
+)
+missing=()
+for d in "${required_dirs[@]}"; do
+  [ -d "$d" ] || missing+=("$d")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "error: missing from this checkout of $repo_root:" >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  echo >&2
+  echo "These are tracked in git, so this working copy is incomplete." >&2
+  echo "Try:  git -C \"$repo_root\" status  &&  git -C \"$repo_root\" pull" >&2
+  exit 1
+fi
+
 echo "== orchestrator (control plane) =="
 cargo build --release --manifest-path orchestrator/Cargo.toml
 
@@ -44,6 +73,8 @@ build_runtime_variant targets/zeromq_rs_target async-std-rt target-async-std
 build_runtime_variant targets/zeromq_rs_target async-dispatcher-rt target-async-dispatcher
 # rust-zmq (the `zmq` crate): Rust FFI binding over the system libzmq.
 build_rust_target targets/rust_zmq_target
+# tmq: Tokio bindings over the same libzmq, through rust-zmq.
+build_rust_target targets/tmq_target
 # omq.rs comparison roster. One binary covers all three omq variants
 # (current-thread, multi-thread, blocking): it selects them at run time.
 build_rust_target targets/omq_tokio_target

@@ -95,17 +95,11 @@
 <script>
 "use strict";
 
-const VARIANT_LABEL = {
-  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
-  // Retired upstream, kept so archived runs still render a name, not a raw key.
-  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
-  "rzmq":"rzmq", "celerity":"celerity",
-  "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",
-};
-const ENGINE_COLOR = {
-  "libzmq":"#eab308", "zmq.rs":"#2563eb", "omq":"#7c3aed",
-  "rzmq":"#16a34a", "celerity":"#db2777", "monocoque":"#0d9488",
-};
+// Series identity, filled from variants.json by loadVariants() before anything
+// renders. Declared up here because the sort and colour helpers below close
+// over them.
+let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+
 const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
   pubsub:"Pub/Sub", fanout:"Fan-out", fanin:"Fan-in" };
 const KIND_ORDER = ["throughput","latency","pubsub","fanout","fanin"];
@@ -120,7 +114,6 @@ const el = id => document.getElementById(id);
 const val = id => el(id).value;
 
 let RECORDS=[], VARMETA={};
-const VORDER = Object.keys(VARIANT_LABEL);
 const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
@@ -153,13 +146,50 @@ async function loadFrom(base){
   return runs;
 }
 
+// ── series identity ────────────────────────────────────────────
+// Labels, colours and legend order come from variants.json, the single source of
+// truth shared with the result renderer and the other pages. They used to be
+// literals in each of these pages, which meant adding a variant to the matrix
+// silently produced a chart series labelled with its raw key and drawn in
+// fallback grey. Add a series in variants.json and nowhere else.
+
+async function loadVariants(){
+  const r = await fetch("variants.json?_=" + Date.now(), {cache:"no-store"});
+  if(!r.ok) throw new Error("variants.json -> " + r.status);
+  const d = await r.json();
+  ENGINE_COLOR = d.engines || {};
+  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color; }
+  VORDER = d.variants.map(v => v.key);
+}
+
+// Archive schema 2 stores each build's classification once in `builds` and has
+// records reference it by id, instead of repeating eleven fields on every cell.
+// Flatten it back out on load so everything downstream sees one record shape.
+//
+// The map lives in the archive rather than being looked up in variants.json,
+// because an archive is history: a run from before a version bump has to keep
+// reporting the version that actually ran. variants.json is current, and only
+// supplies presentation.
+//
+// Schema 1 archives (and any run restored from an older deployment) already
+// carry the fields inline, so they pass through untouched.
+function denormalize(data){
+  const builds = data.builds;
+  if(!builds) return data.records || [];
+  return (data.records || []).map(r => {
+    const b = builds[r.build];
+    return b ? {...b, ...r} : r;
+  });
+}
+
 async function load(){
+  await loadVariants();
   let runs, isSample=false;
   try { runs=await loadFrom("history/"); }
   catch(e){ runs=await loadFrom("sample/"); isSample=true; }
   runs.sort((a,b)=>a.date.localeCompare(b.date));
   RECORDS=[];
-  for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
+  for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   VARMETA={};
   for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();

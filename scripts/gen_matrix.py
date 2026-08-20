@@ -137,6 +137,17 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # tmq: Tokio bindings over libzmq (via rust-zmq). The engine is libzmq,
+        # so it runs all five kinds; the series is here to isolate binding and
+        # async-wrapper overhead against `libzmq` and `rust_zmq`, which reach the
+        # same engine differently.
+        "id": "tmq",
+        "binary": "targets/tmq_target/target/release/tmq-target",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
         "id": "zeromq_rs",
         "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target",
         "count_knobs": {},

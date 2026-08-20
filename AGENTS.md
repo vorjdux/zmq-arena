@@ -16,14 +16,14 @@ regression than a slow socket loop.
 
 ```
 orchestrator/   control plane: cgroups, spawn isolation, telemetry, replication
-reporter/       static SVG charts (plotters) from a run archive
 targets/        one standalone project per implementation, NOT workspace members
 scripts/        matrix generation, result rendering, feature matrix rendering
 docs/           dashboard (5 pages, no build step) + generated charts
 features.json   curated capability matrix, the source for FEATURES.md
+variants.json   how each measured series is labelled and coloured
 ```
 
-`orchestrator/` and `reporter/` are the only Cargo workspace members. Targets are
+`orchestrator/` is the only Cargo workspace member. Targets are
 deliberately outside it: a shared workspace would resolve one dependency graph,
 one release profile and one toolchain across every implementation, which
 benchmarks the resolver's choices rather than what each library ships.
@@ -66,14 +66,30 @@ would distort every ratio computed against the baseline.
 
 ## Changing the reporting
 
-- `scripts/render_results.py` turns a scratch directory into the archive and
-  `RANKING.md`. It does data transformation only, never measurement.
-- `reporter/` draws the charts. It must refuse to plot a cell that replication
-  flagged `inverted`: a line through a known-wrong point reads as a real dip.
+- An archive record is a measurement plus a `build` reference. The build's
+  classification and versions live once per run in the archive's `builds` map,
+  keyed by an id that names every version in the stack
+  (`tmq@0.5.0+libzmq-4.3.4`). Never resolve those facts out of `variants.json`
+  instead: that file is current and an archive is history, so a run from before
+  a version bump must carry the versions that actually ran. `variants.json` is
+  presentation only.
+- `scripts/render_results.py` turns a scratch directory into the run archive.
+  It does data transformation only, never measurement, and never summarises:
+  the run archive is the one canonical form of a result and the dashboard is
+  the one thing that interprets it. Do not add a second renderer that writes a
+  ranking somewhere else; that is how two implementations of the same
+  statistics drift apart.
 - `docs/*.html` are self-contained and dependency-free. Keep them that way; the
   dashboard has to work from a plain static file server.
 - `features.json` is curated. Every row carries its source, and anything the
   arena has not exercised is `declared`, not `yes`.
+- `variants.json` is the ONLY place a series' label, colour and legend order
+  live. The dashboard pages fetch it and `render_results.py` reads its category
+  tags. Never add a label or colour literal to a page: those facts were
+  duplicated across every surface once, and new variants shipped rendering as
+  raw keys in fallback grey twice before it was noticed. `scripts/render_variants.py` fails if the matrix
+  contains a variant the file does not describe, so run it after touching the
+  roster.
 
 ## Conventions
 

@@ -100,6 +100,51 @@
       "source": "erickt/rust-zmq README; capability is the linked libzmq's"
     },
     {
+      "id": "tmq",
+      "label": "tmq",
+      "language": "Rust",
+      "impl": "ffi",
+      "version": "0.5.0 (libzmq 4.3.4)",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR",
+        "STREAM"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc",
+        "udp",
+        "pgm",
+        "epgm"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "no",
+      "runtime_note": "Requires Tokio: its sockets are futures Sinks and Streams. The libzmq underneath still runs its own IO threads, so the Tokio runtime drives only the wrapper.",
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows"
+      ],
+      "bindings": "Is itself an async Rust binding, layered on rust-zmq.",
+      "arena_tier": "headline + extended",
+      "notes": "Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options.",
+      "source": "cetra3/tmq README and crates.io; capability is the linked libzmq's"
+    },
+    {
       "id": "zeromq_rs",
       "label": "zmq.rs",
       "language": "Rust",
