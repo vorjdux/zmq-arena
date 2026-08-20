@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parent.parent
 # target id. Keep in sync with scripts/gen_sample_history.py and docs/index.html.
 VARIANT_KEY = {
     ("omq_tokio", "multi_thread"): "omq_tokio_mt",
-    ("omq_compio", "single_thread"): "omq_compio_st",
+    ("omq_tokio", "blocking"): "omq_blocking",
     ("monocoque", "tokio"): "monocoque_tokio",
 }
 # Category tags per variant key.
@@ -38,12 +38,19 @@ REGISTRY = {
     "zeromq_rs":     {"engine": "zmq.rs",    "io": "epoll",    "threading": "multi"},
     "omq_tokio":     {"engine": "omq",       "io": "epoll",    "threading": "single"},
     "omq_tokio_mt":  {"engine": "omq",       "io": "epoll",    "threading": "multi"},
+    "omq_blocking":  {"engine": "omq",       "io": "epoll",    "threading": "single"},
+    # Retired: omq's compio (io_uring) backend no longer exists upstream, so no
+    # new run can produce these. Kept so re-rendering an archived scratch dir
+    # from before the removal still resolves its categories.
     "omq_compio":    {"engine": "omq",       "io": "io_uring", "threading": "single"},
     "omq_compio_st": {"engine": "omq",       "io": "io_uring", "threading": "single"},
     "rzmq":          {"engine": "rzmq",      "io": "io_uring", "threading": "multi"},
     "celerity":      {"engine": "celerity",  "io": "epoll",    "threading": "multi"},
     "monocoque":       {"engine": "monocoque", "io": "io_uring", "threading": "single"},
     "monocoque_tokio": {"engine": "monocoque", "io": "epoll",    "threading": "single"},
+    "monocoque_smol":  {"engine": "monocoque", "io": "epoll",    "threading": "single"},
+    "zeromq_rs_async_std":        {"engine": "zmq.rs", "io": "epoll", "threading": "multi"},
+    "zeromq_rs_async_dispatcher": {"engine": "zmq.rs", "io": "epoll", "threading": "multi"},
 }
 
 
@@ -375,27 +382,75 @@ def _distinct_cells(records, cell_ok):
     return len(keys)
 
 
-def write_ranking(repo: Path, date: str, records: list):
-    is_lat = lambda r: bool(r.get("latency_ns"))
-    is_tput = lambda r: r["kind"] in THROUGHPUT_KINDS and bool(r.get("throughput"))
-    has_eff = lambda r: r.get("cpu_seconds", 0) > 0 and r.get("messages_basis", 0) > 0
+def _provenance_block(hardware: dict | None) -> str:
+    """One line naming the host, and a loud warning when the run self-identifies
+    as non-admissible. The hardware note comes from the Makefile, which stamps
+    dev-host runs as "not admissible tail data"; if that phrase is present the
+    numbers below are a wiring check, not a comparison, and the file says so."""
+    hw = hardware or {}
+    cpu = hw.get("cpu") or "unknown host"
+    note = (hw.get("note") or "").strip()
+    line = f"Host: `{cpu}`" + (f" - {note}" if note else "") + "\n"
+    if "not admissible" in note.lower() or "dev host" in note.lower():
+        line += (
+            "\n> **These numbers are not a verdict.** This run self-identifies as a "
+            "dev-host functional test, which means it validates that the harness and "
+            "the targets work, not how the libraries compare. A ranking is only "
+            "meaningful from a dedicated, pinned bench host.\n"
+        )
+    return line
 
-    # Higher-is-better score per dimension (reciprocal for lower-is-better metrics).
+
+def write_ranking(repo: Path, date: str, records: list, hardware: dict | None = None):
+    is_lat = lambda r: bool(r.get("latency_ns"))
+    has_eff = lambda r: r.get("cpu_seconds", 0) > 0 and r.get("messages_basis", 0) > 0
+    # One message-rate board per kind, NOT one blended board. throughput (1-to-1),
+    # pub/sub, fan-out and fan-in are different workloads with different winners
+    # (a single-thread engine can top 1-to-1 throughput yet be far slower fanning
+    # out to many subscribers), so blending them into one "Throughput" number both
+    # hides that and contradicts the per-benchmark detail tables below.
+    kind_ok = lambda k: (lambda r: r["kind"] == k and bool(r.get("throughput")))
+
+    # Higher-is-better score per dimension (reciprocal for lower-is-better metrics),
+    # so every board reads "Nx as good as libzmq". The efficiency scores are all
+    # "work per unit of resource", i.e. the inverse of "resource spent per message",
+    # which is the fair way to compare a small message that is cheap per byte with a
+    # large one.
     lat_score = lambda r: (1.0 / r["latency_ns"]["p99"]) if r["latency_ns"]["p99"] else None
     tput_score = lambda r: r["throughput"]["msgs_per_s"]
     cpu_eff = lambda r: r["messages_basis"] / r["cpu_seconds"]      # msgs per CPU-second
     mem_eff = lambda r: (1.0 / r["peak_memory_bytes"]) if r.get("peak_memory_bytes") else None
 
+    def ctx_total(r):
+        s = r.get("sched") or {}
+        return s.get("voluntary", 0) + s.get("involuntary", 0)
+    has_ctx = lambda r: r.get("messages_basis", 0) > 0 and ctx_total(r) > 0
+    ctx_eff = lambda r: r["messages_basis"] / ctx_total(r)          # msgs per context switch
+    has_sysc = lambda r: bool(r.get("syscalls_captured") and r.get("syscalls_per_kmsg"))
+    # syscalls_per_kmsg sums to kernel crossings per 1k messages; its inverse ranks
+    # engines by how few syscalls they spend per message (io_uring batching wins).
+    def sysc_eff(r):
+        total = sum((r.get("syscalls_per_kmsg") or {}).values())
+        return (1.0 / total) if total > 0 else None
+
     parts = [
         "# Ranking\n",
         f"From the run on {date}. This file is rewritten on every run; for the full "
-        f"history and interactive charts, open the dashboard under `docs/`.\n",
+        f"history and interactive charts, open the dashboard under `docs/`, and for "
+        f"the payload-sweep charts see `docs/charts/`.\n",
+        # Provenance first, because a ranking without the host it ran on is not a
+        # result. docs/history/ is gitignored precisely so dev-host runs do not
+        # churn the repo, but this file IS committed, so it has to carry the same
+        # warning the archive does or it silently launders a smoke test into a
+        # verdict.
+        _provenance_block(hardware),
         "> **Read this first.** These boards are only as good as the host they ran "
-        "on. When the producer and consumer share a single core (the dev-host and "
-        "default CI matrix), the numbers rank mechanics and core-contention, not a "
-        "library's absolute performance; a multi-threaded engine is penalised for "
-        "contending with itself. Treat a pinned, multi-core `run-root` grid as the "
-        "only source of a real verdict.\n",
+        "on. Each cell runs in a 4-core cpuset so the producer and consumer do not "
+        "time-share one core; the 32-subscriber pub/sub cell necessarily oversubscribes "
+        "it, which is inherent to the workload and applies equally to every library. "
+        "This is still a shared host, not a dedicated bench. Read the numbers as the "
+        "payload trend and the relative shape between libraries, not a final absolute "
+        "verdict.\n",
         "Each board is the **geometric mean of every variant's ratio to the "
         f"`{BASELINE}` baseline**, over the cells they share. This is magnitude-aware "
         "(a 3x win counts as 3x, unlike averaging rank positions) and dimensionless "
@@ -405,21 +460,46 @@ def write_ranking(repo: Path, date: str, records: list):
         "the order. Higher is better on every board. `cells` shows coverage against "
         "the baseline; a partial count means the variant did not run every benchmark "
         "and its score is not directly comparable to a full-coverage one.\n",
+        "Each message-rate workload (throughput, pub/sub, fan-out, fan-in) gets its "
+        "own board, because their winners differ and blending them would hide that. "
+        "Only latency, CPU efficiency and memory are summarised across workloads.\n",
     ]
 
     boards = [
         ("Latency (p99, lower raw is better)",
          "Reciprocal p99 latency, so higher on this board is faster.",
          is_lat, lat_score, True),
-        ("Throughput (msgs/s)",
-         "Message rate across throughput, pub/sub, fan-out and fan-in.",
-         is_tput, tput_score, True),
+        ("Throughput (1-to-1 PUSH/PULL, msgs/s)",
+         "One producer to one consumer. This board matches the throughput detail "
+         "tables below because it is the same workload.",
+         kind_ok("throughput"), tput_score, True),
+        ("Pub/Sub (msgs/s)",
+         "One publisher fanning the same stream to every subscriber.",
+         kind_ok("pubsub"), tput_score, True),
+        ("Fan-out (msgs/s)",
+         "One producer sharing work across many consumers.",
+         kind_ok("fanout"), tput_score, True),
+        ("Fan-in (msgs/s)",
+         "Many producers converging on one consumer.",
+         kind_ok("fanin"), tput_score, True),
         ("CPU efficiency (messages per CPU-second)",
-         "Work done per core-second across the whole cell (both processes). "
-         "Rewards doing the same traffic for less CPU, which raw throughput hides.",
+         "Work done per core-second across the whole cell (both processes), "
+         "averaged over every workload. Rewards doing the same traffic for less "
+         "CPU, which raw throughput hides.",
          has_eff, cpu_eff, False),
+        ("Context-switch efficiency (messages per context switch)",
+         "Messages moved per context switch (voluntary plus involuntary), "
+         "averaged over every workload. Higher means less scheduler churn per "
+         "message.",
+         has_ctx, ctx_eff, False),
+        ("Syscall efficiency (fewer syscalls per message)",
+         "Inverse of kernel crossings per message, averaged over every workload, "
+         "so a batched io_uring engine ranks above a per-message epoll one. Only "
+         "cells whose perf counters were captured count.",
+         has_sysc, sysc_eff, False),
         ("Memory (footprint)",
-         "Reciprocal peak RSS across the cell's processes, so higher is leaner.",
+         "Reciprocal peak RSS across the cell's processes, averaged over every "
+         "workload, so higher is leaner.",
          lambda r: r.get("peak_memory_bytes", 0) > 0, mem_eff, False),
     ]
     any_board = False
@@ -467,7 +547,7 @@ def main():
     hardware = {"cpu": args.hardware_cpu, "note": args.hardware_note}
 
     fname = write_archive(args.docs, run_id, date, hardware, records)
-    write_ranking(args.repo, date, records)
+    write_ranking(args.repo, date, records, hardware)
     print(f"rendered {len(records)} records -> docs/history/{fname}, updated index.json + RANKING.md")
 
 

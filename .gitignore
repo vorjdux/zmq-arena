@@ -1,13 +1,25 @@
 # Build artifacts. Each project has its own target/ dir.
 /target
 **/target
-# monocoque's tokio variant builds into a separate target dir.
+# Engines that pick their runtime at compile time are built once per runtime,
+# each into its own target dir, because every shipped runtime is a measured
+# variant.
 **/target-tokio
+**/target-smol
+**/target-async-std
+**/target-async-dispatcher
 
 # C++ target build artifacts
 targets/libzmq_cpp_target/build/
 *.o
 *.obj
+
+# Python bytecode. The scripts/ helpers are run directly, so CPython drops a
+# __pycache__ next to them on every invocation. These were tracked by mistake,
+# which meant merely rendering a run or regenerating the matrix dirtied the
+# working tree and produced meaningless binary diffs in review.
+__pycache__/
+*.py[cod]
 
 # Local run scratch (raw telemetry before archival)
 /scratch/

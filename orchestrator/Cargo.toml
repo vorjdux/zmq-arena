@@ -32,3 +32,6 @@ default = []
 ebpf = []
 # perf_event_open path for hardware/software counters.
 perf = []
+
+[lints]
+workspace = true

@@ -143,28 +143,28 @@ pub struct Replication {
     pub max_outlier_frac: f64,
 }
 
-fn default_min_replicates() -> usize {
+const fn default_min_replicates() -> usize {
     5
 }
-fn default_max_replicates() -> usize {
+const fn default_max_replicates() -> usize {
     11
 }
-fn default_warmup_replicates() -> usize {
+const fn default_warmup_replicates() -> usize {
     1
 }
-fn default_target_rel_iqr() -> f64 {
+const fn default_target_rel_iqr() -> f64 {
     0.05
 }
-fn default_mad_k() -> f64 {
+const fn default_mad_k() -> f64 {
     3.0
 }
-fn default_max_outlier_frac() -> f64 {
+const fn default_max_outlier_frac() -> f64 {
     0.25
 }
 
 impl Default for Replication {
     fn default() -> Self {
-        Replication {
+        Self {
             min_replicates: default_min_replicates(),
             max_replicates: default_max_replicates(),
             warmup_replicates: default_warmup_replicates(),
@@ -189,7 +189,7 @@ impl RunConfig {
     /// Parse a matrix file. No I/O side effects beyond the read.
     pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
         let raw = std::fs::read_to_string(path)?;
-        let cfg: RunConfig = serde_json::from_str(&raw)?;
+        let cfg: Self = serde_json::from_str(&raw)?;
         Ok(cfg)
     }
 }

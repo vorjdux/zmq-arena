@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Linear-interpolated quantile (`q` in [0, 1]) over a copy of `xs`. Uses the
-/// same "type 7" definition as NumPy's default, so the numbers line up with the
+/// same "type 7" definition as `NumPy`'s default, so the numbers line up with the
 /// Python render/analysis side. Returns 0.0 for an empty slice.
 pub fn quantile(xs: &[f64], q: f64) -> f64 {
     if xs.is_empty() {
@@ -30,7 +30,7 @@ pub fn quantile(xs: &[f64], q: f64) -> f64 {
     let lo = pos.floor() as usize;
     let hi = pos.ceil() as usize;
     let frac = pos - lo as f64;
-    v[lo] + (v[hi] - v[lo]) * frac
+    (v[hi] - v[lo]).mul_add(frac, v[lo])
 }
 
 /// Median (the 0.5 quantile).
@@ -145,26 +145,21 @@ impl Stability {
     /// given Hampel `k`, stability `target_rel_iqr`, and `max_outlier_frac` (the
     /// fraction of replicates the filter may reject before the cell is deemed too
     /// dirty to trust).
-    pub fn summarize(
-        samples: &[f64],
-        k: f64,
-        target_rel_iqr: f64,
-        max_outlier_frac: f64,
-    ) -> Stability {
+    pub fn summarize(samples: &[f64], k: f64, target_rel_iqr: f64, max_outlier_frac: f64) -> Self {
         let (kept, dropped) = hampel_partition(samples, k);
         let median = median(&kept);
         let iqr = iqr(&kept);
-        let rel_iqr = if median != 0.0 {
-            (iqr / median).abs()
-        } else {
+        let rel_iqr = if median == 0.0 {
             0.0
+        } else {
+            (iqr / median).abs()
         };
         let (min, max) = kept
             .iter()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| {
                 (lo.min(x), hi.max(x))
             });
-        Stability {
+        Self {
             n: kept.len(),
             replicates: samples.len(),
             outliers_dropped: dropped.len(),
@@ -192,6 +187,16 @@ impl Stability {
 }
 
 #[cfg(test)]
+// These tests assert against exactly-representable constants (2.5, 0.0, 5000.0)
+// that the code under test returns verbatim: `median` of a 4-element array picks
+// the midpoint of two exact halves, and the empty case returns a literal 0.0.
+// An epsilon comparison here would weaken the assertion without making it more
+// correct, so the strict compare is deliberate. Non-exact expectations in this
+// module already use an explicit epsilon.
+#[allow(
+    clippy::float_cmp,
+    reason = "exact expectations on exactly-representable values"
+)]
 mod tests {
     use super::*;
 

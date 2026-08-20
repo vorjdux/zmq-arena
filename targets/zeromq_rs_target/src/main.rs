@@ -1,7 +1,7 @@
-//! zmq-arena target wrapper: zmq.rs (the `zeromq` crate, pure-Rust ZeroMQ on Tokio).
+//! zmq-arena target wrapper: zmq.rs (the `zeromq` crate, pure-Rust `ZeroMQ` on Tokio).
 //!
 //! All five kinds over the trait-based `zeromq` 0.6 API. The crate's sockets take
-//! a full endpoint string ("tcp://host:port", "ipc:///path") and manage peer
+//! a full endpoint string ("tcp://host:port", "<ipc:///path>") and manage peer
 //! accept/connect internally, so one bind fair-queues (PULL) or load-balances
 //! (PUSH) across N connected peers; there is no manual accept loop as in the
 //! lower-level engines.
@@ -25,7 +25,7 @@
 
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 use zeromq::prelude::*;
 use zeromq::{PubSocket, PullSocket, PushSocket, RepSocket, ReqSocket, SubSocket, ZmqMessage};
@@ -71,13 +71,26 @@ struct Cli {
 /// One-line JSON classification the orchestrator captures into each record. The
 /// engine version is read from Cargo.lock at build time (see build.rs).
 fn describe() -> String {
+    // zmq.rs picks its runtime at compile time, so this binary reports whichever
+    // one it was built with. Both drive epoll on Linux (tokio through mio,
+    // async-std through polling) and both are multi-threaded executors, so the
+    // difference these two series measure is the reactor and scheduler, not the
+    // IO model or the protocol code.
+    #[cfg(feature = "tokio-rt")]
+    let runtime = "tokio";
+    #[cfg(feature = "async-std-rt")]
+    let runtime = "async_std";
+    #[cfg(feature = "async-dispatcher-rt")]
+    let runtime = "async_dispatcher";
     format!(
         concat!(
             "{{\"engine\":\"zmq.rs\",\"lib_version\":\"{}\",\"binding_version\":null,",
             "\"lib_language\":\"Rust\",\"impl\":\"native\",\"ffi_to\":null,",
-            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"multi\",\"io\":\"epoll\"}}"
+            "\"language\":\"Rust\",\"concurrency\":\"async\",\"threading\":\"multi\",",
+            "\"io\":\"epoll\",\"runtime\":\"{}\"}}"
         ),
-        env!("ENGINE_VERSION")
+        env!("ENGINE_VERSION"),
+        runtime
     )
 }
 
@@ -89,13 +102,43 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     eprintln!(
         "zeromq-rs-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={} variant={}",
-        cli.role, cli.kind, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, cli.variant
+        cli.role,
+        cli.kind,
+        cli.transport,
+        cli.endpoint,
+        cli.payload_bytes,
+        cli.messages,
+        cli.warmup,
+        cli.variant
     );
 
+    block_on_runtime(run(cli))
+}
+
+/// Drive the wrapper's future on whichever runtime this binary was built with.
+#[cfg(feature = "tokio-rt")]
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(run(cli))
+    rt.block_on(fut)
+}
+
+#[cfg(feature = "async-std-rt")]
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+    async_std::task::block_on(fut)
+}
+
+/// async-dispatcher does not own an executor: it dispatches tasks to one the
+/// host application installs, which is the point of it (Zed hands scheduling to
+/// its platform event loop). A benchmark peer has no host loop, so it installs
+/// the crate's own `thread_dispatcher`, a single worker thread draining a
+/// channel of runnables. Spawned work therefore runs on that one thread while
+/// this thread blocks on the result.
+#[cfg(feature = "async-dispatcher-rt")]
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+    async_dispatcher::set_dispatcher(async_dispatcher::thread_dispatcher());
+    async_dispatcher::block_on(fut)
 }
 
 async fn run(cli: Cli) -> Result<()> {
@@ -180,10 +223,7 @@ async fn run_latency(
             let mut rep = RepSocket::new();
             rep.bind(ep).await?;
             loop {
-                let msg = match rep.recv().await {
-                    Ok(m) => m,
-                    Err(_) => break, // client gone
-                };
+                let Ok(msg) = rep.recv().await else { break }; // client gone
                 if rep.send(msg).await.is_err() {
                     break;
                 }

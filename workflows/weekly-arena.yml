@@ -22,7 +22,9 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write  # required to commit RANKING.md and the /history archive
+  contents: write  # commit RANKING.md, FEATURES.md and the redrawn charts
+  pages: write     # deploy the refreshed dashboard
+  id-token: write  # required by actions/deploy-pages
 
 concurrency:
   group: weekly-arena
@@ -45,17 +47,22 @@ jobs:
           echo "governor=$gov"
           test "$gov" = "performance" || { echo "governor must be 'performance'"; exit 1; }
 
-      - name: Build orchestrator + every target (each in its own invocation)
+      - name: Build control plane + every target (each in its own invocation)
         # build-targets.sh builds the control plane and each standalone target
         # separately so per-target lockfiles and toolchain pins are honored. No
         # --workspace build of the targets, by design.
         run: ./scripts/build-targets.sh
 
+      - name: Regenerate the matrix
+        # The committed matrix is generated, so regenerate rather than trusting
+        # the checked-in copy to be current with scripts/gen_matrix.py.
+        run: python3 scripts/gen_matrix.py
+
       - name: Run the matrix
         run: |
           RUN_ID=$(date -u +%F)
           ./target/release/zmq-arena run \
-            --matrix matrix.example.json \
+            --matrix matrix.linode.json \
             --run-id "$RUN_ID" \
             --out "scratch/$RUN_ID"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
@@ -70,10 +77,69 @@ jobs:
             --hardware-cpu "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ *//')" \
             --hardware-note "turbo off, C-states locked, performance governor"
 
-      - name: Commit results
+      - name: Draw the static charts
+        run: |
+          ./target/release/zmq-arena-report --latest docs/history --out docs/charts
+
+      - name: Refresh the feature matrix
+        # Curated data, but regenerating keeps FEATURES.md and docs/features.json
+        # in step with features.json if someone edited only the source.
+        run: python3 scripts/render_features.py
+
+      - name: Commit the repo-facing results
+        # Only documents that belong in the repository: the ledger, the feature
+        # matrix, and the charts the README links to. These are overwritten in
+        # place every run, so the file count stays fixed.
+        #
+        # The run archive is deliberately NOT committed. docs/history/* is
+        # gitignored, and one new ~250 KB file per week would grow main without
+        # bound as implementations release and get re-benchmarked. The archive
+        # reaches the world through the Pages deployment below instead, so main
+        # stays code-only.
         run: |
           git config user.name "arena-bot"
           git config user.email "arena-bot@users.noreply.github.com"
-          git add RANKING.md "docs/history/${RUN_ID}-run.json" docs/history/index.json || true
+          git add RANKING.md FEATURES.md docs/features.json docs/charts
           git commit -m "weekly grid: ${RUN_ID}" || echo "nothing to commit"
           git push || echo "push skipped"
+
+      - name: Keep the archive recoverable
+        # The deployed site is the only long-term store for run archives, so hold
+        # a copy outside it too. Without this a botched deploy would take the
+        # run's raw data with it.
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-archive-${{ env.RUN_ID }}
+          path: |
+            docs/history/${{ env.RUN_ID }}-run.json
+            scratch/${{ env.RUN_ID }}
+          retention-days: 90
+
+      - name: Restore the previously published run history
+        # This run produced one archive. Everything older lives on the published
+        # site, so pull it back before uploading or the deploy would replace the
+        # whole history with a single run and flatten the Evolution chart.
+        run: |
+          BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          python3 scripts/sync_history.py --base-url "$BASE" --keep 26
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  # Deploying is split out so the measuring job does not hold the Pages
+  # concurrency lock for its whole multi-hour run, which would block every docs
+  # push in the meantime. This job is seconds long and shares the lock with
+  # pages.yml, so the two can never deploy on top of each other.
+  publish:
+    needs: grid
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

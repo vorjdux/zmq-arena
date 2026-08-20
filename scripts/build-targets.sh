@@ -24,20 +24,29 @@ build_rust_target() {
   ( cd "$dir" && cargo build --release )
 }
 
-# Speculative / original-spec slots.
+# An engine that selects its runtime at compile time gets one build per runtime,
+# each into its own target dir, because every shipped runtime is a measured
+# variant in its own right.
+build_runtime_variant() {
+  local dir="$1" feature="$2" outdir="$3"
+  echo "== rust target: $dir ($feature) =="
+  ( cd "$dir" && cargo build --release --no-default-features \
+      --features "$feature" --target-dir "$outdir" )
+}
+
+# monocoque: compio (io_uring, default), tokio and smol.
 build_rust_target targets/monocoque_target
-# monocoque's tokio (epoll) runtime is a compile-time feature, so build a second
-# binary into a separate target dir.
-echo "== rust target: targets/monocoque_target (tokio) =="
-( cd targets/monocoque_target && cargo build --release --no-default-features \
-    --features tokio --target-dir target-tokio )
-# zmq.rs (the `zeromq` crate).
+build_runtime_variant targets/monocoque_target tokio target-tokio
+build_runtime_variant targets/monocoque_target smol target-smol
+# zmq.rs (the `zeromq` crate): tokio, async-std and async-dispatcher.
 build_rust_target targets/zeromq_rs_target
+build_runtime_variant targets/zeromq_rs_target async-std-rt target-async-std
+build_runtime_variant targets/zeromq_rs_target async-dispatcher-rt target-async-dispatcher
 # rust-zmq (the `zmq` crate): Rust FFI binding over the system libzmq.
 build_rust_target targets/rust_zmq_target
-# omq.rs comparison roster.
+# omq.rs comparison roster. One binary covers all three omq variants
+# (current-thread, multi-thread, blocking): it selects them at run time.
 build_rust_target targets/omq_tokio_target
-build_rust_target targets/omq_compio_target   # Linux 6.0+ (io_uring)
 build_rust_target targets/rzmq_target          # Linux (io_uring)
 build_rust_target targets/celerity_target
 

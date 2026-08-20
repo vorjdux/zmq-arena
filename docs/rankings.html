@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zmq-arena · rankings</title>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b21; --panel2:#1d2229; --line:#2a313a;
+    --fg:#e6e9ee; --muted:#9aa4b2; --accent:#4f9cf9; --warn:#f59e0b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#e2e6eb;
+            --fg:#161a1e; --muted:#5b6573; --accent:#2563eb; --warn:#b45309; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 24px 6px; display:flex; align-items:center;
+    justify-content:space-between; gap:8px 24px; flex-wrap:wrap; }
+  h1.logo { margin:0; line-height:0; flex:0 0 auto; }
+  h1.logo img { height:104px; width:auto; max-width:100%; display:block; }
+  .sub { color:var(--muted); flex:1 1 300px; text-align:right; min-width:0; }
+  .sub code { color:var(--fg); }
+  .topnav { display:flex; gap:2px; padding:0 24px; border-bottom:1px solid var(--line); }
+  .topnav a { padding:9px 15px; color:var(--muted); text-decoration:none;
+    border-bottom:2px solid transparent; font-size:14px; }
+  .topnav a:hover { color:var(--fg); }
+  .topnav a.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+  @media (max-width:640px){ .topnav{ padding:0 8px; } }
+  .sub a { color:var(--accent); }
+  .controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap;
+    align-items:flex-end; gap:13px 16px; padding:13px 24px; margin-top:12px;
+    background:color-mix(in srgb,var(--bg) 90%,transparent);
+    backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+  .ctl { display:flex; flex-direction:column; gap:4px; }
+  .ctl label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:7px; padding:7px 9px; font-size:13px; min-width:150px; }
+  .banner { margin:12px 24px 0; padding:8px 12px; border-radius:8px;
+    background:color-mix(in srgb,var(--warn) 18%,transparent);
+    border:1px solid var(--warn); font-size:13px; }
+  .banner.hidden { display:none; }
+  .intro { padding:12px 24px 0; color:var(--muted); font-size:13px; max-width:1000px; }
+  .intro b { color:var(--fg); }
+  main { padding:14px 24px 28px; display:grid; gap:16px;
+    grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); }
+  .board { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .board h2 { margin:0 0 2px; font-size:14px; }
+  .board .note { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:right; padding:5px 8px; border-bottom:1px solid var(--line); }
+  th:nth-child(2),td:nth-child(2) { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  td small { color:var(--muted); }
+  .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .lead td { font-weight:700; color:var(--accent); }
+  .partial { color:var(--warn); cursor:help; }
+  .hint { color:var(--muted); font-size:13px; }
+  .err { padding:24px; color:var(--warn); }
+  footer { color:var(--muted); font-size:12px; text-align:center;
+    padding:18px 24px 22px; background:var(--panel2); border-top:1px solid var(--line); }
+  footer div { max-width:900px; margin:0 auto; }
+  footer a { color:var(--accent); }
+  @media (max-width:640px){
+    header,.controls,footer,.intro{ padding-left:14px; padding-right:14px; }
+    main{ padding:10px 14px 24px; grid-template-columns:1fr; }
+    .banner{ margin-left:14px; margin-right:14px; }
+    header{ justify-content:center; }
+    h1.logo{ flex:1 1 100%; }
+    h1.logo img{ width:100%; height:auto; }
+    .sub{ flex-basis:100%; text-align:center; }
+    select{ min-width:0; width:100%; }
+    .ctl{ flex:1 1 150px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
+  <div class="sub" id="dataSource">loading...</div>
+</header>
+<nav class="topnav"><a href="index.html">Overview</a><a href="rankings.html" class="active">Rankings</a><a href="explore.html">Explore</a><a href="tables.html">Tables</a><a href="features.html">Features</a></nav>
+<div class="banner hidden" id="sampleBanner"></div>
+
+<div class="intro" id="intro"></div>
+<div class="controls" id="controls" hidden>
+  <div class="ctl"><label for="run">Run</label><select id="run"></select></div>
+</div>
+
+<main id="main" hidden></main>
+<div class="err" id="err" hidden></div>
+<footer id="footer"></footer>
+
+<script>
+"use strict";
+
+const VARIANT_LABEL = {
+  "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  // Retired upstream, kept so archived runs still render a name, not a raw key.
+  "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
+  "rzmq":"rzmq", "celerity":"celerity", "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",
+};
+const ENGINE_COLOR = {
+  "libzmq":"#eab308", "zmq.rs":"#2563eb", "omq":"#7c3aed",
+  "rzmq":"#16a34a", "celerity":"#db2777", "monocoque":"#0d9488",
+};
+const BASELINE = "libzmq";
+const el = id => document.getElementById(id);
+const val = id => el(id).value;
+let RECORDS = [], VARMETA = {};
+
+function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+const relSpread = r => (r.stability && r.stability.rel_iqr) || 0;
+const kindOk = k => (r => r.kind === k && !!r.throughput);
+const ctxTotal = r => ((r.sched && (r.sched.voluntary||0) + (r.sched.involuntary||0)) || 0);
+const syscTotal = r => { const p=r.syscalls_per_kmsg; return p ? Object.values(p).reduce((a,b)=>a+b,0) : 0; };
+
+// One board per metric. Best library depends on what you need, so there is no
+// single global winner: each metric is ranked on its own. Performance metrics are
+// message rate or latency; efficiency metrics are work done per unit of resource
+// (the inverse of resource spent per message), so higher is always better.
+const METRICS = [
+  {group:"Performance", label:"Latency (p99)", note:"Round-trip tail latency; higher score is lower latency.",
+   ok:r=>!!r.latency_ns, score:r=>r.latency_ns.p99>0?1/r.latency_ns.p99:null, gated:true},
+  {group:"Performance", label:"Throughput (1-to-1)", note:"One producer to one consumer, msgs/s.",
+   ok:kindOk("throughput"), score:r=>r.throughput.msgs_per_s, gated:true},
+  {group:"Performance", label:"Pub/Sub", note:"One publisher to every subscriber, msgs/s.",
+   ok:kindOk("pubsub"), score:r=>r.throughput.msgs_per_s, gated:true},
+  {group:"Performance", label:"Fan-out", note:"One producer sharing work across many consumers, msgs/s.",
+   ok:kindOk("fanout"), score:r=>r.throughput.msgs_per_s, gated:true},
+  {group:"Performance", label:"Fan-in", note:"Many producers converging on one consumer, msgs/s.",
+   ok:kindOk("fanin"), score:r=>r.throughput.msgs_per_s, gated:true},
+  {group:"Efficiency", label:"CPU per message", note:"Messages moved per CPU-second (both processes). Higher spends less CPU per message.",
+   ok:r=>r.cpu_seconds>0 && r.messages_basis>0, score:r=>r.messages_basis/r.cpu_seconds, gated:false},
+  {group:"Efficiency", label:"Context switches per message", note:"Messages per context switch. Higher means less scheduler churn per message.",
+   ok:r=>r.messages_basis>0 && ctxTotal(r)>0, score:r=>r.messages_basis/ctxTotal(r), gated:false},
+  {group:"Efficiency", label:"Syscalls per message", note:"Inverse of kernel crossings per message. Batched io_uring beats per-message epoll. Needs captured counters.",
+   ok:r=>r.syscalls_captured && r.syscalls_per_kmsg && syscTotal(r)>0, score:r=>1/syscTotal(r), gated:false},
+  {group:"Efficiency", label:"Memory footprint", note:"Reciprocal peak RSS across the cell's processes. Higher is leaner.",
+   ok:r=>r.peak_memory_bytes>0, score:r=>1/r.peak_memory_bytes, gated:false},
+];
+
+// Geometric mean of each library's per-cell ratio to libzmq over the cells they
+// share. Magnitude-aware and dimensionless. Inverted cells are dropped as
+// known-wrong; a gap smaller than the two cells' combined replicate spread is a
+// tie so noise cannot decide the order.
+function geomeanVsBase(recs, ok, score, gated){
+  const groups = {};
+  for(const r of recs){
+    if(!ok(r) || (r.stability && r.stability.inverted)) continue;
+    const s = score(r); if(s == null || !(s > 0)) continue;
+    const k = `${r.kind}|${r.transport}|${r.payload_bytes}|${r.peers}`;
+    (groups[k] = groups[k] || {})[r.variant] = [s, relSpread(r)];
+  }
+  const acc = {};
+  for(const k in groups){ const d = groups[k], b = d[BASELINE]; if(!b) continue;
+    for(const v in d){ let ra = d[v][0] / b[0];
+      const a = acc[v] = acc[v] || {ls:0, n:0, t:0};
+      if(gated && Math.abs(ra - 1) <= (d[v][1] + b[1])){ ra = 1; a.t++; }
+      a.ls += Math.log(ra); a.n++; }
+  }
+  return Object.entries(acc).map(([v,a]) => ({v, x:Math.exp(a.ls/a.n), n:a.n, t:a.t}))
+    .sort((p,q) => q.x - p.x);
+}
+function baselineCells(recs, ok){
+  const keys = new Set();
+  for(const r of recs) if(ok(r) && r.variant===BASELINE && !(r.stability && r.stability.inverted))
+    keys.add(`${r.kind}|${r.transport}|${r.payload_bytes}|${r.peers}`);
+  return keys.size;
+}
+
+async function fetchJSON(u){ const bust=u+(u.includes("?")?"&":"?")+"_="+Date.now();
+  const r=await fetch(bust,{cache:"no-store"}); if(!r.ok) throw new Error(u+" -> "+r.status); return r.json(); }
+async function loadFrom(base){
+  const m=await fetchJSON(base+"index.json");
+  if(!m.runs||!m.runs.length) throw new Error("empty manifest");
+  return Promise.all(m.runs.map(async run=>({date:run.date, data:await fetchJSON(base+run.file)})));
+}
+async function load(){
+  let runs, isSample=false;
+  try { runs=await loadFrom("history/"); }
+  catch(e){ runs=await loadFrom("sample/"); isSample=true; }
+  runs.sort((a,b)=>a.date.localeCompare(b.date));
+  RECORDS=[];
+  for(const {date,data} of runs) for(const rec of (data.records||[])) RECORDS.push({...rec,date});
+  VARMETA={};
+  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine, io:r.io, threading:r.threading};
+  const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
+  const latest=runs[runs.length-1].data, hw=latest.hardware||{};
+  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
+    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
+  if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
+    b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements."; }
+  el("intro").innerHTML=`Each board ranks libraries by <b>one</b> metric, as the geometric mean of `+
+    `their ratio to the <b>libzmq</b> baseline over the cells they share (higher is better, `+
+    `1.00x = same as libzmq). There is no blended winner: the best library depends on what you need. `+
+    `Inverted cells are dropped, gaps inside the replicate noise are ties, and a * marks partial `+
+    `coverage. Each cell runs in a 4-core cpuset so processes do not time-share one core, but it `+
+    `is still a shared host: read the trend and relative shape, not a final absolute verdict.`;
+  el("run").innerHTML="";
+  for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
+  el("run").value=dates[dates.length-1];
+  el("run").addEventListener("change", render);
+  el("controls").hidden=false; el("main").hidden=false;
+  render();
+}
+
+function board(m, recs){
+  const rows=geomeanVsBase(recs, m.ok, m.score, m.gated);
+  if(!rows.length) return "";
+  const total=baselineCells(recs, m.ok);
+  // `ties` is how many of a library's cells landed inside the combined replicate
+  // spread of itself and the baseline and were therefore scored as 1.00x. A row
+  // that is mostly ties is not a win, it is a run that could not tell the two
+  // apart, and the score alone hides that. Only the gated (noise-aware) metrics
+  // compute it; the efficiency boards compare deterministic counters.
+  let h=`<section class="board"><h2>${m.label} <small style="color:var(--muted);font-weight:400">· ${m.group}</small></h2>`+
+    `<div class="note">${m.note}</div>`+
+    `<table><thead><tr><th>#</th><th>library</th><th>vs libzmq</th><th>cells</th><th>ties</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const partial = r.n<total ? ` <span class="partial" title="${r.n}/${total} cells shared with libzmq">*</span>` : "";
+    const ties = m.gated ? `${r.t}` : `<span title="not applicable: this metric is not noise-gated">-</span>`;
+    h+=`<tr class="${i===0?"lead":""}"><td>${i+1}</td>`+
+      `<td>${swatch(r.v)}${VARIANT_LABEL[r.v]||r.v}</td>`+
+      `<td>${r.x.toFixed(2)}x</td><td>${r.n}/${total}${partial}</td><td>${ties}</td></tr>`;
+  });
+  h+=`</tbody></table></section>`;
+  return h;
+}
+function render(){
+  const run=val("run");
+  const recs=RECORDS.filter(r=>r.date===run);
+  const drawn=METRICS.map(m=>({m, html:board(m, recs)}));
+  const html=drawn.map(d=>d.html).join("");
+  // A board renders empty when the run predates the field it needs: the
+  // efficiency metrics want messages_basis and the perf counters, which only
+  // runs from the measurement-robustness work onward carry, and the synthetic
+  // sample data never carries. Saying so beats a silently half-length page that
+  // looks like the efficiency numbers were a tie.
+  const missing=drawn.filter(d=>!d.html).map(d=>d.m.label);
+  let note="";
+  if(missing.length) note=`<div class="hint">Not shown for this run: <b>${missing.join(", ")}</b>. `+
+    `These need per-cell fields (<code>messages_basis</code>, <code>syscalls_per_kmsg</code>) that `+
+    `older archives and the synthetic sample data do not carry. Pick a newer run to see them.</div>`;
+  el("main").innerHTML=(html+note) || `<div class="hint">No comparable cells in this run.</div>`;
+}
+
+el("footer").innerHTML=
+  `<div>zmq-arena · per-metric rankings · data under <code>docs/history/</code> (real) and `+
+  `<code>docs/sample/</code> (preview) · <a href="index.html">overview</a></div>`+
+  `<div style="margin-top:6px">(c) ${new Date().getFullYear()} Matheus Santos · `+
+  `<a href="https://github.com/vorjdux/zmq-arena">github.com/vorjdux/zmq-arena</a></div>`;
+
+load().catch(e=>{ el("dataSource").textContent="failed to load data";
+  const err=el("err"); err.hidden=false;
+  err.textContent="Could not load results: "+e.message+". Serve this folder over HTTP (browsers block file:// fetches)."; });
+</script>
+</body>
+</html>

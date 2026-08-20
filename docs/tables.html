@@ -81,7 +81,7 @@
   <h1 class="logo"><img src="zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground"></h1>
   <div class="sub" id="dataSource">loading…</div>
 </header>
-<nav class="topnav"><a href="index.html">Overview</a><a href="explore.html">Explore</a><a href="tables.html" class="active">Tables</a></nav>
+<nav class="topnav"><a href="index.html">Overview</a><a href="rankings.html">Rankings</a><a href="explore.html">Explore</a><a href="tables.html" class="active">Tables</a><a href="features.html">Features</a></nav>
 <div class="banner hidden" id="sampleBanner"></div>
 
 <div class="controls" id="controls" hidden>
@@ -97,6 +97,7 @@
 
 const VARIANT_LABEL = {
   "libzmq":"libzmq (C++)", "rust_zmq":"rust-zmq", "zmq.rs":"zmq.rs", "omq_tokio":"omq-tokio",
+  // Retired upstream, kept so archived runs still render a name, not a raw key.
   "omq_tokio_mt":"omq-tokio (MT)", "omq_compio":"omq-compio", "omq_compio_st":"omq-compio (ST)",
   "rzmq":"rzmq", "celerity":"celerity",
   "monocoque":"monocoque", "monocoque_tokio":"monocoque (tokio)",

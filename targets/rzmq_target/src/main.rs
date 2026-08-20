@@ -1,4 +1,4 @@
-//! zmq-arena target wrapper: rzmq (io_uring + TCP_CORK).
+//! zmq-arena target wrapper: rzmq (`io_uring` + `TCP_CORK`).
 //!
 //! Unified target CLI (see ../../README.md). The rzmq dependency is wired in
 //! with io-uring + curve features. The socket loop is left to the maintainer;
@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -54,7 +54,7 @@ struct Cli {
     /// Subscriber/pusher count (pubsub/fanout/fanin); omitted otherwise.
     #[arg(long)]
     peers: Option<u32>,
-    /// Runtime variant selector (engine-specific, e.g. "multi_thread").
+    /// Runtime variant selector (engine-specific, e.g. "`multi_thread`").
     #[arg(long, default_value = "default")]
     variant: String,
     #[arg(long = "knob", value_parser = parse_knob)]
@@ -70,7 +70,7 @@ fn parse_knob(s: &str) -> Result<(String, String), String> {
 
 /// One-line JSON classification the orchestrator captures into each record. The
 /// engine version is read from Cargo.lock at build time (see build.rs). rzmq is
-/// pure-Rust on io_uring with TCP_CORK; describe stays binary-level until the
+/// pure-Rust on `io_uring` with `TCP_CORK`; describe stays binary-level until the
 /// socket loop lands.
 fn describe() -> String {
     format!(
@@ -94,7 +94,14 @@ async fn main() -> Result<()> {
 
     eprintln!(
         "rzmq-target: role={:?} pattern={:?} transport={:?} endpoint={} payload={}B msgs={} warmup={} knobs={:?}",
-        cli.role, cli.pattern, cli.transport, cli.endpoint, cli.payload_bytes, cli.messages, cli.warmup, knobs
+        cli.role,
+        cli.pattern,
+        cli.transport,
+        cli.endpoint,
+        cli.payload_bytes,
+        cli.messages,
+        cli.warmup,
+        knobs
     );
 
     match cli.role {
@@ -103,12 +110,23 @@ async fn main() -> Result<()> {
     }
 }
 
+// These two are `async` with nothing to await because they are unimplemented
+// stubs. The signature is the contract the real socket loop will fill in, and
+// dropping `async` now would only force whoever writes it to put it back.
+#[allow(
+    clippy::unused_async,
+    reason = "stub signatures held for the real socket loops"
+)]
 /// TODO(maintainer): rzmq PUSH/PUB producer. Apply knobs the engine exposes
-/// (HWM, io_uring SQ depth), then send warmup + messages payloads.
+/// (HWM, `io_uring` SQ depth), then send warmup + messages payloads.
 async fn run_publisher(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
     bail!("rzmq publisher loop not implemented");
 }
 
+#[allow(
+    clippy::unused_async,
+    reason = "stub signatures held for the real socket loops"
+)]
 /// TODO(maintainer): rzmq PULL/SUB consumer. Receive exactly messages payloads
 /// after warmup, no dropping.
 async fn run_subscriber(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {

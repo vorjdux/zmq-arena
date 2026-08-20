@@ -12,13 +12,37 @@
 # process CLI (see targets/README.md), not a shared Rust crate.
 [workspace]
 resolver = "2"
-members = ["orchestrator"]
+members = ["orchestrator", "reporter"]
 
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.85"
 repository = "https://github.com/vorjdux/zmq-arena"
+
+# Lint policy for the control plane, enforced by a plain `cargo clippy`.
+#
+# pedantic and nursery are on. The allows below are deliberate and each one is
+# justified: an allow without a reason is how a strict lint config quietly
+# becomes a permissive one.
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# This is measurement and plotting code. It converts between kernel counters
+# (u64/i64), byte sizes (usize) and the f64 the statistics and the chart
+# coordinate space are expressed in, constantly and by nature. Every such
+# conversion is a lint hit, and rewriting them as fallible conversions would add
+# error paths that cannot fire for the ranges involved (message counts, buffer
+# sizes, pixel coordinates) while burying the arithmetic that matters. The
+# saturating behaviour of `as` is the intended behaviour here.
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+# Benchmark vocabulary is genuinely repetitive: `cpu`/`cpus`, `msg`/`msgs`,
+# `p50`/`p99`. Renaming them to satisfy the lint would make the code read worse
+# than the domain it models.
+similar_names = "allow"
 
 [workspace.dependencies]
 anyhow = "1"
