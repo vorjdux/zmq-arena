@@ -40,7 +40,7 @@ jobs:
     runs-on: [self-hosted, bare-metal, perf-locked]
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Assert performance-locked host
         run: |
@@ -110,7 +110,7 @@ jobs:
         # The deployed site is the only long-term store for run archives, so hold
         # a copy outside it too. Without this a botched deploy would take the
         # run's raw data with it.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: run-archive-${{ env.RUN_ID }}
           path: |
@@ -126,7 +126,7 @@ jobs:
           BASE="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
           python3 scripts/sync_history.py --base-url "$BASE" --keep 26
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
@@ -144,5 +144,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      # Provision the Pages site if it does not exist yet, for the same reason
+      # pages.yml does: deploy-pages fails outright against a repository with no
+      # Pages site, and a grid run that measured for hours should not be lost to
+      # a missing repository setting. Idempotent once the site exists.
+      - uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - uses: actions/deploy-pages@v5
         id: deployment

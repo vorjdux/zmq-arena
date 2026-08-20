@@ -300,10 +300,12 @@ browsers block `fetch` over `file://`.
 
 ## Publishing to GitHub Pages
 
-The dashboard is deployed by `.github/workflows/pages.yml`. Set **Settings >
-Pages > Source** to **GitHub Actions** and it runs on the next push that touches
-`docs/`, or immediately from the Actions tab via **Run workflow**. The site lands
-at
+The dashboard is deployed by `.github/workflows/pages.yml`. It runs on the next
+push to `main` that touches `docs/`, or immediately from the Actions tab via
+**Run workflow**. The workflow enables Pages itself on first run
+(`configure-pages` with `enablement: true`), so **Settings > Pages** needs no
+manual setup; setting Source to **GitHub Actions** by hand works too. The site
+lands at
 `https://<owner>.github.io/zmq-arena/`; every path in `docs/` is relative, so the
 project subpath needs no configuration.
 
