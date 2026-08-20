@@ -1,0 +1,11 @@
+{
+  "schema": 2,
+  "sample": false,
+  "note": "Real weekly-grid runs.",
+  "runs": [
+    {
+      "date": "2026-08-20",
+      "file": "2026-08-20-run.json"
+    }
+  ]
+}
