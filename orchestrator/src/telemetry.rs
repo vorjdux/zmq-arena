@@ -27,6 +27,15 @@ use serde::{Deserialize, Serialize};
 /// Warn once if no syscall counters could be opened, so an all-zero syscall
 /// column is explained rather than silently misleading.
 static PERF_WARNED: AtomicBool = AtomicBool::new(false);
+/// Set once a perf probe actually registers. A host that cannot open the
+/// tracepoints records zero syscalls, which is "not measured" rather than "no
+/// syscalls"; the run records which of the two it was.
+static PERF_CAPTURED: AtomicBool = AtomicBool::new(false);
+
+/// Whether any syscall counter registered during this run.
+pub fn syscalls_were_captured() -> bool {
+    PERF_CAPTURED.load(Ordering::Relaxed)
+}
 
 /// Exact syscall occurrence counts over one measurement block, scoped to the
 /// measured PID.
@@ -166,9 +175,11 @@ impl SyscallProbe {
             }
         }
         if !counters.is_empty() {
+            PERF_CAPTURED.store(true, Ordering::Relaxed);
             return Self { counters };
         }
-        // cgroup scoping unavailable; fall back to per-thread enumeration.
+        // cgroup scoping unavailable; fall back to per-thread enumeration, which
+        // sets the flag itself if it manages to register anything.
         Self::open(pid)
     }
 
@@ -181,12 +192,16 @@ impl SyscallProbe {
                 }
             }
         }
-        if counters.is_empty() && !PERF_WARNED.swap(true, Ordering::Relaxed) {
-            eprintln!(
-                "  syscall counting unavailable (need root or CAP_PERFMON, tracefs \
-                 mounted, and perf_event_paranoid <= 1); recording 0. Run with sudo \
-                 (make run-root) for these counts."
-            );
+        if counters.is_empty() {
+            if !PERF_WARNED.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "  syscall counting unavailable (need root or CAP_PERFMON, tracefs \
+                     mounted, and perf_event_paranoid <= 1); recording 0. Run with sudo \
+                     (make run-root) for these counts."
+                );
+            }
+        } else {
+            PERF_CAPTURED.store(true, Ordering::Relaxed);
         }
         Self { counters }
     }

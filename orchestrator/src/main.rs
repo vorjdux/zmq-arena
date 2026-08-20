@@ -17,6 +17,7 @@
 
 mod cgroups;
 mod config;
+mod host;
 mod stats;
 mod telemetry;
 
@@ -264,6 +265,35 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.out)
         .with_context(|| format!("creating output dir {}", args.out.display()))?;
 
+    // Provenance is sampled here, on the machine that is about to measure, and
+    // written next to the cell records. The render step reads it from there
+    // rather than being told what the host was: the two can be different
+    // machines, and an operator-supplied "turbo off" is not evidence.
+    let host = host::Host::probe();
+    // A machine that declares itself the benchmark host must actually be one.
+    // Checked before any cell runs, so a misconfigured bench host fails in
+    // seconds rather than after hours of measuring numbers nobody should use.
+    host.enforce()?;
+    let host_path = args.out.join("_host.json");
+    std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
+        .with_context(|| format!("writing {}", host_path.display()))?;
+    println!(
+        "zmq-arena: host {} ({} cpus, kernel {}){} -> {}",
+        host.cpu,
+        host.cpu_count,
+        host.kernel,
+        if host.enforced {
+            format!(" [{} enforced]", host::BENCH_HOST_ENV)
+        } else {
+            String::new()
+        },
+        if host.admissible {
+            "admissible".to_string()
+        } else {
+            format!("NOT admissible: {}", host.inadmissible_reasons.join("; "))
+        }
+    );
+
     let mut cells: Vec<CellAcc> = cfg
         .entries
         .iter()
@@ -366,6 +396,43 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
         written += 1;
     }
     eprintln!("zmq-arena: wrote {written}/{} cell records", cells.len());
+
+    // What the run actually did, as opposed to what the matrix asked for. Written
+    // at the end because the applied flags are only known once cells have run.
+    let isolation_applied = CGROUP_APPLIED.load(Ordering::Relaxed);
+    let run_meta = serde_json::json!({
+        "matrix": args.matrix.display().to_string(),
+        "cells": cells.len(),
+        "cells_written": written,
+        "isolation": {
+            "requested": cfg.isolation,
+            // Requested and applied are separate fields on purpose. Without root
+            // the cpuset and memory cap are skipped and the cells run unpinned on
+            // the whole machine, which is a different experiment than the matrix
+            // describes.
+            "applied": isolation_applied,
+            "note": if isolation_applied {
+                "cgroup v2 leaf per cell: cpuset and memory cap applied"
+            } else {
+                "NOT applied: cgroups unavailable (needs root), so cells ran unpinned"
+            },
+        },
+        "replication": rep,
+        "syscall_counting": {
+            "captured": telemetry::syscalls_were_captured(),
+            "note": if telemetry::syscalls_were_captured() {
+                "perf tracepoints registered"
+            } else {
+                "NOT captured: needs root or CAP_PERFMON, tracefs, perf_event_paranoid <= 1"
+            },
+        },
+    });
+    let run_path = args.out.join("_run.json");
+    std::fs::write(&run_path, serde_json::to_vec_pretty(&run_meta)?)
+        .with_context(|| format!("writing {}", run_path.display()))?;
+    if !isolation_applied {
+        eprintln!("zmq-arena: NOTE isolation was requested but not applied; cells ran unpinned");
+    }
 
     Ok(())
 }
@@ -662,6 +729,11 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
 /// provisioning fails, e.g. when not root. The arena then runs without
 /// isolation, which is fine for functional tests on a dev VM.
 static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
+/// Set the first time a cgroup leaf is actually created and limited. The matrix
+/// *asks* for a cpuset and a memory cap; without root it silently does not get
+/// one, and a reader looking at the numbers cannot tell the difference. This is
+/// what lets the run record what it applied rather than what it wanted.
+static CGROUP_APPLIED: AtomicBool = AtomicBool::new(false);
 
 fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup> {
     let cg = Cgroup::new(run_id, leaf, isolation.clone());
@@ -674,6 +746,7 @@ fn try_cgroup(run_id: &str, leaf: &str, isolation: &Isolation) -> Option<Cgroup>
         }
         return None;
     }
+    CGROUP_APPLIED.store(true, Ordering::Relaxed);
     Some(cg)
 }
 

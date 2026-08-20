@@ -99,6 +99,9 @@
     #panels{ grid-template-columns:1fr; }
     .card{ overflow-x:auto; }
   }
+  .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
+    white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -228,6 +231,46 @@ function denormalize(data){
   });
 }
 
+// Provenance strip. `admissible` is derived by the orchestrator from the machine
+// it measured on (governor, turbo, virtualisation, root), not typed by whoever
+// rendered the run, so a run that cannot support a verdict says so in its own
+// data. Flag it visibly: a reader who misses it will quote the numbers.
+function hwLine(hw, run){
+  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
+  // The note already opens with "not admissible: " when it is one; the badge
+  // says that, so show only the reasons after it rather than saying it twice.
+  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
+  const tail = note ? " \u00b7 " + note : "";
+  // Three states, not two. `false` means the run measured its host and the host
+  // did not qualify. `undefined` means nothing was recorded, which is not the
+  // same as fine: it is an archive whose conditions nobody can check. Rendering
+  // that as an unbadged host would let the oldest, least verifiable runs look
+  // like the most trustworthy ones.
+  let badge = "";
+  if(hw.admissible === false) badge = ` <span class="warn-tag">not admissible</span>`;
+  else if(hw.admissible !== true) badge = ` <span class="warn-tag">provenance not recorded</span>`;
+  return cpu + badge + tail + isoLine(run);
+}
+
+// What the run actually restricted, which is not the same as what the matrix
+// asked for: without root the cpuset and memory cap are skipped and the cells
+// ran on the whole machine. A reader comparing two runs has to be able to see
+// that difference, so an unapplied restriction is called out, not hidden.
+function isoLine(run){
+  if(!run || !run.isolation) return "";
+  const iso = run.isolation, req = iso.requested || {};
+  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB cap` : "";
+  const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
+  const sysc = run.syscall_counting && run.syscall_counting.captured === false
+    ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
+  const rep = run.replication
+    ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
+  if(iso.applied === false){
+    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}`;
+  }
+  return ` \u00b7 ${asked}${rep}${sysc}`;
+}
+
 async function load(){
   await loadVariants();
   let runs, isSample=false;
@@ -244,7 +287,7 @@ async function load(){
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} libraries · ${DATES.length} run${DATES.length>1?"s":""} · `+
-    `<code>${hw.cpu||"unknown host"}</code>${hw.note?" · "+hw.note:""}`;
+    hwLine(hw, latest.run);
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Real weekly-grid results replace them once <code>history/</code> is populated."; }
 

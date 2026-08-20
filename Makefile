@@ -15,8 +15,6 @@ MATRIX  ?= matrix.linode.json
 RUN_ID  ?= $(shell date -u +%F)
 SCRATCH ?= scratch/$(RUN_ID)
 ORCH    ?= ./target/release/zmq-arena
-CPU     := $(shell grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | sed 's/^ *//')
-NOTE    ?= dev host; functional test, not admissible tail data
 # The file scripts/gen_matrix.py writes. The run targets regenerate it before a
 # run, but only when MATRIX still points at it, so an overridden MATRIX is left
 # untouched.
@@ -86,8 +84,7 @@ bench:                    ## regenerate the matrix (if default) and run it into 
 	$(ORCH) run --matrix $(MATRIX) --run-id $(RUN_ID) --out $(SCRATCH)
 
 render: bench             ## run, then render the result archive into docs/
-	python3 scripts/render_results.py --scratch $(SCRATCH) --run-id $(RUN_ID) \
-		--hardware-cpu "$(CPU)" --hardware-note "$(NOTE)"
+	python3 scripts/render_results.py --scratch $(SCRATCH) --run-id $(RUN_ID)
 
 variants:                 ## publish docs/variants.json and check it covers the matrix
 	python3 scripts/render_variants.py
@@ -97,8 +94,7 @@ run: render               ## alias: run the matrix and render (assumes built)
 run-root:                 ## regenerate the matrix (if default), run under sudo, then render
 	$(regen)
 	sudo $(ORCH) run --matrix $(MATRIX) --run-id $(RUN_ID) --out $(SCRATCH)
-	python3 scripts/render_results.py --scratch $(SCRATCH) --run-id $(RUN_ID) \
-		--hardware-cpu "$(CPU)" --hardware-note "$(NOTE)"
+	python3 scripts/render_results.py --scratch $(SCRATCH) --run-id $(RUN_ID)
 
 dry:                      ## regenerate the matrix (if default) and print the expanded plan
 	$(regen)
