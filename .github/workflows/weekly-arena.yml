@@ -33,6 +33,14 @@ concurrency:
   group: weekly-arena
   cancel-in-progress: false
 
+env:
+  # Declares this runner the designated benchmark host, which makes the
+  # orchestrator refuse to run unless the machine actually qualifies: bare metal,
+  # performance governor on every core, turbo disabled, root. This replaced a
+  # shell step that checked cpu0's governor and nothing else; the check now lives
+  # with the facts it is derived from, and the archive records that it ran.
+  ZMQ_ARENA_BENCH_HOST: "1"
+
 jobs:
   grid:
     # Self-hosted bare-metal runner with these labels. Do not fall back to
@@ -41,14 +49,6 @@ jobs:
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
-
-      - name: Assert performance-locked host
-        run: |
-          set -euo pipefail
-          # Fail fast if turbo / C-states are not locked. Adjust paths per host.
-          gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor || echo "unknown")
-          echo "governor=$gov"
-          test "$gov" = "performance" || { echo "governor must be 'performance'"; exit 1; }
 
       - name: Build control plane + every target (each in its own invocation)
         # build-targets.sh builds the control plane and each standalone target

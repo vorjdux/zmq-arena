@@ -10,12 +10,27 @@
 //! The point is not decoration. `admissible` is derived from these facts, so
 //! whether a run counts as a real comparison is decided by the machine's actual
 //! configuration instead of by whoever is writing the summary.
+//!
+//! On a machine designated as the benchmark host (`ZMQ_ARENA_BENCH_HOST=1`) the
+//! same facts become a gate: the run refuses to start unless every one of them
+//! holds. A dedicated bench host that has silently drifted back to the powersave
+//! governor after a reboot is worse than no bench host, because it keeps
+//! producing numbers that look official.
 
 use std::fs;
 
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
+// Four booleans, and clippy is right that a struct usually should not have that
+// many. Here each is an independent, separately reported fact about the machine
+// (virtualised, root, admissible, enforced) that goes straight into the archive
+// under its own name. Folding them into an enum would make the JSON worse to
+// read and the reasons harder to assemble.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent reported facts, not state"
+)]
 pub struct Host {
     /// CPU model string from /proc/cpuinfo.
     pub cpu: String,
@@ -46,6 +61,26 @@ pub struct Host {
     /// the facts above, so no reader has to re-derive it and reach a different
     /// conclusion than the flags it replaced.
     pub note: String,
+    /// Whether this run was gated on the conditions above rather than merely
+    /// annotated with them. Recorded so an archive proves the check ran, instead
+    /// of a reader having to trust that the host was configured correctly.
+    pub enforced: bool,
+}
+
+/// Environment variable that marks a machine as the designated benchmark host.
+///
+/// Set it in the runner's environment, not in a command line, so it is a
+/// property of the machine rather than of whoever typed the command.
+pub const BENCH_HOST_ENV: &str = "ZMQ_ARENA_BENCH_HOST";
+
+/// Is this machine claiming to be the benchmark host? Anything other than unset,
+/// empty, `0`, `false` or `no` counts as yes: a variable set to a typo should
+/// turn enforcement on, never quietly off.
+pub fn bench_host_declared() -> bool {
+    std::env::var(BENCH_HOST_ENV).is_ok_and(|v| {
+        let v = v.trim().to_ascii_lowercase();
+        !(v.is_empty() || v == "0" || v == "false" || v == "no")
+    })
 }
 
 fn first_line_after(path: &str, key: &str) -> Option<String> {
@@ -151,6 +186,33 @@ impl Host {
             admissible: reasons.is_empty(),
             inadmissible_reasons: reasons,
             note,
+            enforced: bench_host_declared(),
         }
+    }
+
+    /// Refuse to run when this machine says it is the benchmark host but does not
+    /// meet the conditions for one.
+    ///
+    /// The failure is deliberately loud and itemised. The alternative, running
+    /// anyway and flagging the archive, is what the dev-host path already does;
+    /// on a declared bench host a silent downgrade would publish numbers that
+    /// carry the authority of that host without its guarantees.
+    pub fn enforce(&self) -> anyhow::Result<()> {
+        if !self.enforced || self.admissible {
+            return Ok(());
+        }
+        let mut msg = format!(
+            "{BENCH_HOST_ENV} is set, so this machine is the designated benchmark \
+             host, but it does not meet the conditions for one:\n"
+        );
+        for r in &self.inadmissible_reasons {
+            use std::fmt::Write as _;
+            let _ = writeln!(msg, "  - {r}");
+        }
+        msg.push_str(
+            "\nFix the host, or unset the variable to run it as an ordinary dev \
+             machine (results are then recorded as not admissible).",
+        );
+        anyhow::bail!(msg)
     }
 }

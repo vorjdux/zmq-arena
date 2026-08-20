@@ -67,7 +67,10 @@ would distort every ratio computed against the baseline.
 ## Changing the reporting
 
 - Provenance is sampled by the orchestrator into `_host.json` and `_run.json`,
-  never passed in as a flag, and admissibility is derived from it. Record
+  never passed in as a flag, and admissibility is derived from it. On a machine
+  with `ZMQ_ARENA_BENCH_HOST` set those conditions are a gate: the run refuses to
+  start. Add new host requirements to `Host::probe`'s reason list and they become
+  both a published caveat and an enforced precondition at once. Record
   requested and applied separately for anything the harness asks the kernel for:
   isolation is skipped without root, and a reader cannot tell a pinned run from
   an unpinned one by looking at the numbers. If you add a condition that

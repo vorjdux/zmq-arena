@@ -224,6 +224,33 @@ The dashboard shows all of it beside the host, and badges anything unapplied.
 A run pinned to `cpuset 0-3` and one that silently ran unpinned produce numbers
 that look alike and mean different things.
 
+### Enforcing it on the bench host
+
+Set `ZMQ_ARENA_BENCH_HOST=1` in the environment of the machine that produces
+official runs. The orchestrator then treats those conditions as a gate instead
+of a label and refuses to start, itemising what is wrong:
+
+```
+Error: ZMQ_ARENA_BENCH_HOST is set, so this machine is the designated benchmark
+host, but it does not meet the conditions for one:
+  - cpufreq governor is powersave, not performance
+  - turbo/boost is enabled, so clocks are not pinned
+  - not run as root, so cgroup pinning and perf counters are absent
+
+Fix the host, or unset the variable to run it as an ordinary dev machine
+(results are then recorded as not admissible).
+```
+
+The check runs before any cell, so a bench host that drifted back to `powersave`
+after a reboot fails in seconds instead of spending hours producing numbers that
+carry that host's authority without its guarantees. Set it in the runner's
+environment rather than on a command line, so it describes the machine and not
+whoever typed the command. `_host.json` records `enforced`, so an archive proves
+the gate ran rather than asking a reader to assume it.
+
+A dev machine leaves it unset and behaves exactly as before: it runs, and the
+results are recorded as not admissible with the reasons attached.
+
 A word on what a shared host can and cannot tell you. Each cell is pinned to a
 4-core cpuset, so the producer and consumer no longer time-share one core and
 the numbers stopped measuring core contention. That is a real improvement and

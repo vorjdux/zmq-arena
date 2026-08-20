@@ -270,14 +270,23 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     // rather than being told what the host was: the two can be different
     // machines, and an operator-supplied "turbo off" is not evidence.
     let host = host::Host::probe();
+    // A machine that declares itself the benchmark host must actually be one.
+    // Checked before any cell runs, so a misconfigured bench host fails in
+    // seconds rather than after hours of measuring numbers nobody should use.
+    host.enforce()?;
     let host_path = args.out.join("_host.json");
     std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
         .with_context(|| format!("writing {}", host_path.display()))?;
     println!(
-        "zmq-arena: host {} ({} cpus, kernel {}) -> {}",
+        "zmq-arena: host {} ({} cpus, kernel {}){} -> {}",
         host.cpu,
         host.cpu_count,
         host.kernel,
+        if host.enforced {
+            format!(" [{} enforced]", host::BENCH_HOST_ENV)
+        } else {
+            String::new()
+        },
         if host.admissible {
             "admissible".to_string()
         } else {
