@@ -14,19 +14,21 @@ and measurement. Independent data-plane binaries (the targets) own the socket
 code and its tuning. The only thing they share is a command-line contract, so a
 target can be written in any language and still take part.
 
+**Results live in one place: the dashboard.** A run writes one archive and the
+dashboard is the only thing that reads it, so there is no second copy of the
+numbers to fall out of step. See [Results](#results) for what each page answers
+and how to serve it locally.
+
 zmq-arena is not only about speed. [FEATURES.md](FEATURES.md) is the other half
 of the question: which socket types and transports each implementation actually
 has, whether its CURVE interoperates, whether you can use it without adopting an
 async runtime. A fast library that lacks the socket type you need is not a
 candidate wherever it lands on a chart.
 
-Status: work in progress. The data and reporting side is real and tested: run
-archives, rankings, and the dashboard all work. The measurement
-side is mostly real: process isolation, cgroup pinning, all five run paths,
-replication with outlier rejection, and scheduler/CPU/memory/syscall capture
-work. Per-cell network namespaces are not wired (the `tcp_netns` transport runs
-on host loopback today), and two engine wrappers are still stubs. See the status
-table near the end.
+Status: work in progress. Process isolation, cgroup pinning, all five run paths,
+replication with outlier rejection, and scheduler/CPU/memory/syscall capture all
+work; so do the archive, the dashboard and the registries.
+[What is not done yet](#what-is-not-done-yet) lists the gaps.
 
 ## Why the targets are not one Cargo workspace
 
@@ -122,22 +124,9 @@ executor and the IO model. omq's `blocking` variant is worth singling out, since
 it is a sync API over library-owned IO threads, exactly libzmq's model, which
 makes that pair a direct comparison of two implementations of the same idea.
 
-| variant | target | engine | io model | threading | selected by |
-|---------|--------|--------|----------|-----------|-------------|
-| `libzmq` | libzmq_cpp_target | libzmq | epoll | native threads | only variant |
-| `rust_zmq` | rust_zmq_target | libzmq | epoll | native threads | only variant |
-| `tmq` | tmq_target | libzmq | epoll | native threads + tokio | only variant |
-| `zeromq_rs` | zeromq_rs_target | zmq.rs | epoll | tokio | default build |
-| `zeromq_rs_async_std` | zeromq_rs_target | zmq.rs | epoll | async-std | `--features async-std-rt` |
-| `zeromq_rs_async_dispatcher` | zeromq_rs_target | zmq.rs | epoll | async-dispatcher | `--features async-dispatcher-rt` |
-| `omq_tokio` | omq_tokio_target | omq | mio/epoll | current-thread | `--variant default` |
-| `omq_tokio_mt` | omq_tokio_target | omq | mio/epoll | multi-thread | `--variant multi_thread` |
-| `omq_blocking` | omq_tokio_target | omq | mio/epoll | sync API, omq-owned IO threads | `--variant blocking` |
-| `rzmq` | rzmq_target | rzmq | io_uring | tokio | only variant |
-| `celerity` | celerity_target | celerity | epoll | tokio | only variant |
-| `monocoque` | monocoque_target | monocoque | io_uring | compio | default build |
-| `monocoque_tokio` | monocoque_target | monocoque | epoll | tokio | `--no-default-features --features tokio` |
-| `monocoque_smol` | monocoque_target | monocoque | epoll | smol | `--no-default-features --features smol` |
+The full roster, with the build or `--variant` flag that selects each one, is
+in [targets/README.md](targets/README.md); `variants.json` is what the tooling
+reads.
 
 Each record carries the variant's category tags (engine, io model, threading),
 which is what lets the dashboard group and compare by category.
@@ -179,41 +168,26 @@ run.
 Show the expanded plan without spawning anything:
 
 ```
-cargo run --release -p zmq-arena-orchestrator -- run --matrix matrix.example.json --dry-run
+cargo run --release -p zmq-arena-orchestrator -- run --matrix matrix.linode.json --dry-run
 ```
 
 A real run provisions cgroups and needs root for full isolation:
 
 ```
-sudo ./target/release/zmq-arena run --matrix matrix.example.json --run-id "$(date -u +%F)" --out scratch/
+sudo ./target/release/zmq-arena run --matrix matrix.linode.json --run-id "$(date -u +%F)" --out scratch/
 ```
 
-Each cell writes one JSON record. `scripts/render_results.py` turns a scratch
-directory into the dashboard archive and `RANKING.md`.
-
-### On a single-vCPU dev host (Linode)
-
-A small VM is the right place to check the wiring before bare metal. On Ubuntu
-24.04:
-
-```
-bash scripts/setup-ubuntu.sh
-cargo build --release --manifest-path orchestrator/Cargo.toml
-cmake -S targets/libzmq_cpp_target -B targets/libzmq_cpp_target/build -DCMAKE_BUILD_TYPE=Release
-cmake --build targets/libzmq_cpp_target/build --parallel
-./target/release/zmq-arena run --matrix matrix.linode.json --run-id "$(date -u +%F)" --out "scratch/$(date -u +%F)"
-python3 scripts/render_results.py --scratch "scratch/$(date -u +%F)" --run-id "$(date -u +%F)"
-```
+Each cell writes one JSON record; `scripts/render_results.py` turns a scratch
+directory into the run archive the dashboard reads. On a fresh Ubuntu box,
+`bash scripts/setup-ubuntu.sh` installs the toolchains first.
 
 `matrix.linode.json` is a payload sweep over 64, 256, 1024, 4096, and 16384 byte
-messages (the size set both the OMQ comparison and monocoque's own benches
-sweep, so the arena's points line up with the numbers those projects publish)
-across all five kinds and
-every runnable target, so the dashboard's size-sweep view shows how each engine
-trades off as the payload grows. It is generated by `scripts/gen_matrix.py`;
-regenerate with `make matrix`, or pass `--sizes` for a lighter set. Count-based
-cells carry fewer messages at larger payloads so they stay within budget; msgs/s
-and MB/s are rates, so the count does not bias the comparison.
+messages, the size set both the OMQ comparison and monocoque's own benches use,
+so the arena's points line up with the numbers those projects publish. It is
+generated by `scripts/gen_matrix.py`; regenerate with `make matrix`, or pass
+`--sizes` for a lighter set. Count-based cells carry fewer messages at larger
+payloads so they stay within budget; msgs/s and MB/s are rates, so the count
+does not bias the comparison.
 
 Telemetry is captured the same way for every cell: CPU and context switches from
 `getrusage`, peak memory from the summed per-process `VmHWM`. cgroups are skipped
@@ -221,66 +195,43 @@ cleanly if you are not root; memory and CPU still record without them. Syscall
 counts need perf, so they read zero unless you run under sudo (`make run-root`)
 on a host with tracefs and `perf_event_paranoid <= 1`.
 
-A word on what a shared host can and cannot tell you. The matrix now pins each
-cell to a 4-core cpuset, so the producer and consumer no longer time-share one
-core the way they did on a single-vCPU box, and the numbers stopped measuring
-core contention. That is a real improvement and not a substitute for a bench
-host: a guest still cannot lock Turbo or C-states, the 32-subscriber pub/sub cell
-necessarily oversubscribes its cpuset, and a noisy neighbour is invisible from
-inside. Read a shared-host run as the payload trend and the relative shape. Real
-tail latency needs bare metal, and `RANKING.md` says so on any run whose hardware
-note marks it a dev-host test.
+A word on what a shared host can and cannot tell you. Each cell is pinned to a
+4-core cpuset, so the producer and consumer no longer time-share one core and
+the numbers stopped measuring core contention. That is a real improvement and
+not a substitute for a bench host: a guest cannot lock Turbo or C-states, the
+32-subscriber pub/sub cell necessarily oversubscribes its cpuset, and a noisy
+neighbour is invisible from inside. Read a shared-host run as the payload trend
+and the relative shape. Real tail latency needs bare metal. Every run records a
+hardware note, and the dashboard shows it on every page.
 
-## Dashboard
+## Results
 
-The `docs/` pages are self-contained (Apache ECharts, no build step) and meant
-for GitHub Pages with the source set to `docs/`. They read the run archives under
-`docs/history/` and fall back to synthetic sample data under `docs/sample/` until
-the first real run lands. A top nav links five pages.
+**The dashboard is the only place results live.** A run produces one archive
+under `docs/history/`, and the dashboard is the one thing that interprets it:
+nothing else ranks, summarises, or re-renders those numbers. There is no second
+ledger to drift out of step.
 
-`index.html` is the Overview: the landing page. It is a grid of small-multiple
-panels, one per scenario (throughput ipc, latency tcp, pub/sub, fan-out, fan-in,
-...), each plotting payload size against the metric with one line per library.
-Every library keeps the same colour in every panel, so you can read the whole
-comparison at a glance without picking. The library chips act as a shared legend
-and filter; a segmented control switches the latency percentile and throughput
-unit; and Grid/Focus toggles between all panels open and an accordion.
+The pages are self-contained (Apache ECharts, no build step) and fall back to
+synthetic sample data in `docs/sample/`, with a banner saying so, until a real
+run is published.
 
-`rankings.html` is the per-metric leaderboards, one board per metric rather than
-one blended score, because these libraries trade off differently and a single
-number hides it. Each board is the geometric mean of a library's per-cell ratio
-to the libzmq baseline: magnitude-aware, dimensionless, higher is better, with
-inverted cells dropped and gaps inside the replicate noise counted as ties.
-Performance boards cover latency and each message-rate workload separately;
-efficiency boards cover CPU, context switches, syscalls and memory per message.
+| page | what it answers |
+|---|---|
+| Overview | how does every library behave across every scenario, at a glance |
+| Rankings | who is ahead on one metric, as a geometric mean of each library's per-cell ratio to the libzmq baseline. One board per metric, never a blended score, because these libraries trade off differently and a single number hides it |
+| Explore | one combination at a time, including how it has moved across runs |
+| Tables | the raw numbers, payload size by library, best in row highlighted |
+| Features | what each library supports, curated rather than measured, with unverified rows marked `declared` |
 
-`explore.html` is the interactive drill-down for one combination at a time: an
-evolution chart across runs, a payload sweep, and a per-combination ranking, with
-the full control bar (kind, metric, transport, peers, payload, run, color-by).
-Useful once there are many weekly runs to watch a library move over time.
+Serve it locally with `cd docs && python3 -m http.server`, since browsers block
+`fetch` over `file://`.
 
-`tables.html` is the numbers: for each kind and transport it renders a payload-size
-by library table with the metric in each cell (msgs/s for the throughput family,
-p50 with p99 for latency), best-in-row highlighted, in the style of a benchmark
-report.
-
-`features.html` is the feature matrix, and it is the one page here that does not
-come from a run: socket types, transports, platforms, bindings, whether CURVE
-works, and whether the library is usable without adopting an async runtime. It is
-curated from each project's documentation and marks every unverified row
-`declared` rather than passing a claim off as a measurement. Source of truth is
-`features.json`; `scripts/render_features.py` regenerates it and
-[FEATURES.md](FEATURES.md).
-
-How a series is labelled and coloured comes from `variants.json`, which every
-surface reads: the dashboard pages fetch it and the result renderer takes its
-category tags from it. That is
-one file to edit when a variant is added, and `scripts/render_variants.py`
-(`make variants`) fails the build if the matrix contains a variant it does not
-describe, which is what used to produce chart series labelled with a raw key.
-
-Serve the dashboard locally with `cd docs && python3 -m http.server`, since
-browsers block `fetch` over `file://`.
+Two curated files feed the pages and are the only place their facts live:
+`features.json` (capabilities, rendered to [FEATURES.md](FEATURES.md) and the
+Features page by `scripts/render_features.py`) and `variants.json` (how a series
+is labelled and coloured). `scripts/render_variants.py` fails the build if the
+matrix contains a variant `variants.json` does not describe, which is what used
+to produce chart series labelled with a raw key.
 
 ## Publishing to GitHub Pages
 
@@ -308,7 +259,7 @@ The split of duties is deliberate:
 
 | what | where it lives |
 |---|---|
-| `RANKING.md`, `FEATURES.md`, `docs/features.json`, `docs/variants.json` | committed to `main`, overwritten in place each run, so the file count is fixed |
+| `FEATURES.md`, `docs/features.json`, `docs/variants.json` | curated registries, committed to `main` and overwritten in place, so the file count is fixed |
 | `docs/history/*-run.json` | never committed; carried forward by the Pages deployment |
 
 That keeps `main` code-only and stops it growing without bound as
@@ -324,7 +275,8 @@ behaviour rather than an empty page.
 
 `.github/workflows/weekly-arena.yml` runs the grid on a self-hosted bare-metal
 runner with Turbo off and C-states locked. It builds everything, regenerates the
-matrix, runs it, renders `RANKING.md` and the run archive, commits the repo-facing documents, and deploys the refreshed site. It asserts the
+matrix, runs it, renders the run archive, commits the curated registries, and
+deploys the refreshed site. It asserts the
 runner is performance-locked before measuring anything.
 
 **Its weekly `schedule:` is commented out on purpose.** The job needs a runner
@@ -350,33 +302,20 @@ the protocol rules in `targets/README.md`: no dropped data, and a real
 serialization round-trip. The harness validator enforces those, so a faster but
 cheating entry fails the cell rather than the review.
 
-## Implementation status
+## What is not done yet
 
-| piece | state |
-|-------|-------|
-| Cargo workspace, profiles, toolchain pins | done |
-| matrix and record schema | done |
-| CLI, matrix expansion, run loop | done, `--dry-run` works |
-| target CLI contract and roster | done, crate versions verified |
-| libzmq socket loop | all five kinds (PUSH/PULL, REQ/REP, PUB/SUB, fan-out, fan-in) over the C API |
-| cgroup v2 provisioning | done (std::fs; needs root) |
-| ipc and loopback tcp transport | done. The matrix names the tcp transport `tcp_netns`, but per-cell network namespaces are NOT yet created: cells run on loopback in the host namespace. The name is forward-looking and the isolation is still to do |
-| CPU and context-switch capture | done (`getrusage` deltas) |
-| CPU and memory footprint | done; grouped across all of a cell's processes. CPU from `getrusage(RUSAGE_CHILDREN)`; memory from each process's `VmHWM` summed (unprivileged, any host), or the summed cgroup leaves when run as root |
-| throughput run path | done (PUSH/PULL over ipc and tcp; drives every target) |
-| latency run path | done (REQ/REP; target times round-trips, orchestrator parses) |
-| pub/sub, fan-out, fan-in run paths | done (duration-based, multi-peer). Every target implements them except zmq.rs, whose PUSH/PULL cannot multiplex several peers on the bound side, so it runs pub/sub but not the fan patterns |
-| perf syscall counting | done (`perf_event_open` tracepoints, cgroup-scoped via `PERF_FLAG_PID_CGROUP` when run as root so every thread in the leaf is counted, including the io_threads and runtime workers that do the actual socket I/O; per-thread fallback otherwise; needs root + tracefs + `perf_event_paranoid <= 1`, else 0 with a one-time note) |
-| monocoque socket loop | all five kinds on monocoque-rs 0.4.0, both runtimes (compio io_uring + tokio epoll); tuned to match the engine's own bench peer (full-slab reads, coalesced writes, `send_one` / `recv_into` so the measured loops allocate nothing per message); run-verified locally |
-| zmq.rs socket loop | throughput, latency, pub/sub (the `zeromq` 0.6 trait API); fan-out and fan-in rejected up front (engine does not multiplex multiple peers on the bound side); run-verified locally |
-| rust-zmq socket loop | all five kinds via the `zmq` crate (rust-zmq) over the system libzmq; run-verified locally |
-| omq socket loops | omq-tokio 0.21.3 from crates.io (epoll, current-thread + multi-thread variants) over the omq `Socket` API; options match the engine's own `bench_options()`; headline tier only. omq-compio removed: the io_uring backend no longer exists upstream |
-| rzmq, celerity socket loops | stubs, pending each engine's API (each already reports `describe`) |
-| target classification + library version | done; every target self-reports via `describe`, the orchestrator embeds it per record, versions tracked per run |
-| render and ranking generator | done and tested; emits per-metric boards scored as the geometric mean of each library's ratio to the libzmq baseline, and stamps the run's host and admissibility onto `RANKING.md` |
-| interactive dashboard | done; five pages (Overview, Rankings, Explore, Tables, Features); filters and color-by across engine, io, threading, sync/async, native/ffi, language; library versions shown |
-| feature matrix | done; curated in `features.json`, rendered to `FEATURES.md` and `docs/features.html`, with unverified rows marked `declared` |
-| matrix tiering | done; split by pattern, not by library. headline (tcp, the three universal patterns) + extended (ipc, fan-out, fan-in), each run by every implementation capable of it |
+Everything else in this README describes what runs today. These are the gaps:
+
+- **Network namespaces.** The matrix names the tcp transport `tcp_netns`, but
+  per-cell namespaces are not created: cells run on loopback in the host
+  namespace. The name is forward-looking.
+- **rzmq and celerity** are describe-only stubs. Each resolves, builds and
+  reports its classification, but neither has a socket loop, so neither appears
+  in the matrix.
+- **No admissible run has been published.** Every archive committed so far comes
+  from a dev host and says so in its hardware note. The weekly grid needs a
+  bare-metal runner with Turbo off and C-states locked before any number here is
+  a verdict.
 
 ## Acknowledgments
 

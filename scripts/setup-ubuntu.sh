@@ -72,7 +72,7 @@ cat <<'EOF'
   ./target/release/zmq-arena run --matrix matrix.linode.json --dry-run
   ./target/release/zmq-arena run --matrix matrix.linode.json --run-id "$(date -u +%F)" --out "scratch/$(date -u +%F)"
 
-  # Render results into the dashboard + RANKING.md:
+  # Render results into the dashboard archive:
   python3 scripts/render_results.py --scratch "scratch/$(date -u +%F)" --run-id "$(date -u +%F)" \
     --hardware-cpu "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ *//')" \
     --hardware-note "single-vCPU KVM guest; functional test, not admissible tail data"

@@ -25,7 +25,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write  # commit RANKING.md, FEATURES.md and the redrawn charts
+  contents: write  # commit the feature matrix and the variant registry
   pages: write     # deploy the refreshed dashboard
   id-token: write  # required by actions/deploy-pages
 
@@ -73,7 +73,7 @@ jobs:
       - name: Generate ledger + dashboard archive
         run: |
           # Reads scratch/$RUN_ID/*.json (orchestrator CellRecords) and writes
-          # RANKING.md, docs/history/$RUN_ID-run.json, and docs/history/index.json.
+          # docs/history/$RUN_ID-run.json and docs/history/index.json.
           python3 scripts/render_results.py \
             --scratch "scratch/$RUN_ID" \
             --run-id "$RUN_ID" \
@@ -89,9 +89,10 @@ jobs:
         run: python3 scripts/render_features.py
 
       - name: Commit the repo-facing results
-        # Only documents that belong in the repository: the ledger, the feature
-        # matrix, and the published registries. These are overwritten in place
-        # every run, so the file count stays fixed.
+        # Only the curated registries, which are overwritten in place. Results
+        # are NOT committed: the run archive is the canonical result and it
+        # reaches readers through the Pages deployment below, so main stays code
+        # and configuration only.
         #
         # The run archive is deliberately NOT committed. docs/history/* is
         # gitignored, and one new ~250 KB file per week would grow main without
@@ -101,7 +102,7 @@ jobs:
         run: |
           git config user.name "arena-bot"
           git config user.email "arena-bot@users.noreply.github.com"
-          git add RANKING.md FEATURES.md docs/features.json docs/variants.json
+          git add FEATURES.md docs/features.json docs/variants.json
           git commit -m "weekly grid: ${RUN_ID}" || echo "nothing to commit"
           git push || echo "push skipped"
 

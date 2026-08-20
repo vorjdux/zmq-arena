@@ -2,7 +2,7 @@
 #
 # Common flow on a dev host:
 #   make build      # control plane + every runnable variant (11 series)
-#   make run        # run the matrix and render docs/ + RANKING.md
+#   make run        # run the matrix and render the archive into docs/
 #   make            # build + run + render in one go
 #
 # The run targets (bench, run, run-root, dry) regenerate matrix.linode.json from
@@ -85,7 +85,7 @@ bench:                    ## regenerate the matrix (if default) and run it into 
 	$(regen)
 	$(ORCH) run --matrix $(MATRIX) --run-id $(RUN_ID) --out $(SCRATCH)
 
-render: bench             ## run, then render the result into docs/ + RANKING.md
+render: bench             ## run, then render the result archive into docs/
 	python3 scripts/render_results.py --scratch $(SCRATCH) --run-id $(RUN_ID) \
 		--hardware-cpu "$(CPU)" --hardware-note "$(NOTE)"
 

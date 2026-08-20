@@ -6,7 +6,7 @@
 //!      set up the transport (netns TCP or IPC), and spawn the two target
 //!      binaries as distinct OS processes.
 //!   3. Arm kernel telemetry, run the measurement block, disarm, collect.
-//!   4. Emit a structured JSON record per cell for the RANKING.md generator and
+//!   4. Emit a structured JSON record per cell for the archive renderer and
 //!      the /history archive.
 //!
 //! The throughput kind (PUSH/PULL over ipc and loopback tcp) is implemented and

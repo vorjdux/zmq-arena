@@ -66,8 +66,12 @@ would distort every ratio computed against the baseline.
 
 ## Changing the reporting
 
-- `scripts/render_results.py` turns a scratch directory into the archive and
-  `RANKING.md`. It does data transformation only, never measurement.
+- `scripts/render_results.py` turns a scratch directory into the run archive.
+  It does data transformation only, never measurement, and never summarises:
+  the run archive is the one canonical form of a result and the dashboard is
+  the one thing that interprets it. Do not add a second renderer that writes a
+  ranking somewhere else; that is how two implementations of the same
+  statistics drift apart.
 - `docs/*.html` are self-contained and dependency-free. Keep them that way; the
   dashboard has to work from a plain static file server.
 - `features.json` is curated. Every row carries its source, and anything the
