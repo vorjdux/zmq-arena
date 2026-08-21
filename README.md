@@ -172,6 +172,14 @@ Adding a target means implementing the command-line contract in
 
 ## Isolation and telemetry
 
+Every engine gets the same **IO-lane budget**, one background IO thread, set by
+the matrix rather than inherited from whatever each runtime defaults to. This
+matters most where it is least visible: a tokio runtime sizes its worker pool to
+the machine while libzmq defaults to a single IO thread, so a 32-subscriber
+PUB/SUB cell would otherwise compare one engine's single lane against another's
+four. omq's `multi_thread` variant is the deliberate exception, because running
+on more than one lane is what that variant is.
+
 Each cell runs in a cgroup v2 leaf with the cpuset and memory cap the matrix
 declares, so the producer and consumer do not time-share a core. Cells on the
 `tcp_netns` transport run inside a network namespace created for the run, so

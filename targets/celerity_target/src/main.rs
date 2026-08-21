@@ -76,6 +76,23 @@ fn describe() -> String {
     )
 }
 
+/// IO lanes this wrapper is allowed, from `--knob io_threads=N`.
+///
+/// Without it a tokio runtime silently sizes itself to the whole machine while
+/// libzmq sat on its default of one IO thread, so a PUB/SUB cell with 32
+/// subscribers compared one engine's single lane against another's four. The
+/// lane count is a first-class part of the configuration being measured, so the
+/// matrix states it and every engine gets the same budget.
+fn io_threads(knobs: &[String]) -> usize {
+    knobs
+        .iter()
+        .filter_map(|k| k.split_once('='))
+        .find(|(k, _)| *k == "io_threads")
+        .and_then(|(_, v)| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
 fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("describe") {
         println!("{}", describe());
@@ -93,6 +110,7 @@ fn main() -> Result<()> {
         cli.warmup
     );
     let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(io_threads(&cli.knobs))
         .enable_all()
         .build()?;
     rt.block_on(run(cli))
