@@ -204,6 +204,11 @@ def to_archive_record(cell: dict) -> dict:
         "payload_bytes": entry["payload_bytes"], "peers": entry.get("peers"),
         "latency_ns": latency_ns, "throughput": throughput,
         "cpu_seconds": cell.get("cpu_seconds", 0.0),
+        # The same total attributed to each end of the cell. Sampled per process
+        # and scaled so the two always sum to cpu_seconds; both are 0 when the
+        # orchestrator could not sample (older archives have neither key).
+        "cpu_seconds_sender": cell.get("cpu_seconds_sender", 0.0),
+        "cpu_seconds_receiver": cell.get("cpu_seconds_receiver", 0.0),
         "syscalls": {
             "epoll_wait": sysc.get("epoll_wait", 0), "epoll_ctl": sysc.get("epoll_ctl", 0),
             "sendmsg": sysc.get("sendmsg", 0), "recvmsg": sysc.get("recvmsg", 0),

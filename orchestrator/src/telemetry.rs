@@ -100,6 +100,31 @@ pub fn rusage_children() -> (f64, SchedCounters) {
     }
 }
 
+/// CPU seconds a single live process has used, from `/proc/<pid>/stat` fields
+/// 14 and 15 (utime and stime, in clock ticks).
+///
+/// `getrusage(RUSAGE_CHILDREN)` gives an exact total for the cell but cannot say
+/// which end spent it, and "the sender costs more CPU per message than the
+/// receiver" is a different claim from "the pair costs this much". Read this in
+/// the same poll loop that samples peak RSS, and use it for the ratio between
+/// the two ends rather than as the total: it is sampled, so it can miss the last
+/// few milliseconds before exit, while the rusage total cannot.
+pub fn cpu_seconds_of(pid: u32) -> Option<f64> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The comm field is parenthesised and may contain spaces, so split after it
+    // rather than counting fields from the start.
+    let rest = stat.rsplit_once(')')?.1;
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    // After ") " the fields are state, ppid, ...; utime is field 14 overall,
+    // which lands at index 11 here.
+    let utime: u64 = f.get(11)?.parse().ok()?;
+    let stime: u64 = f.get(12)?.parse().ok()?;
+    // SAFETY: sysconf is a pure lookup with no memory effects.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let hz = if hz > 0 { hz as f64 } else { 100.0 };
+    Some((utime + stime) as f64 / hz)
+}
+
 /// Peak resident set size of a live process, in bytes, from `/proc/<pid>/status`
 /// `VmHWM` (a kernel-maintained high-water mark). Unprivileged and per-process,
 /// so it gives a peak-memory figure on any host, with no cgroup or root needed.

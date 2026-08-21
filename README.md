@@ -109,7 +109,9 @@ landing on real measured sizes.
 | fan-in | 4 producers into one consumer |
 
 Per cell: message rate, byte rate, latency quantiles, CPU seconds, context
-switches, peak RSS, and syscall counts normalised per 1000 messages. Each cell is
+switches, peak RSS, and syscall counts normalised per 1000 messages. The CPU
+total is also attributed to each end of the connection, so sending and receiving
+cost can be compared separately. Each cell is
 measured repeatedly and reported as a robust median; the replicate spread travels
 with it, and a cell whose rate is beaten by a larger payload in the same sweep is
 flagged as a measurement artifact rather than published as a result.
@@ -187,6 +189,13 @@ loopback carries their traffic and nothing else; both peers of a cell share the
 namespace, which is why it is per run rather than per process. CPU and context
 switches come from `getrusage`, peak memory from the summed per-process `VmHWM`,
 and syscall counts from `perf_event_open` tracepoints scoped to the cgroup.
+
+`getrusage` gives an exact CPU total for the cell but cannot say which process
+spent it, so the sender/receiver split comes from sampling `/proc/<pid>/stat` on
+the same 20 ms poll that tracks peak RSS. Those samples can miss the last tick
+before a process exits, so they are not published as absolute values: only their
+ratio is used, applied to the exact total. The two halves therefore always sum to
+the cell's CPU seconds.
 
 cgroups, network namespaces and perf all need root. Without it the run still works and still records
 CPU and memory, but the cells are unpinned and the syscall counters read zero.

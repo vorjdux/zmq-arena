@@ -90,6 +90,12 @@ struct CellRecord {
     latency: LatencySnapshot,
     throughput: Throughput,
     cpu_seconds: f64,
+    /// CPU split between the two ends of the cell. `getrusage` gives an exact
+    /// total but cannot attribute it, so the split comes from sampling each
+    /// process and is then scaled to the exact total: the parts always sum to
+    /// `cpu_seconds`, and only their ratio is sampled.
+    cpu_seconds_sender: f64,
+    cpu_seconds_receiver: f64,
     syscalls: SyscallCounters,
     sched: SchedCounters,
     peak_memory_bytes: u64,
@@ -484,6 +490,22 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Split an exact CPU total between two ends using their sampled ratio.
+///
+/// The sampled figures can each miss the last poll interval before a process
+/// exits, so they are not used as absolute values. Their ratio is sound, and
+/// applying it to the rusage total keeps the two parts summing to a figure that
+/// was measured exactly. With nothing sampled the split is unknown, and zeros
+/// say that rather than inventing an even one.
+fn split_cpu(total: f64, measured: f64, others: f64) -> (f64, f64) {
+    let sampled = measured + others;
+    if sampled <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let share = measured / sampled;
+    (total * share, total * (1.0 - share))
+}
+
 /// The metric a cell's replicates converge on and are ranked by: median
 /// round-trip (p50) for latency, receive rate for the throughput family. p50,
 /// not the p99/p99.9 tail, drives the stability gate because the tail on a
@@ -562,6 +584,8 @@ fn aggregate_cell(cell: &CellAcc, rep: &Replication) -> CellRecord {
         latency,
         throughput,
         cpu_seconds: median_f64(&kept, |r| r.cpu_seconds),
+        cpu_seconds_sender: median_f64(&kept, |r| r.cpu_seconds_sender),
+        cpu_seconds_receiver: median_f64(&kept, |r| r.cpu_seconds_receiver),
         syscalls,
         sched,
         peak_memory_bytes: median_u64(&kept, |r| r.peak_memory_bytes),
@@ -741,36 +765,57 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
     }
 }
 
+/// What the poll loop observed per process: peak RSS, and CPU split between the
+/// measured child (index 0) and everything else in the cell.
+pub struct CellUsage {
+    pub rss_total: u64,
+    /// CPU of the measured process, the one whose stdout carries the result.
+    pub cpu_measured: f64,
+    /// CPU of the cell's other processes summed.
+    pub cpu_others: f64,
+}
+
 /// Like `wait_until`, but samples the peak resident set size of every process in
 /// the cell (the measured child plus `others`, e.g. the producer and any drains)
-/// from `/proc/<pid>/status` on each poll, and returns their summed high-water
-/// mark in bytes. This is the grouped, unprivileged memory-footprint path: it
-/// needs neither root nor a cgroup, and the sum is what a library actually costs
-/// to run its full data path, not just one end. `VmHWM` is itself a kernel
+/// from `/proc/<pid>/status` on each poll, plus their CPU time from
+/// `/proc/<pid>/stat`. This is the grouped, unprivileged footprint path: it
+/// needs neither root nor a cgroup, and the summed RSS is what a library
+/// actually costs to run its full data path, not just one end. `VmHWM` is itself a kernel
 /// high-water mark, so tracking each process's max across polls (then summing)
 /// captures the peak even if a process exits before the loop ends.
-fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, u64) {
+fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, CellUsage) {
     let mut pids: Vec<u32> = Vec::with_capacity(others.len() + 1);
     pids.push(child.id());
     pids.extend_from_slice(others);
     let mut peaks = vec![0u64; pids.len()];
+    let mut cpus = vec![0f64; pids.len()];
+    let usage = |peaks: &[u64], cpus: &[f64]| CellUsage {
+        rss_total: peaks.iter().sum(),
+        cpu_measured: cpus.first().copied().unwrap_or(0.0),
+        cpu_others: cpus.iter().skip(1).sum(),
+    };
     loop {
         for (i, &pid) in pids.iter().enumerate() {
             if let Some(rss) = crate::telemetry::peak_rss_bytes(pid) {
                 peaks[i] = peaks[i].max(rss);
             }
+            // Monotonic per process, so the last reading before exit is the
+            // best estimate of what it spent.
+            if let Some(c) = crate::telemetry::cpu_seconds_of(pid) {
+                cpus[i] = cpus[i].max(c);
+            }
         }
         match child.try_wait() {
-            Ok(Some(_)) => return (true, peaks.iter().sum()),
+            Ok(Some(_)) => return (true, usage(&peaks, &cpus)),
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return (false, peaks.iter().sum());
+                    return (false, usage(&peaks, &cpus));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return (false, peaks.iter().sum()),
+            Err(_) => return (false, usage(&peaks, &cpus)),
         }
     }
 }
@@ -938,7 +983,7 @@ fn run_throughput(
     }
 
     let budget = Duration::from_secs((total / 50_000).max(10));
-    let (consumer_ok, rss_peak) =
+    let (consumer_ok, usage) =
         wait_until_peak(&mut consumer, &[producer.id()], Instant::now() + budget);
     let elapsed = t0.elapsed();
     let syscalls = syscall_probe.read();
@@ -984,8 +1029,10 @@ fn run_throughput(
     // data path, not one end.
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_receiver, cpu_sender) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -1003,7 +1050,9 @@ fn run_throughput(
             p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,
@@ -1055,7 +1104,7 @@ fn run_latency(
     let syscall_probe = open_syscall_probe(pub_cg.as_ref(), &cpus, client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
-    let (ok, rss_peak) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
+    let (ok, usage) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
     let syscalls = syscall_probe.read();
     let mut out = String::new();
     if let Some(mut so) = client.stdout.take() {
@@ -1085,8 +1134,10 @@ fn run_latency(
     };
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_sender, cpu_receiver) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -1095,7 +1146,9 @@ fn run_latency(
         latency,
         // Throughput is not measured for latency cells; render emits null.
         throughput: Throughput::default(),
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,
@@ -1209,7 +1262,7 @@ fn run_multipeer(
     // Sample every peer process too, so the memory footprint covers the whole
     // fan-out / fan-in topology, not just the measured consumer.
     let other_pids: Vec<u32> = others.iter().map(std::process::Child::id).collect();
-    let (ok, rss_peak) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
+    let (ok, usage) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
@@ -1239,8 +1292,10 @@ fn run_multipeer(
     };
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_receiver, cpu_sender) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -1256,7 +1311,9 @@ fn run_multipeer(
             p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,

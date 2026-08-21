@@ -113,6 +113,18 @@ const kindOk = k => (r => r.kind === k && !!r.throughput);
 const ctxTotal = r => ((r.sched && (r.sched.voluntary||0) + (r.sched.involuntary||0)) || 0);
 const syscTotal = r => { const p=r.syscalls_per_kmsg; return p ? Object.values(p).reduce((a,b)=>a+b,0) : 0; };
 
+// Cost per message is not one number: a library that batches well can look
+// cheap on 16 B and expensive on 16 KiB, and the two ends of a connection do
+// different work. The swept sizes split into three bands, and the orchestrator
+// attributes the cell's CPU to each end, so both cuts get their own board.
+const SIZE_BANDS = [
+  {key:"small", ok:r=>r.payload_bytes<=256},
+  {key:"medium", ok:r=>r.payload_bytes>256 && r.payload_bytes<=4096},
+  {key:"large", ok:r=>r.payload_bytes>4096},
+];
+const cpuOk = key => r => r[key]>0 && r.messages_basis>0;
+const cpuScore = key => r => r.messages_basis/r[key];
+
 // One board per metric. Best library depends on what you need, so there is no
 // single global winner: each metric is ranked on its own. Performance metrics are
 // message rate or latency; efficiency metrics are work done per unit of resource
@@ -130,6 +142,16 @@ const METRICS = [
    ok:kindOk("fanin"), score:r=>r.throughput.msgs_per_s, gated:true},
   {group:"Efficiency", label:"CPU per message", note:"Messages moved per CPU-second (both processes). Higher spends less CPU per message.",
    ok:r=>r.cpu_seconds>0 && r.messages_basis>0, score:r=>r.messages_basis/r.cpu_seconds, gated:false},
+  {group:"Efficiency", label:"CPU per message, small (\u2264 256 B)", note:"Messages per CPU-second over \u2264 256 B payloads only. Splitting the sweep shows who wins on tiny frames and who wins on bulk.",
+   ok:r=>cpuOk("cpu_seconds")(r) && SIZE_BANDS[0].ok(r), score:cpuScore("cpu_seconds"), gated:false},
+  {group:"Efficiency", label:"CPU per message, medium (257 B \u2013 4 KiB)", note:"Messages per CPU-second over 257 B \u2013 4 KiB payloads only. Splitting the sweep shows who wins on tiny frames and who wins on bulk.",
+   ok:r=>cpuOk("cpu_seconds")(r) && SIZE_BANDS[1].ok(r), score:cpuScore("cpu_seconds"), gated:false},
+  {group:"Efficiency", label:"CPU per message, large (> 4 KiB)", note:"Messages per CPU-second over > 4 KiB payloads only. Splitting the sweep shows who wins on tiny frames and who wins on bulk.",
+   ok:r=>cpuOk("cpu_seconds")(r) && SIZE_BANDS[2].ok(r), score:cpuScore("cpu_seconds"), gated:false},
+  {group:"Efficiency", label:"CPU per message (sender)", note:"Messages per CPU-second of the sending process alone. Needs a run with the per-end split.",
+   ok:cpuOk("cpu_seconds_sender"), score:cpuScore("cpu_seconds_sender"), gated:false},
+  {group:"Efficiency", label:"CPU per message (receiver)", note:"Messages per CPU-second of the receiving process alone. Needs a run with the per-end split.",
+   ok:cpuOk("cpu_seconds_receiver"), score:cpuScore("cpu_seconds_receiver"), gated:false},
   {group:"Efficiency", label:"Context switches per message", note:"Messages per context switch. Higher means less scheduler churn per message.",
    ok:r=>r.messages_basis>0 && ctxTotal(r)>0, score:r=>r.messages_basis/ctxTotal(r), gated:false},
   {group:"Efficiency", label:"Syscalls per message", note:"Inverse of kernel crossings per message. Batched io_uring beats per-message epoll. Needs captured counters.",
