@@ -261,7 +261,22 @@ TARGETS = [
 # one lane is what that variant IS, and it is labelled as such.
 IO_THREADS = "1"
 
-ISOLATION = {"cpuset_cpus": "0-3", "cpuset_mems": "0", "memory_max_bytes": 268435456}
+# Four CPUs so the two ends of a cell never time-share one, and a memory cap that
+# is generous for a benchmark but still catches a runaway.
+#
+# Which four matters on a hybrid or SMT part. `0-3` is only right when those are
+# four distinct physical performance cores. On a CPU that enumerates SMT siblings
+# adjacently, `0-3` is two physical cores with both threads of each, and the
+# producer and consumer end up sharing execution units; on Intel hybrid parts the
+# high-numbered CPUs are efficiency cores with different clocks entirely. Check
+# the host with
+#
+#     lscpu -e=CPU,CORE,MAXMHZ
+#
+# and pass --cpuset with one CPU per distinct performance core, e.g.
+# `--cpuset 0,2,4,6`.
+DEFAULT_CPUSET = "0-3"
+DEFAULT_MEMORY_MAX = 268435456
 
 # Replication policy recorded in the matrix so a run is reproducible from the file
 # alone. Each cell is measured at least min_replicates times as fresh process
@@ -380,6 +395,12 @@ def main():
     ap.add_argument("--sizes", default=",".join(map(str, DEFAULT_SIZES)),
                     help="comma-separated payload sizes in bytes")
     ap.add_argument("--out", default=str(REPO / "matrix.linode.json"), type=Path)
+    ap.add_argument("--cpuset", default=DEFAULT_CPUSET,
+                    help="cgroup cpuset for every cell; use one CPU per distinct "
+                         "physical performance core (see lscpu -e)")
+    ap.add_argument("--cpuset-mems", default="0", help="cgroup memory nodes")
+    ap.add_argument("--memory-max", default=DEFAULT_MEMORY_MAX, type=int,
+                    help="per-cell memory cap in bytes")
     args = ap.parse_args()
 
     sizes = [int(s) for s in args.sizes.split(",") if s]
@@ -400,13 +421,18 @@ def main():
             f"{len(headline(sizes))} headline + {len(extended(sizes))} "
             f"extended = {len(entries)} cells. Count-based kinds shrink their message "
             f"count as the payload grows so cells stay within budget; duration-based "
-            f"kinds run a {DURATION_SECS}s window. Each cell runs in a 4-core cpuset "
+            f"kinds run a {DURATION_SECS}s window. Each cell runs pinned to cpuset "
+            f"{args.cpuset} "
             f"so the producer and consumer do not time-share one core; the numbers "
             f"still come from a shared host, so treat them as the payload trend and "
             f"relative shape, not a final absolute verdict. Regenerate with: "
-            f"python3 scripts/gen_matrix.py"
+            f"python3 scripts/gen_matrix.py --cpuset {args.cpuset}"
         ),
-        "isolation": ISOLATION,
+        "isolation": {
+            "cpuset_cpus": args.cpuset,
+            "cpuset_mems": args.cpuset_mems,
+            "memory_max_bytes": args.memory_max,
+        },
         "replication": REPLICATION,
         "entries": entries,
     }
