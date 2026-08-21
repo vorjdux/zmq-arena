@@ -223,9 +223,9 @@
         "macOS",
         "Windows"
       ],
-      "bindings": "Go, Java, Lua, Node, Python (pyomq).",
+      "bindings": "C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby.",
       "arena_tier": "headline",
-      "notes": "All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set.",
+      "notes": "All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set. Bindings list corrected by the OMQ maintainer. OMQ.ts targets the browser over ZWS, which is outside a native-transport comparison and is not benchmarked here.",
       "source": "paddor/omq.rs README (8 stable transports; NULL/PLAIN/CURVE)"
     },
     {

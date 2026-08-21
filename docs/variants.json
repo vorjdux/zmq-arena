@@ -18,7 +18,8 @@
       "color": "#facc15",
       "engine": "libzmq",
       "io": "epoll",
-      "threading": "native"
+      "threading": "native",
+      "dash": null
     },
     {
       "key": "rust_zmq",
@@ -27,7 +28,11 @@
       "color": "#f59e0b",
       "engine": "libzmq",
       "io": "epoll",
-      "threading": "native"
+      "threading": "native",
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "tmq",
@@ -36,7 +41,11 @@
       "color": "#b45309",
       "engine": "libzmq",
       "io": "epoll",
-      "threading": "native"
+      "threading": "native",
+      "dash": [
+        2,
+        3
+      ]
     },
     {
       "key": "zeromq_rs",
@@ -45,7 +54,8 @@
       "color": "#93c5fd",
       "engine": "zmq.rs",
       "io": "epoll",
-      "threading": "multi"
+      "threading": "multi",
+      "dash": null
     },
     {
       "key": "zeromq_rs_async_std",
@@ -54,7 +64,11 @@
       "color": "#3b82f6",
       "engine": "zmq.rs",
       "io": "epoll",
-      "threading": "multi"
+      "threading": "multi",
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "zeromq_rs_async_dispatcher",
@@ -63,7 +77,11 @@
       "color": "#1e40af",
       "engine": "zmq.rs",
       "io": "epoll",
-      "threading": "multi"
+      "threading": "multi",
+      "dash": [
+        2,
+        3
+      ]
     },
     {
       "key": "omq_tokio",
@@ -72,7 +90,8 @@
       "color": "#fca5a5",
       "engine": "omq",
       "io": "epoll",
-      "threading": "single"
+      "threading": "single",
+      "dash": null
     },
     {
       "key": "omq_tokio_mt",
@@ -81,7 +100,11 @@
       "color": "#ef4444",
       "engine": "omq",
       "io": "epoll",
-      "threading": "multi"
+      "threading": "multi",
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "omq_blocking",
@@ -90,7 +113,11 @@
       "color": "#991b1b",
       "engine": "omq",
       "io": "epoll",
-      "threading": "single"
+      "threading": "single",
+      "dash": [
+        2,
+        3
+      ]
     },
     {
       "key": "monocoque",
@@ -99,7 +126,8 @@
       "color": "#5eead4",
       "engine": "monocoque",
       "io": "io_uring",
-      "threading": "single"
+      "threading": "single",
+      "dash": null
     },
     {
       "key": "monocoque_tokio",
@@ -108,7 +136,11 @@
       "color": "#14b8a6",
       "engine": "monocoque",
       "io": "epoll",
-      "threading": "single"
+      "threading": "single",
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "monocoque_smol",
@@ -117,7 +149,11 @@
       "color": "#0f645f",
       "engine": "monocoque",
       "io": "epoll",
-      "threading": "single"
+      "threading": "single",
+      "dash": [
+        2,
+        3
+      ]
     },
     {
       "key": "rzmq",
@@ -127,7 +163,8 @@
       "engine": "rzmq",
       "io": "io_uring",
       "threading": "multi",
-      "stub": true
+      "stub": true,
+      "dash": null
     },
     {
       "key": "celerity",
@@ -137,7 +174,8 @@
       "engine": "celerity",
       "io": "epoll",
       "threading": "multi",
-      "stub": true
+      "stub": true,
+      "dash": null
     },
     {
       "key": "omq_compio",
@@ -147,7 +185,8 @@
       "engine": "omq",
       "io": "io_uring",
       "threading": "single",
-      "retired": true
+      "retired": true,
+      "dash": null
     },
     {
       "key": "omq_compio_st",
@@ -157,8 +196,13 @@
       "engine": "omq",
       "io": "io_uring",
       "threading": "single",
-      "retired": true
+      "retired": true,
+      "dash": [
+        7,
+        4
+      ]
     }
   ],
-  "_retired_note": "Retired entries stay so archived runs that measured them still render a name and a colour instead of a raw key. Stub entries are targets with no socket loop yet; they never produce records, but keeping them here means adding the loop needs no presentation change."
+  "_retired_note": "Retired entries stay so archived runs that measured them still render a name and a colour instead of a raw key. Stub entries are targets with no socket loop yet; they never produce records, but keeping them here means adding the loop needs no presentation change.",
+  "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine."
 }

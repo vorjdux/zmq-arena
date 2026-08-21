@@ -160,7 +160,7 @@
 // Series identity, filled from variants.json by loadVariants() before anything
 // renders. Declared up here because the sort and colour helpers below close
 // over them.
-let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+let VARIANT_LABEL = {}, VARIANT_COLOR = {}, VARIANT_DASH = {}, ENGINE_COLOR = {}, VORDER = [];
 
 // ── registries ────────────────────────────────────────────────────
 // One stable colour per library so the same line is the same colour in every panel.
@@ -207,7 +207,8 @@ async function loadVariants(){
   if(!r.ok) throw new Error("variants.json -> " + r.status);
   const d = await r.json();
   ENGINE_COLOR = d.engines || {};
-  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color; }
+  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color;
+    VARIANT_DASH[v.key] = v.dash || null; }
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -405,7 +406,7 @@ function drawPanel(p){
   const logy=el("logscale").checked;
   const series=vars.map(v=>({
     name:VARIANT_LABEL[v]||v, type:"line", symbol:"circle", symbolSize:5, smooth:false, connectNulls:true,
-    lineStyle:{width:2,color:colorOf(v)}, itemStyle:{color:colorOf(v)},
+    lineStyle:{width:2,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},
     data:sizes.map(s=>{ const r=recs.find(x=>x.payload_bytes===s&&x.variant===v); return [s, r?m.get(r):null]; }),
   }));
   p.chart.setOption({
@@ -414,11 +415,19 @@ function drawPanel(p){
     grid:{left:58,right:16,top:14,bottom:34},
     tooltip:{trigger:"axis", backgroundColor:css("--panel2"), borderColor:css("--line"),
       textStyle:{color:css("--fg")},
+      // Keep the popup inside the panel. With twelve series it is tall, and near
+      // the panel edges it was being clipped by the container instead of being
+      // nudged back in.
+      confine:true, extraCssText:"max-height:none;",
       formatter:pts=>{ const s=fmtPayload(pts[0].value[0]); const better=m.better;
         const rows=pts.filter(p=>p.value[1]!=null).sort((a,b)=>better==="lower"?a.value[1]-b.value[1]:b.value[1]-a.value[1])
           .map(p=>`${p.marker}${p.seriesName}: <b>${m.fmt(p.value[1])}</b>`);
         return `<b>${s}</b><br>${rows.join("<br>")}`; }},
-    xAxis:{type:"log", axisLabel:{color:css("--muted"),formatter:v=>fmtPayload(v)},
+    // logBase 2, not the default 10. Every payload in the sweep is a power of
+    // two, so base-2 ticks land exactly on measured sizes; base 10 ticked at
+    // 10000 B and rendered it as "9.765625 KiB", which reads as a rounding bug.
+    xAxis:{type:"log", logBase:2,
+      axisLabel:{color:css("--muted"),formatter:v=>fmtPayload(v)},
       axisLine:{lineStyle:{color:css("--line")}}, splitLine:{show:false}},
     yAxis:{type:logy?"log":"value", name:m.axis, nameTextStyle:{color:css("--muted"),align:"left"},
       axisLabel:{color:css("--muted")}, splitLine:{lineStyle:{color:css("--line"),opacity:.5}}},

@@ -49,7 +49,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 # Monocoque's throughput-bench size set.
-DEFAULT_SIZES = [64, 256, 1024, 4096, 16384]
+# 16 B is here on purpose: libzmq keeps messages up to ~33 bytes inline in the
+# message struct and OMQ up to ~55, so a sweep that starts at 64 never exercises
+# either small-message path and the engines look more alike at the small end than
+# they are. Every size is a power of two and each is 4x the last, which also
+# keeps the log axis honest.
+DEFAULT_SIZES = [16, 64, 256, 1024, 4096, 16384]
 
 # Count-based kinds: messages per payload size. Larger payloads carry fewer
 # messages so total bytes and wall time stay bounded.
@@ -61,8 +66,8 @@ DEFAULT_SIZES = [64, 256, 1024, 4096, 16384]
 # to settle the tail -- too little warmup lets the first cold round-trips dominate
 # p99.9, and too few samples make p99.9 itself noisy. Throughput reaches steady
 # state fast, so a modest 10% discarded prefix is enough.
-THROUGHPUT_MSGS = {64: 200000, 256: 150000, 1024: 100000, 4096: 50000, 16384: 20000}
-LATENCY_MSGS = {64: 40000, 256: 40000, 1024: 30000, 4096: 20000, 16384: 20000}
+THROUGHPUT_MSGS = {16: 200000, 64: 200000, 256: 150000, 1024: 100000, 4096: 50000, 16384: 20000}
+LATENCY_MSGS = {16: 40000, 64: 40000, 256: 40000, 1024: 30000, 4096: 20000, 16384: 20000}
 
 # Peer counts for the duration-based kinds, and their window. A longer window
 # averages out scheduling jitter on a shared core.

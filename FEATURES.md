@@ -20,7 +20,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 | CURVE | declared | declared | declared | no | declared | declared | declared | declared |
 | usable without an async runtime | yes | yes | no | no | yes | no | no | partial |
 | platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows |
-| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | Go, Java, Lua, Node, Python (pyomq). | None. | None. | None. |
+| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. |
 | benchmarked here | headline + extended (reference) | headline | headline + extended | headline | headline | headline + extended | not benchmarked (target is a describe-only stub) | not benchmarked (target is a describe-only stub) |
 
 ## Notes
@@ -55,7 +55,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
 - Runtime: Offers both: `Context::new().blocking_socket(...)` is a sync socket over OMQ-owned IO threads, and `Context::current()` embeds in an existing tokio runtime.
-- All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set.
+- All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set. Bindings list corrected by the OMQ maintainer. OMQ.ts targets the browser over ZWS, which is outside a native-transport comparison and is not benchmarked here.
 - Source: paddor/omq.rs README (8 stable transports; NULL/PLAIN/CURVE)
 
 ### monocoque 0.4.0
