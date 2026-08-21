@@ -459,12 +459,38 @@ function buildCharts(){
   // Done by restyling rather than by ECharts' emphasis: the axis-trigger tooltip
   // owns the pointer, so the built-in focus/blur never fires.
   for(const ch of [evoChart, sweepChart]){
-    ch.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    ch.on("mouseover", e=>{
+      if(!e.seriesName) return;
+      focusSeries(e.seriesName);
+      const idx = e.dataIndex!=null ? e.dataIndex : ch.__tipIndex;
+      // hideTip first: showTip alone is a no-op on an already-open column, so
+      // the formatter would not re-run and the row would stay unmarked.
+      if(idx!=null){
+        ch.dispatchAction({type:"hideTip"});
+        ch.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
+      }
+    });
     ch.on("mouseout", ()=>focusSeries(null));
   }
 }
 
+// Which series the pointer is on, read by the tooltip formatter so the hovered
+// line's row is marked. See index.html for why the tooltip has to be forced to
+// re-render when this changes.
+let HOVERED = null;
+
+// One tooltip row; the hovered series gets a tinted, bolded one.
+function tipRow(marker, name, value){
+  const on = name===HOVERED;
+  const style = on
+    ? "display:block;margin:1px -6px;padding:1px 6px;border-radius:3px;"
+      +"background:rgba(255,255,255,.12);font-weight:700;"
+    : "display:block;margin:1px 0;";
+  return `<span style="${style}">${marker}${name}: <b>${value}</b></span>`;
+}
+
 function focusSeries(name){
+  HOVERED = name;
   for(const ch of [evoChart, sweepChart]){
     if(!ch) continue;
     const cur=ch.getOption().series||[];
@@ -561,10 +587,11 @@ function renderSweep(){
   // axis is labelled, and give the rows their unit.
   opt.tooltip=Object.assign({}, opt.tooltip, {
     formatter:pts=>{
+      sweepChart.__tipIndex = pts[0].dataIndex;
       const head=fmtPayload(pts[0].axisValue);
       const rows=pts.filter(x=>x.value!=null&&x.value[1]!=null)
-        .map(x=>`${x.marker}${x.seriesName}: <b>${x.value[1]}</b> ${m.unit}`);
-      return `<b>${head}</b><br>${rows.join("<br>")}`;
+        .map(x=>tipRow(x.marker, x.seriesName, `${x.value[1]} ${m.unit}`));
+      return `<b>${head}</b>${rows.join("")}`;
     }});
   opt.series=series;
   sweepChart.setOption(opt,true);

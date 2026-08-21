@@ -367,7 +367,13 @@ function eachChart(fn){ PANELS.forEach(p=>{ if(p.chart) fn(p.chart); }); }
 // rather than by dispatching ECharts' highlight action: with an axis-trigger
 // tooltip the axis pointer owns the hover, so the built-in emphasis/blur never
 // fires and the action is a no-op. Passing null restores everything.
+// Which series the pointer is currently on, or null. The tooltip formatter
+// reads it to mark that row, so "which line am I on" is answerable without
+// matching a colour against the legend.
+let HOVERED = null;
+
 function focusSeries(name){
+  HOVERED = name;
   eachChart(ch=>{
     const cur=ch.getOption().series||[];
     ch.setOption({series:cur.map(s=>{
@@ -393,6 +399,17 @@ function applyPreset(p){
 // cannot serve both, and the old fixed Mmsg/s rendered every pub/sub row as
 // "0.00", which reads as a broken chart rather than a small number. Values stay
 // raw and the formatter picks the unit per value instead.
+// One tooltip row. The hovered series gets a tinted, bolded row so the line
+// under the pointer is identifiable at a glance; everything else stays plain.
+function tipRow(marker, name, value){
+  const on = name===HOVERED;
+  const style = on
+    ? "display:block;margin:1px -6px;padding:1px 6px;border-radius:3px;"
+      +"background:rgba(255,255,255,.12);font-weight:700;"
+    : "display:block;margin:1px 0;";
+  return `<span style="${style}">${marker}${name}: <b>${value}</b></span>`;
+}
+
 function panelMetric(kind){
   if(kind==="latency"){ const p=segVal("latpctSeg");
     return {get:r=>r.latency_ns[p]/1000, axis:`${p==="p999"?"p99.9":p} latency (µs)`,
@@ -443,7 +460,26 @@ function buildPanels(){
     // Pointing at a line marks it, in this panel and every other. triggerLineEvent
     // (set on each series) makes the whole line a hover target rather than only
     // its data points, so this fires wherever the pointer meets the line.
-    chart.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    // ECharts only re-renders an axis tooltip when the pointer moves to a new
+    // column, so setting the hovered series is not enough on its own: moving
+    // ALONG a line never crosses a column and the marked row would not appear
+    // until the pointer happened to move sideways. Re-issue the tooltip at the
+    // point under the cursor so the mark lands on the same movement.
+    chart.on("mouseover", e=>{
+      if(!e.seriesName) return;
+      focusSeries(e.seriesName);
+      // Hovering the line rather than one of its points gives no dataIndex, so
+      // fall back to the column the tooltip is already showing.
+      const idx = e.dataIndex!=null ? e.dataIndex : panel.tipIndex;
+      // showTip on its own is a no-op when the tooltip is already open on that
+      // column: ECharts sees no state change and does not re-run the formatter,
+      // so the newly hovered row would stay unmarked. Close it first to force a
+      // real re-render. Same frame, so there is no visible flicker.
+      if(idx!=null){
+        chart.dispatchAction({type:"hideTip"});
+        chart.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
+      }
+    });
     chart.on("mouseout", ()=>focusSeries(null));
     const panel={group:g, chart, details:d};
     d.addEventListener("toggle",()=>{ if(d.open){ chart.resize(); drawPanel(panel); } });
@@ -482,9 +518,12 @@ function drawPanel(p){
       // nudged back in.
       confine:true, extraCssText:"max-height:none;",
       formatter:pts=>{ const s=fmtPayload(pts[0].value[0]); const better=m.better;
+        // The column the tooltip is on. A line-level mouseover carries no
+        // dataIndex, so this is how the refresh below knows where to reopen it.
+        p.tipIndex = pts[0].dataIndex;
         const rows=pts.filter(p=>p.value[1]!=null).sort((a,b)=>better==="lower"?a.value[1]-b.value[1]:b.value[1]-a.value[1])
-          .map(p=>`${p.marker}${p.seriesName}: <b>${m.fmt(p.value[1])}</b>`);
-        return `<b>${s}</b><br>${rows.join("<br>")}`; }},
+          .map(p=>tipRow(p.marker, p.seriesName, m.fmt(p.value[1])));
+        return `<b>${s}</b><br>${rows.join("")}`; }},
     // logBase 2, not the default 10. Every payload in the sweep is a power of
     // two, so base-2 ticks land exactly on measured sizes; base 10 ticked at
     // 10000 B and rendered it as "9.765625 KiB", which reads as a rounding bug.
