@@ -114,6 +114,7 @@ name = "celerity-target"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "celerity",
  "clap",
  "tokio",

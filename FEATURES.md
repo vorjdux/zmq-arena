@@ -13,15 +13,15 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 | version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.3 | 0.4.0 | 0.5.25 | 0.1.1 |
 | language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust |
 | implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native |
-| socket types | 12 | 12 | 12 | 9 | 11 | 12 | declared | declared |
+| socket types | 12 | 12 | 12 | 9 | 11 | 12 | 8 | 4 |
 | transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc | tcp |
-| NULL | yes | yes | yes | yes | yes | yes | declared | declared |
+| NULL | yes | yes | yes | yes | yes | yes | yes | declared |
 | PLAIN | declared | declared | declared | no | declared | declared | declared | declared |
 | CURVE | declared | declared | declared | no | declared | declared | declared | declared |
 | usable without an async runtime | yes | yes | no | no | yes | no | no | partial |
 | platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows |
 | bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. |
-| benchmarked here | headline + extended (reference) | headline | headline + extended | headline | headline | headline + extended | not benchmarked (target is a describe-only stub) | not benchmarked (target is a describe-only stub) |
+| benchmarked here | headline + extended (reference) | headline | headline + extended | headline | headline | headline + extended | headline + extended | latency and pub/sub only |
 
 ## Notes
 
@@ -67,15 +67,15 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 ### rzmq 0.5.25
 
-- Socket types: declared: REQ, REP, DEALER, ROUTER, PUB, SUB, PUSH, PULL
-- Runtime: tokio, with an io_uring path on Linux.
-- Every row here is the project's claim. The arena has not run a single cell against rzmq, so nothing in it is verified.
-- Source: crates.io/rzmq
+- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, PUSH, PULL
+- Runtime: Tokio, with an optional io_uring session (zero-copy send, multishot receive). Both backends are benchmarked as separate variants.
+- Both IO backends are measured: the stock epoll one and the io_uring session, configured the way the rzmq peer in the omq.rs comparison harness configures it. All five patterns run.
+- Source: crates.io/rzmq; socket loop verified against the running engine
 
 ### celerity 0.1.1
 
-- Socket types: declared: sans-IO ZMTP 3.1 core
-- Runtime: The protocol core is sans-IO, so it can be driven without a runtime; the shipped driver is tokio.
-- Every row here is the project's claim. The arena has not run a single cell against celerity. The target also pinned a nonexistent 0.2.0 until it was corrected to 0.1.1, so it could not even resolve, let alone measure.
-- Source: crates.io/celerity
+- Socket types: REQ, REP, PUB, SUB
+- Runtime: Sans-IO core with the crate's own Tokio socket adapters, which is what this wrapper drives.
+- celerity 0.1.1 has no pipeline pattern: the crate ships PubCore, SubCore, ReqCore and RepCore and no PUSH/PULL, so throughput, fan-out and fan-in have nothing to drive and are not scheduled. The wrapper rejects them rather than substituting a different pattern.
+- Source: crates.io/celerity; socket loop verified against the running engine
 

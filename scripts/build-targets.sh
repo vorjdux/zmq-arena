@@ -75,6 +75,8 @@ build_runtime_variant targets/zeromq_rs_target async-dispatcher-rt target-async-
 build_rust_target targets/rust_zmq_target
 # tmq: Tokio bindings over the same libzmq, through rust-zmq.
 build_rust_target targets/tmq_target
+# rzmq: one binary, epoll and io_uring variants selected at run time.
+# celerity: PUB/SUB and REQ/REP only, no pipeline pattern.
 # omq.rs comparison roster. One binary covers all three omq variants
 # (current-thread, multi-thread, blocking): it selects them at run time.
 build_rust_target targets/omq_tokio_target

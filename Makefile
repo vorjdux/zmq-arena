@@ -23,6 +23,7 @@ regen = @if [ "$(MATRIX)" = "$(GEN_MATRIX)" ]; then python3 scripts/gen_matrix.p
 
 .PHONY: all build orchestrator libzmq monocoque monocoque-tokio monocoque-smol \
         zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
+        rzmq celerity \
         targets-all matrix bench render variants run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
@@ -32,7 +33,8 @@ all: build run            ## build everything, then run + render
 # variant. omq selects its third model (blocking) at run time, so one build
 # covers all three of its variants.
 build: orchestrator libzmq monocoque monocoque-tokio monocoque-smol \
-       zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio  ## build the control plane and every runnable variant
+       zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
+       rzmq celerity  ## build the control plane and every runnable variant
 
 matrix:                   ## regenerate matrix.linode.json (payload sweep, all kinds)
 	python3 scripts/gen_matrix.py
@@ -71,6 +73,12 @@ rust-zmq:                 ## build the rust-zmq target (links system libzmq)
 
 tmq:                      ## build the tmq target (Tokio bindings over libzmq)
 	cd targets/tmq_target && cargo build --release
+
+rzmq:                     ## build the rzmq target (one binary; epoll and io_uring variants)
+	cd targets/rzmq_target && cargo build --release
+
+celerity:                 ## build the celerity target (latency and pub/sub only)
+	cd targets/celerity_target && cargo build --release
 
 omq-tokio:                ## build the omq target (one binary; its three variants
                           ## current-thread, multi-thread and blocking are selected by --variant)
@@ -111,6 +119,7 @@ clean:                    ## remove scratch and all build artifacts
 		targets/zeromq_rs_target/target targets/zeromq_rs_target/target-async-std \
 		targets/zeromq_rs_target/target-async-dispatcher \
 		targets/rust_zmq_target/target targets/tmq_target/target \
+		targets/rzmq_target/target targets/celerity_target/target \
 		targets/omq_tokio_target/target
 
 help:                     ## list these targets

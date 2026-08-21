@@ -142,6 +142,36 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # rzmq, epoll backend. The engine ships two IO backends and both are
+        # measured; the io_uring one is the entry below.
+        "id": "rzmq",
+        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "variant": "default",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Same binary, io_uring session with zero-copy send and multishot recv,
+        # matching the rzmq peer in the omq.rs comparison harness.
+        "id": "rzmq",
+        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "variant": "io_uring",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # pipeline core, so there is no PUSH/PULL to drive and the pipeline
+        # kinds are simply not scheduled for it.
+        "id": "celerity",
+        "binary": "targets/celerity_target/target/release/celerity-target",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ["latency", "pubsub"],
+    },
+    {
         # tmq: Tokio bindings over libzmq (via rust-zmq). The engine is libzmq,
         # so it runs all five kinds; the series is here to isolate binding and
         # async-wrapper overhead against `libzmq` and `rust_zmq`, which reach the

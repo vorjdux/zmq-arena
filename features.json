@@ -275,26 +275,33 @@
       "impl": "native",
       "version": "0.5.25",
       "socket_types": [
-        "declared: REQ, REP, DEALER, ROUTER, PUB, SUB, PUSH, PULL"
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "PUSH",
+        "PULL"
       ],
       "transports": [
         "tcp",
         "ipc"
       ],
       "security": {
-        "null": "declared",
+        "null": "yes",
         "plain": "declared",
         "curve": "declared"
       },
       "runtime_free": "no",
-      "runtime_note": "tokio, with an io_uring path on Linux.",
+      "runtime_note": "Tokio, with an optional io_uring session (zero-copy send, multishot receive). Both backends are benchmarked as separate variants.",
       "platforms": [
         "Linux"
       ],
       "bindings": "None.",
-      "arena_tier": "not benchmarked (target is a describe-only stub)",
-      "notes": "Every row here is the project's claim. The arena has not run a single cell against rzmq, so nothing in it is verified.",
-      "source": "crates.io/rzmq"
+      "arena_tier": "headline + extended",
+      "notes": "Both IO backends are measured: the stock epoll one and the io_uring session, configured the way the rzmq peer in the omq.rs comparison harness configures it. All five patterns run.",
+      "source": "crates.io/rzmq; socket loop verified against the running engine"
     },
     {
       "id": "celerity",
@@ -303,7 +310,10 @@
       "impl": "native",
       "version": "0.1.1",
       "socket_types": [
-        "declared: sans-IO ZMTP 3.1 core"
+        "REQ",
+        "REP",
+        "PUB",
+        "SUB"
       ],
       "transports": [
         "tcp"
@@ -314,16 +324,16 @@
         "curve": "declared"
       },
       "runtime_free": "partial",
-      "runtime_note": "The protocol core is sans-IO, so it can be driven without a runtime; the shipped driver is tokio.",
+      "runtime_note": "Sans-IO core with the crate's own Tokio socket adapters, which is what this wrapper drives.",
       "platforms": [
         "Linux",
         "macOS",
         "Windows"
       ],
       "bindings": "None.",
-      "arena_tier": "not benchmarked (target is a describe-only stub)",
-      "notes": "Every row here is the project's claim. The arena has not run a single cell against celerity. The target also pinned a nonexistent 0.2.0 until it was corrected to 0.1.1, so it could not even resolve, let alone measure.",
-      "source": "crates.io/celerity"
+      "arena_tier": "latency and pub/sub only",
+      "notes": "celerity 0.1.1 has no pipeline pattern: the crate ships PubCore, SubCore, ReqCore and RepCore and no PUSH/PULL, so throughput, fan-out and fan-in have nothing to drive and are not scheduled. The wrapper rejects them rather than substituting a different pattern.",
+      "source": "crates.io/celerity; socket loop verified against the running engine"
     }
   ]
 }

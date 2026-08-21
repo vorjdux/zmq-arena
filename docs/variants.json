@@ -158,13 +158,25 @@
     {
       "key": "rzmq",
       "label": "rzmq",
+      "note": "epoll",
+      "color": "#86efac",
+      "engine": "rzmq",
+      "io": "epoll",
+      "threading": "multi",
+      "dash": null
+    },
+    {
+      "key": "rzmq_io_uring",
+      "label": "rzmq (io_uring)",
       "note": "io_uring",
-      "color": "#22c55e",
+      "color": "#16a34a",
       "engine": "rzmq",
       "io": "io_uring",
       "threading": "multi",
-      "stub": true,
-      "dash": null
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "celerity",
@@ -174,7 +186,6 @@
       "engine": "celerity",
       "io": "epoll",
       "threading": "multi",
-      "stub": true,
       "dash": null
     },
     {

@@ -273,12 +273,16 @@ function isoLine(run){
   const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
   const sysc = run.syscall_counting && run.syscall_counting.captured === false
     ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
+  // Only worth saying when the run asked for a namespace and did not get one:
+  // those cells shared host loopback with everything else on the machine.
+  const ns = run.netns && run.netns.requested && run.netns.applied === false
+    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
   const rep = run.replication
     ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
   if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}`;
+    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
   }
-  return ` \u00b7 ${asked}${rep}${sysc}`;
+  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
 }
 
 async function load(){

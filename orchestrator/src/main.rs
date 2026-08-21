@@ -18,6 +18,7 @@
 mod cgroups;
 mod config;
 mod host;
+mod netns;
 mod stats;
 mod telemetry;
 
@@ -274,6 +275,36 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     // Checked before any cell runs, so a misconfigured bench host fails in
     // seconds rather than after hours of measuring numbers nobody should use.
     host.enforce()?;
+    // One namespace per run, created only if some cell actually asks for it.
+    // Both peers of a cell must share it, so it cannot be per process.
+    let wants_netns = cfg
+        .entries
+        .iter()
+        .any(|e| matches!(e.transport, Transport::TcpNetns));
+    let ns = if wants_netns {
+        match netns::NetNs::create(&args.run_id) {
+            Ok(ns) => {
+                println!(
+                    "zmq-arena: network namespace {} (tcp_netns cells isolated)",
+                    ns.name()
+                );
+                Some(ns)
+            }
+            Err(e) => {
+                eprintln!(
+                    "  network namespace unavailable ({e}); tcp_netns cells will run on host \
+                     loopback, sharing it with everything else on this machine"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let netns_applied = ns.is_some();
+    let netns_name = ns.as_ref().map(|n| n.name().to_string());
+    let _ = NETNS.set(ns);
+
     let host_path = args.out.join("_host.json");
     std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
         .with_context(|| format!("writing {}", host_path.display()))?;
@@ -418,6 +449,22 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
             },
         },
         "replication": rep,
+        // Requested and applied kept separate, like the cgroup isolation above:
+        // without a namespace the tcp cells ran on host loopback, which is a
+        // noisier path than the matrix describes.
+        "netns": {
+            "requested": wants_netns,
+            "applied": netns_applied,
+            "name": netns_name,
+            "note": if !wants_netns {
+                "not requested: no tcp_netns cells in this matrix"
+            } else if netns_applied {
+                "per-run network namespace with a private loopback"
+            } else {
+                "NOT applied: could not create a namespace (needs root), so tcp cells \
+                 shared host loopback"
+            },
+        },
         "syscall_counting": {
             "captured": telemetry::syscalls_were_captured(),
             "note": if telemetry::syscalls_were_captured() {
@@ -728,6 +775,23 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
 /// Best-effort cgroup leaf. Returns None (with a one-line warning) when
 /// provisioning fails, e.g. when not root. The arena then runs without
 /// isolation, which is fine for functional tests on a dev VM.
+/// The run's network namespace, or None when one could not be created. Held in
+/// a `OnceLock` rather than threaded through every cell function: it is a property
+/// of the run, and all five spawn sites need it.
+static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::new();
+
+/// Build the command for a target, inside the run's network namespace when the
+/// cell asked for `tcp_netns` and one exists. Every target spawn goes through
+/// here so no path can quietly escape the isolation.
+fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
+    if matches!(entry.transport, Transport::TcpNetns)
+        && let Some(ns) = NETNS.get().and_then(Option::as_ref)
+    {
+        return ns.command(binary);
+    }
+    ProcCommand::new(binary)
+}
+
 static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
 /// Set the first time a cgroup leaf is actually created and limited. The matrix
 /// *asks* for a cpuset and a memory cap; without root it silently does not get
@@ -822,7 +886,7 @@ fn run_throughput(
 
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut consumer = ProcCommand::new(binary)
+    let mut consumer = target_command(binary, entry)
         .args(target_args(entry, "sub", &endpoint))
         .stdout(Stdio::piped())
         .spawn()
@@ -839,7 +903,7 @@ fn run_throughput(
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
-    let mut producer = ProcCommand::new(binary)
+    let mut producer = target_command(binary, entry)
         .args(target_args(entry, "pub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -940,7 +1004,7 @@ fn run_latency(
 
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut server = ProcCommand::new(binary)
+    let mut server = target_command(binary, entry)
         .args(target_args(entry, "sub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning REP server {}", binary.display()))?;
@@ -949,7 +1013,7 @@ fn run_latency(
     }
     std::thread::sleep(Duration::from_millis(150)); // let the server bind
 
-    let mut client = ProcCommand::new(binary)
+    let mut client = target_command(binary, entry)
         .args(target_args(entry, "pub", &endpoint))
         .stdout(Stdio::piped())
         .spawn()
@@ -1051,7 +1115,7 @@ fn run_multipeer(
     let mut measured = if producer_binds {
         // pubsub / fanout: one producer binds and accepts `peers`; the consumers
         // connect, one measured and the rest draining.
-        let prod = ProcCommand::new(binary)
+        let prod = target_command(binary, entry)
             .args(peer_args(entry, "pub", &endpoint, true, duration))
             .spawn()
             .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -1061,7 +1125,7 @@ fn run_multipeer(
         others.push(prod);
         std::thread::sleep(Duration::from_millis(200));
 
-        let m = ProcCommand::new(binary)
+        let m = target_command(binary, entry)
             .args(peer_args(entry, "sub", &endpoint, false, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -1070,7 +1134,7 @@ fn run_multipeer(
             let _ = cg.attach(m.id());
         }
         for _ in 1..peers {
-            let d = ProcCommand::new(binary)
+            let d = target_command(binary, entry)
                 .args(peer_args(entry, "sub", &endpoint, false, duration))
                 .stdout(Stdio::null())
                 .stderr(Stdio::null()) // non-measured peers do not spam stderr
@@ -1085,7 +1149,7 @@ fn run_multipeer(
     } else {
         // fanin: the single consumer (sink) binds and accepts `peers`; the
         // producers connect and send forever.
-        let m = ProcCommand::new(binary)
+        let m = target_command(binary, entry)
             .args(peer_args(entry, "sub", &endpoint, true, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -1095,7 +1159,7 @@ fn run_multipeer(
         }
         std::thread::sleep(Duration::from_millis(200));
         for _ in 0..peers {
-            let p = ProcCommand::new(binary)
+            let p = target_command(binary, entry)
                 .args(peer_args(entry, "pub", &endpoint, false, duration))
                 .stderr(Stdio::null()) // non-measured peers do not spam stderr
                 .spawn()
