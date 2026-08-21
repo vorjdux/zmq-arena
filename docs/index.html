@@ -58,6 +58,7 @@
     background:var(--panel); user-select:none; opacity:.45; }
   .chip.on { opacity:1; }
   .chip .sw { width:11px; height:11px; border-radius:50%; }
+  .chip .swline { margin-right:7px; vertical-align:middle; flex:0 0 auto; }
   .chip small { color:var(--muted); }
   main { padding:14px 24px 8px; display:grid; gap:16px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
@@ -273,12 +274,16 @@ function isoLine(run){
   const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
   const sysc = run.syscall_counting && run.syscall_counting.captured === false
     ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
+  // Only worth saying when the run asked for a namespace and did not get one:
+  // those cells shared host loopback with everything else on the machine.
+  const ns = run.netns && run.netns.requested && run.netns.applied === false
+    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
   const rep = run.replication
     ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
   if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}`;
+    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
   }
-  return ` \u00b7 ${asked}${rep}${sysc}`;
+  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
 }
 
 async function load(){
@@ -341,13 +346,28 @@ function verLabel(m){
   return m.lib || "";
 }
 
+// The legend key, drawn as a short line rather than a dot.
+//
+// The chart identifies a series by colour AND dash: hue says which engine, dash
+// says which of its runtimes. A dot could only show the hue, so three omq lines
+// differing by dash all mapped to three near-identical salmon dots and the
+// legend stopped being a key to the chart. Drawing the actual line, at the
+// width the chart uses, also matches how a thin antialiased stroke reads against
+// the dark background, which a solid dot does not.
+function swatch(v){
+  const dash = VARIANT_DASH[v];
+  const da = Array.isArray(dash) ? ` stroke-dasharray="${dash.join(" ")}"` : "";
+  return `<svg class="swline" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">`
+    + `<line x1="0" y1="5" x2="22" y2="5" stroke="${colorOf(v)}" stroke-width="2.5"${da}/></svg>`;
+}
+
 function buildChips(){
   const box=el("chips"); box.innerHTML="";
   for(const v of VARIANTS){
     const m=VARMETA[v]||{};
     const c=document.createElement("span");
     c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
-    c.innerHTML=`<span class="sw" style="background:${colorOf(v)}"></span>${VARIANT_LABEL[v]||v}`+
+    c.innerHTML=`${swatch(v)}${VARIANT_LABEL[v]||v}`+
       `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
@@ -495,7 +515,7 @@ function drawPanel(p){
   const logy=el("logscale").checked;
   const series=vars.map(v=>({
     name:VARIANT_LABEL[v]||v, type:"line", symbol:"circle", symbolSize:5, smooth:false, connectNulls:true,
-    lineStyle:{width:2,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},
+    lineStyle:{width:2.5,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},
     // Pointing at a line singles it out and fades the rest, so a reader can
     // answer "which one is this" without counting dash patterns against the
     // legend. triggerLineEvent makes the whole line hoverable, not just its

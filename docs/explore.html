@@ -205,7 +205,18 @@ function iosysPerK(r){
   if(!p || r.syscalls_captured===false) return null;
   return (p.io_uring_enter||0)+(p.epoll_wait||0)+(p.sendmsg||0)+(p.recvmsg||0);
 }
+// CPU spent per message, split by end. The orchestrator scales a sampled
+// per-process ratio onto the exact rusage total, so sender+receiver sum to the
+// cell's CPU time. Null (a gap, not a zero) when the split is unavailable:
+// archives written before the split existed, or a cell with no message basis.
+function cpuPerMsg(r, key){
+  const c = r[key], n = r.messages_basis;
+  if(!(c > 0) || !(n > 0)) return null;
+  return c / n * 1e6;
+}
 const SHARED_METRICS = [
+  {key:"cpusnd", label:"CPU per message (sender)",   unit:"µs", better:"lower", get:r=>cpuPerMsg(r,"cpu_seconds_sender")},
+  {key:"cpurcv", label:"CPU per message (receiver)", unit:"µs", better:"lower", get:r=>cpuPerMsg(r,"cpu_seconds_receiver")},
   {key:"cpu",   label:"CPU time (all procs)", unit:"s",  better:"lower",  get:r=>r.cpu_seconds},
   {key:"invol", label:"Involuntary ctx-sw",unit:"count", better:"lower",  get:r=>r.sched.involuntary},
   {key:"iosys", label:"Kernel I/O syscalls", unit:"/1k msg", better:"lower", get:iosysPerK},
@@ -320,12 +331,16 @@ function isoLine(run){
   const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
   const sysc = run.syscall_counting && run.syscall_counting.captured === false
     ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
+  // Only worth saying when the run asked for a namespace and did not get one:
+  // those cells shared host loopback with everything else on the machine.
+  const ns = run.netns && run.netns.requested && run.netns.applied === false
+    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
   const rep = run.replication
     ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
   if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}`;
+    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
   }
-  return ` \u00b7 ${asked}${rep}${sysc}`;
+  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
 }
 
 async function load(){

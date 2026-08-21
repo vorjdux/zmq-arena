@@ -94,6 +94,23 @@ fn describe() -> String {
     )
 }
 
+/// IO lanes this wrapper is allowed, from `--knob io_threads=N`.
+///
+/// Without it a tokio runtime silently sizes itself to the whole machine while
+/// libzmq sat on its default of one IO thread, so a PUB/SUB cell with 32
+/// subscribers compared one engine's single lane against another's four. The
+/// lane count is a first-class part of the configuration being measured, so the
+/// matrix states it and every engine gets the same budget.
+fn io_threads(knobs: &[String]) -> usize {
+    knobs
+        .iter()
+        .filter_map(|k| k.split_once('='))
+        .find(|(k, _)| *k == "io_threads")
+        .and_then(|(_, v)| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
 fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("describe") {
         println!("{}", describe());
@@ -112,20 +129,36 @@ fn main() -> Result<()> {
         cli.variant
     );
 
-    block_on_runtime(run(cli))
+    let lanes = io_threads(&cli.knobs);
+    block_on_runtime(lanes, run(cli))
 }
 
-/// Drive the wrapper's future on whichever runtime this binary was built with.
+/// Drive the wrapper's future on whichever runtime this binary was built with,
+/// with `lanes` IO threads so every engine in the grid gets the same budget.
 #[cfg(feature = "tokio-rt")]
-fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(
+    lanes: usize,
+    fut: F,
+) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(lanes)
         .enable_all()
         .build()?;
     rt.block_on(fut)
 }
 
+/// async-std sizes its pool from `ASYNC_STD_THREAD_COUNT`, read once when the
+/// pool is first touched, so it has to be set before anything else runs.
 #[cfg(feature = "async-std-rt")]
-fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(
+    lanes: usize,
+    fut: F,
+) -> Result<()> {
+    // SAFETY: single-threaded at this point; no other thread can be reading the
+    // environment while we set it.
+    unsafe {
+        std::env::set_var("ASYNC_STD_THREAD_COUNT", lanes.to_string());
+    }
     async_std::task::block_on(fut)
 }
 
@@ -135,8 +168,13 @@ fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Resu
 /// the crate's own `thread_dispatcher`, a single worker thread draining a
 /// channel of runnables. Spawned work therefore runs on that one thread while
 /// this thread blocks on the result.
+/// async-dispatcher's `thread_dispatcher` is a single worker draining a queue,
+/// so its lane count is fixed at one and `lanes` has nothing to size.
 #[cfg(feature = "async-dispatcher-rt")]
-fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {
+fn block_on_runtime<F: std::future::Future<Output = Result<()>>>(
+    _lanes: usize,
+    fut: F,
+) -> Result<()> {
     async_dispatcher::set_dispatcher(async_dispatcher::thread_dispatcher());
     async_dispatcher::block_on(fut)
 }

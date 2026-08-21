@@ -18,6 +18,7 @@
 mod cgroups;
 mod config;
 mod host;
+mod netns;
 mod stats;
 mod telemetry;
 
@@ -89,6 +90,12 @@ struct CellRecord {
     latency: LatencySnapshot,
     throughput: Throughput,
     cpu_seconds: f64,
+    /// CPU split between the two ends of the cell. `getrusage` gives an exact
+    /// total but cannot attribute it, so the split comes from sampling each
+    /// process and is then scaled to the exact total: the parts always sum to
+    /// `cpu_seconds`, and only their ratio is sampled.
+    cpu_seconds_sender: f64,
+    cpu_seconds_receiver: f64,
     syscalls: SyscallCounters,
     sched: SchedCounters,
     peak_memory_bytes: u64,
@@ -274,6 +281,36 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     // Checked before any cell runs, so a misconfigured bench host fails in
     // seconds rather than after hours of measuring numbers nobody should use.
     host.enforce()?;
+    // One namespace per run, created only if some cell actually asks for it.
+    // Both peers of a cell must share it, so it cannot be per process.
+    let wants_netns = cfg
+        .entries
+        .iter()
+        .any(|e| matches!(e.transport, Transport::TcpNetns));
+    let ns = if wants_netns {
+        match netns::NetNs::create(&args.run_id) {
+            Ok(ns) => {
+                println!(
+                    "zmq-arena: network namespace {} (tcp_netns cells isolated)",
+                    ns.name()
+                );
+                Some(ns)
+            }
+            Err(e) => {
+                eprintln!(
+                    "  network namespace unavailable ({e}); tcp_netns cells will run on host \
+                     loopback, sharing it with everything else on this machine"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let netns_applied = ns.is_some();
+    let netns_name = ns.as_ref().map(|n| n.name().to_string());
+    let _ = NETNS.set(ns);
+
     let host_path = args.out.join("_host.json");
     std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
         .with_context(|| format!("writing {}", host_path.display()))?;
@@ -418,6 +455,22 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
             },
         },
         "replication": rep,
+        // Requested and applied kept separate, like the cgroup isolation above:
+        // without a namespace the tcp cells ran on host loopback, which is a
+        // noisier path than the matrix describes.
+        "netns": {
+            "requested": wants_netns,
+            "applied": netns_applied,
+            "name": netns_name,
+            "note": if !wants_netns {
+                "not requested: no tcp_netns cells in this matrix"
+            } else if netns_applied {
+                "per-run network namespace with a private loopback"
+            } else {
+                "NOT applied: could not create a namespace (needs root), so tcp cells \
+                 shared host loopback"
+            },
+        },
         "syscall_counting": {
             "captured": telemetry::syscalls_were_captured(),
             "note": if telemetry::syscalls_were_captured() {
@@ -435,6 +488,22 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Split an exact CPU total between two ends using their sampled ratio.
+///
+/// The sampled figures can each miss the last poll interval before a process
+/// exits, so they are not used as absolute values. Their ratio is sound, and
+/// applying it to the rusage total keeps the two parts summing to a figure that
+/// was measured exactly. With nothing sampled the split is unknown, and zeros
+/// say that rather than inventing an even one.
+fn split_cpu(total: f64, measured: f64, others: f64) -> (f64, f64) {
+    let sampled = measured + others;
+    if sampled <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let share = measured / sampled;
+    (total * share, total * (1.0 - share))
 }
 
 /// The metric a cell's replicates converge on and are ranked by: median
@@ -515,6 +584,8 @@ fn aggregate_cell(cell: &CellAcc, rep: &Replication) -> CellRecord {
         latency,
         throughput,
         cpu_seconds: median_f64(&kept, |r| r.cpu_seconds),
+        cpu_seconds_sender: median_f64(&kept, |r| r.cpu_seconds_sender),
+        cpu_seconds_receiver: median_f64(&kept, |r| r.cpu_seconds_receiver),
         syscalls,
         sched,
         peak_memory_bytes: median_u64(&kept, |r| r.peak_memory_bytes),
@@ -649,14 +720,17 @@ fn target_args(entry: &MatrixEntry, role: &str, endpoint: &str) -> Vec<String> {
     a
 }
 
-/// Endpoint for a cell. ipc gets a unique socket path (returned for cleanup);
-/// tcp claims a free loopback port. netns is intentionally not used here: it
-/// needs root and is pointless on a single-core dev host. The bare-metal path
-/// will add netns isolation.
-fn make_endpoint(entry: &MatrixEntry, cell_id: &str) -> anyhow::Result<(String, Option<PathBuf>)> {
+/// Endpoint for a cell. ipc gets a unique socket path under the run's private
+/// directory (returned for cleanup); tcp claims a free loopback port, which the
+/// targets then bind inside the run's network namespace when there is one.
+fn make_endpoint(
+    entry: &MatrixEntry,
+    cell_id: &str,
+    run_id: &str,
+) -> anyhow::Result<(String, Option<PathBuf>)> {
     match entry.transport {
         Transport::Ipc => {
-            let path = std::env::temp_dir().join(format!("zmq-arena-{cell_id}.sock"));
+            let path = ipc_dir(run_id)?.join(format!("{cell_id}.sock"));
             let _ = std::fs::remove_file(&path);
             Ok((format!("ipc://{}", path.display()), Some(path)))
         }
@@ -691,36 +765,57 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
     }
 }
 
+/// What the poll loop observed per process: peak RSS, and CPU split between the
+/// measured child (index 0) and everything else in the cell.
+pub struct CellUsage {
+    pub rss_total: u64,
+    /// CPU of the measured process, the one whose stdout carries the result.
+    pub cpu_measured: f64,
+    /// CPU of the cell's other processes summed.
+    pub cpu_others: f64,
+}
+
 /// Like `wait_until`, but samples the peak resident set size of every process in
 /// the cell (the measured child plus `others`, e.g. the producer and any drains)
-/// from `/proc/<pid>/status` on each poll, and returns their summed high-water
-/// mark in bytes. This is the grouped, unprivileged memory-footprint path: it
-/// needs neither root nor a cgroup, and the sum is what a library actually costs
-/// to run its full data path, not just one end. `VmHWM` is itself a kernel
+/// from `/proc/<pid>/status` on each poll, plus their CPU time from
+/// `/proc/<pid>/stat`. This is the grouped, unprivileged footprint path: it
+/// needs neither root nor a cgroup, and the summed RSS is what a library
+/// actually costs to run its full data path, not just one end. `VmHWM` is itself a kernel
 /// high-water mark, so tracking each process's max across polls (then summing)
 /// captures the peak even if a process exits before the loop ends.
-fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, u64) {
+fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (bool, CellUsage) {
     let mut pids: Vec<u32> = Vec::with_capacity(others.len() + 1);
     pids.push(child.id());
     pids.extend_from_slice(others);
     let mut peaks = vec![0u64; pids.len()];
+    let mut cpus = vec![0f64; pids.len()];
+    let usage = |peaks: &[u64], cpus: &[f64]| CellUsage {
+        rss_total: peaks.iter().sum(),
+        cpu_measured: cpus.first().copied().unwrap_or(0.0),
+        cpu_others: cpus.iter().skip(1).sum(),
+    };
     loop {
         for (i, &pid) in pids.iter().enumerate() {
             if let Some(rss) = crate::telemetry::peak_rss_bytes(pid) {
                 peaks[i] = peaks[i].max(rss);
             }
+            // Monotonic per process, so the last reading before exit is the
+            // best estimate of what it spent.
+            if let Some(c) = crate::telemetry::cpu_seconds_of(pid) {
+                cpus[i] = cpus[i].max(c);
+            }
         }
         match child.try_wait() {
-            Ok(Some(_)) => return (true, peaks.iter().sum()),
+            Ok(Some(_)) => return (true, usage(&peaks, &cpus)),
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return (false, peaks.iter().sum());
+                    return (false, usage(&peaks, &cpus));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return (false, peaks.iter().sum()),
+            Err(_) => return (false, usage(&peaks, &cpus)),
         }
     }
 }
@@ -728,6 +823,46 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
 /// Best-effort cgroup leaf. Returns None (with a one-line warning) when
 /// provisioning fails, e.g. when not root. The arena then runs without
 /// isolation, which is fine for functional tests on a dev VM.
+/// The run's network namespace, or None when one could not be created. Held in
+/// a `OnceLock` rather than threaded through every cell function: it is a property
+/// of the run, and all five spawn sites need it.
+static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::new();
+
+/// Build the command for a target, inside the run's network namespace when the
+/// cell asked for `tcp_netns` and one exists. Every target spawn goes through
+/// here so no path can quietly escape the isolation.
+/// Private directory for this run's unix sockets, created 0700.
+///
+/// Sockets used to go straight into the shared temp dir. Two problems with
+/// that: two runs on one machine collide on identically named paths, and an
+/// engine that checks the ownership of the socket's parent directory refuses to
+/// bind there at all, because the shared temp dir is world-writable. celerity
+/// does exactly that check and rejected every ipc cell. A directory owned by the
+/// run, readable only by it, satisfies both.
+///
+/// Kept under the temp dir rather than the scratch dir because a unix socket
+/// path is capped at 108 bytes and the scratch dir can be arbitrarily deep.
+fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating ipc dir {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("locking down ipc dir {}", dir.display()))?;
+    }
+    Ok(dir)
+}
+
+fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
+    if matches!(entry.transport, Transport::TcpNetns)
+        && let Some(ns) = NETNS.get().and_then(Option::as_ref)
+    {
+        return ns.command(binary);
+    }
+    ProcCommand::new(binary)
+}
+
 static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
 /// Set the first time a cgroup leaf is actually created and limited. The matrix
 /// *asks* for a cpuset and a memory cap; without root it silently does not get
@@ -814,7 +949,7 @@ fn run_throughput(
     entry: &MatrixEntry,
     isolation: &Isolation,
 ) -> anyhow::Result<CellRecord> {
-    let (endpoint, ipc_path) = make_endpoint(entry, cell_id)?;
+    let (endpoint, ipc_path) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
@@ -822,7 +957,7 @@ fn run_throughput(
 
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut consumer = ProcCommand::new(binary)
+    let mut consumer = target_command(binary, entry)
         .args(target_args(entry, "sub", &endpoint))
         .stdout(Stdio::piped())
         .spawn()
@@ -839,7 +974,7 @@ fn run_throughput(
 
     let total = entry.messages + entry.warmup_messages;
     let t0 = Instant::now();
-    let mut producer = ProcCommand::new(binary)
+    let mut producer = target_command(binary, entry)
         .args(target_args(entry, "pub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -848,7 +983,7 @@ fn run_throughput(
     }
 
     let budget = Duration::from_secs((total / 50_000).max(10));
-    let (consumer_ok, rss_peak) =
+    let (consumer_ok, usage) =
         wait_until_peak(&mut consumer, &[producer.id()], Instant::now() + budget);
     let elapsed = t0.elapsed();
     let syscalls = syscall_probe.read();
@@ -894,8 +1029,10 @@ fn run_throughput(
     // data path, not one end.
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_receiver, cpu_sender) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -913,7 +1050,9 @@ fn run_throughput(
             p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,
@@ -932,7 +1071,7 @@ fn run_latency(
     entry: &MatrixEntry,
     isolation: &Isolation,
 ) -> anyhow::Result<CellRecord> {
-    let (endpoint, ipc_path) = make_endpoint(entry, cell_id)?;
+    let (endpoint, ipc_path) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
@@ -940,7 +1079,7 @@ fn run_latency(
 
     let (cpu0, sched0) = crate::telemetry::rusage_children();
 
-    let mut server = ProcCommand::new(binary)
+    let mut server = target_command(binary, entry)
         .args(target_args(entry, "sub", &endpoint))
         .spawn()
         .with_context(|| format!("spawning REP server {}", binary.display()))?;
@@ -949,7 +1088,7 @@ fn run_latency(
     }
     std::thread::sleep(Duration::from_millis(150)); // let the server bind
 
-    let mut client = ProcCommand::new(binary)
+    let mut client = target_command(binary, entry)
         .args(target_args(entry, "pub", &endpoint))
         .stdout(Stdio::piped())
         .spawn()
@@ -965,7 +1104,7 @@ fn run_latency(
     let syscall_probe = open_syscall_probe(pub_cg.as_ref(), &cpus, client.id());
 
     let budget = Duration::from_secs((entry.messages / 20_000).max(15));
-    let (ok, rss_peak) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
+    let (ok, usage) = wait_until_peak(&mut client, &[server.id()], Instant::now() + budget);
     let syscalls = syscall_probe.read();
     let mut out = String::new();
     if let Some(mut so) = client.stdout.take() {
@@ -995,8 +1134,10 @@ fn run_latency(
     };
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_sender, cpu_receiver) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -1005,7 +1146,9 @@ fn run_latency(
         latency,
         // Throughput is not measured for latency cells; render emits null.
         throughput: Throughput::default(),
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,
@@ -1039,7 +1182,7 @@ fn run_multipeer(
     }
     let peers = entry.peers.unwrap_or(1).max(1);
     let duration = entry.duration_secs.unwrap_or(2.0);
-    let (endpoint, _ipc) = make_endpoint(entry, cell_id)?;
+    let (endpoint, _ipc) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let pub_cg = try_cgroup(run_id, &format!("{cell_id}-pub"), isolation);
@@ -1051,7 +1194,7 @@ fn run_multipeer(
     let mut measured = if producer_binds {
         // pubsub / fanout: one producer binds and accepts `peers`; the consumers
         // connect, one measured and the rest draining.
-        let prod = ProcCommand::new(binary)
+        let prod = target_command(binary, entry)
             .args(peer_args(entry, "pub", &endpoint, true, duration))
             .spawn()
             .with_context(|| format!("spawning producer {}", binary.display()))?;
@@ -1061,7 +1204,7 @@ fn run_multipeer(
         others.push(prod);
         std::thread::sleep(Duration::from_millis(200));
 
-        let m = ProcCommand::new(binary)
+        let m = target_command(binary, entry)
             .args(peer_args(entry, "sub", &endpoint, false, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -1070,7 +1213,7 @@ fn run_multipeer(
             let _ = cg.attach(m.id());
         }
         for _ in 1..peers {
-            let d = ProcCommand::new(binary)
+            let d = target_command(binary, entry)
                 .args(peer_args(entry, "sub", &endpoint, false, duration))
                 .stdout(Stdio::null())
                 .stderr(Stdio::null()) // non-measured peers do not spam stderr
@@ -1085,7 +1228,7 @@ fn run_multipeer(
     } else {
         // fanin: the single consumer (sink) binds and accepts `peers`; the
         // producers connect and send forever.
-        let m = ProcCommand::new(binary)
+        let m = target_command(binary, entry)
             .args(peer_args(entry, "sub", &endpoint, true, duration))
             .stdout(Stdio::piped())
             .spawn()
@@ -1095,7 +1238,7 @@ fn run_multipeer(
         }
         std::thread::sleep(Duration::from_millis(200));
         for _ in 0..peers {
-            let p = ProcCommand::new(binary)
+            let p = target_command(binary, entry)
                 .args(peer_args(entry, "pub", &endpoint, false, duration))
                 .stderr(Stdio::null()) // non-measured peers do not spam stderr
                 .spawn()
@@ -1119,7 +1262,7 @@ fn run_multipeer(
     // Sample every peer process too, so the memory footprint covers the whole
     // fan-out / fan-in topology, not just the measured consumer.
     let other_pids: Vec<u32> = others.iter().map(std::process::Child::id).collect();
-    let (ok, rss_peak) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
+    let (ok, usage) = wait_until_peak(&mut measured, &other_pids, Instant::now() + budget);
     let mut out = String::new();
     if let Some(mut so) = measured.stdout.take() {
         let _ = so.read_to_string(&mut out);
@@ -1149,8 +1292,10 @@ fn run_multipeer(
     };
     let peak_memory_bytes = cgroup_total_memory(sub_cg.as_ref(), pub_cg.as_ref())
         .filter(|&v| v > 0)
-        .unwrap_or(rss_peak);
+        .unwrap_or(usage.rss_total);
 
+    let cpu_total = (cpu1 - cpu0).max(0.0);
+    let (cpu_receiver, cpu_sender) = split_cpu(cpu_total, usage.cpu_measured, usage.cpu_others);
     Ok(CellRecord {
         run_id: run_id.to_string(),
         cell_id: cell_id.to_string(),
@@ -1166,7 +1311,9 @@ fn run_multipeer(
             p999_ns: 0,
         },
         throughput: Throughput { msgs_per_s, mbps },
-        cpu_seconds: (cpu1 - cpu0).max(0.0),
+        cpu_seconds: cpu_total,
+        cpu_seconds_sender: cpu_sender,
+        cpu_seconds_receiver: cpu_receiver,
         syscalls,
         sched,
         peak_memory_bytes,

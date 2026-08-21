@@ -109,7 +109,9 @@ landing on real measured sizes.
 | fan-in | 4 producers into one consumer |
 
 Per cell: message rate, byte rate, latency quantiles, CPU seconds, context
-switches, peak RSS, and syscall counts normalised per 1000 messages. Each cell is
+switches, peak RSS, and syscall counts normalised per 1000 messages. The CPU
+total is also attributed to each end of the connection, so sending and receiving
+cost can be compared separately. Each cell is
 measured repeatedly and reported as a robust median; the replicate spread travels
 with it, and a cell whose rate is beaten by a larger payload in the same sweep is
 flagged as a measurement artifact rather than published as a result.
@@ -141,8 +143,8 @@ libraries had been let into the extra cells.
 | `zeromq_rs_target` | zmq.rs | `zeromq = "0.6"` | epoll, three runtimes |
 | `omq_tokio_target` | omq | `omq-tokio = "0.21.3"` | mio/epoll, three execution models |
 | `monocoque_target` | monocoque | `monocoque-rs = "0.4.0"` | io_uring or epoll, three runtimes |
-| `rzmq_target` | rzmq | `rzmq = "0.5.25"` | stub, no socket loop yet |
-| `celerity_target` | celerity | `celerity = "0.1.1"` | stub, no socket loop yet |
+| `rzmq_target` | rzmq | `rzmq = "0.5.25"` | epoll or io_uring, two variants |
+| `celerity_target` | celerity | `celerity = "0.1.1"` | tokio; REQ/REP and PUB/SUB only |
 
 Three of these reach the **same** engine by different routes: `libzmq` is the C++
 peer, `rust_zmq` the synchronous binding, `tmq` that binding wrapped in futures.
@@ -172,12 +174,30 @@ Adding a target means implementing the command-line contract in
 
 ## Isolation and telemetry
 
+Every engine gets the same **IO-lane budget**, one background IO thread, set by
+the matrix rather than inherited from whatever each runtime defaults to. This
+matters most where it is least visible: a tokio runtime sizes its worker pool to
+the machine while libzmq defaults to a single IO thread, so a 32-subscriber
+PUB/SUB cell would otherwise compare one engine's single lane against another's
+four. omq's `multi_thread` variant is the deliberate exception, because running
+on more than one lane is what that variant is.
+
 Each cell runs in a cgroup v2 leaf with the cpuset and memory cap the matrix
-declares, so the producer and consumer do not time-share a core. CPU and context
+declares, so the producer and consumer do not time-share a core. Cells on the
+`tcp_netns` transport run inside a network namespace created for the run, so
+loopback carries their traffic and nothing else; both peers of a cell share the
+namespace, which is why it is per run rather than per process. CPU and context
 switches come from `getrusage`, peak memory from the summed per-process `VmHWM`,
 and syscall counts from `perf_event_open` tracepoints scoped to the cgroup.
 
-cgroups and perf both need root. Without it the run still works and still records
+`getrusage` gives an exact CPU total for the cell but cannot say which process
+spent it, so the sender/receiver split comes from sampling `/proc/<pid>/stat` on
+the same 20 ms poll that tracks peak RSS. Those samples can miss the last tick
+before a process exits, so they are not published as absolute values: only their
+ratio is used, applied to the exact total. The two halves therefore always sum to
+the cell's CPU seconds.
+
+cgroups, network namespaces and perf all need root. Without it the run still works and still records
 CPU and memory, but the cells are unpinned and the syscall counters read zero.
 The archive records which of those happened, so the difference is visible rather
 than assumed.
@@ -204,6 +224,7 @@ The restrictions the run applied are recorded the same way, in `_run.json`:
 |---|---|
 | `isolation.requested` | the cpuset and memory cap the matrix asked for |
 | `isolation.applied` | whether a cgroup leaf was actually created. Without root it is not, and the cells run unpinned on the whole machine, which is a different experiment than the matrix describes |
+| `netns.applied` | whether the run got its own network namespace. `tcp_netns` cells run on a private loopback with nothing else on it; without root they fall back to host loopback, shared with every other process on the machine |
 | `replication` | the policy actually used, since `--replicates` overrides the matrix |
 | `syscall_counting.captured` | whether perf registered. A host that cannot open the tracepoints records zero syscalls, which is "not measured", not "no syscalls" |
 
@@ -360,18 +381,12 @@ cheating entry fails the cell rather than the review.
 
 ## What is not done yet
 
-Everything else in this README describes what runs today. These are the gaps:
-
-- **Network namespaces.** The matrix names the tcp transport `tcp_netns`, but
-  per-cell namespaces are not created: cells run on loopback in the host
-  namespace. The name is forward-looking.
-- **rzmq and celerity** are describe-only stubs. Each resolves, builds and
-  reports its classification, but neither has a socket loop, so neither appears
-  in the matrix.
-- **No admissible run has been published.** Every archive committed so far comes
-  from a dev host and says so in its hardware note. The weekly grid needs a
-  bare-metal runner with Turbo off and C-states locked before any number here is
-  a verdict.
+- **inproc.** The transport is in the schema but no target implements it, so the
+  matrix does not schedule it. It measures an in-process queue rather than a
+  wire protocol, which is a different question from the one this harness asks.
+- **A second machine.** Every published run comes from one host. Comparing the
+  same libraries across CPU vendors and kernels would say more than another
+  digit of precision on this one.
 
 ## Acknowledgments
 

@@ -1,36 +1,30 @@
-//! zmq-arena target wrapper: celerity (sans-IO ZMTP 3.1 + Tokio).
+//! zmq-arena target wrapper: celerity (sans-IO ZMTP 3.1 with a Tokio driver).
 //!
-//! Unified target CLI (see ../../README.md). celerity is wired in. The socket
-//! loop is left to the maintainer: drive the sans-IO `CelerityPeer` core through
-//! the Tokio transport in `celerity::io`. Verify the exact API against the 0.2.x
-//! docs before implementing.
+//! celerity's core is sans-IO; the crate's `io` module ships the Tokio sockets
+//! this wrapper drives (`PubSocket`, `SubSocket`, `ReqSocket`, `RepSocket`).
 //!
-//! Endpoint note: celerity's own CLI accepts bare `host:port` for TCP and
-//! `ipc:///path` for IPC. For remote (non-loopback) TCP it defaults to failing
-//! closed unless CURVE-RS is configured, so loopback-in-netns cells must use a
-//! loopback address or an explicit insecure opt-in.
+//! **Only latency and pub/sub run.** celerity 0.1.1 implements PUB/SUB and
+//! REQ/REP and has no PUSH/PULL at all: there is no pipeline core in the crate,
+//! so throughput, fan-out and fan-in have nothing to drive. They are rejected up
+//! front rather than faked from a different pattern, and the matrix simply does
+//! not schedule them for this target.
+//!
+//! Role and bind contract, set by the orchestrator (see targets/README.md):
+//!   latency  REP(sub) binds,  REQ(pub) connects
+//!   pubsub   PUB(pub) binds,  SUB(sub) connects   (--bind on pub)
 
-use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
+use bytes::Bytes;
+use celerity::Multipart;
+use celerity::io::{PubSocket, RepSocket, ReqSocket, SubSocket};
 use clap::{Parser, ValueEnum};
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum Role {
     Pub,
     Sub,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Pattern {
-    PubSub,
-    PushPull,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Transport {
-    Tcp,
-    Ipc,
 }
 
 #[derive(Parser, Debug)]
@@ -42,10 +36,10 @@ enum Transport {
 struct Cli {
     #[arg(long, value_enum)]
     role: Role,
-    #[arg(long, value_enum)]
-    pattern: Pattern,
-    #[arg(long, value_enum)]
-    transport: Transport,
+    #[arg(long, default_value = "latency")]
+    kind: String,
+    #[arg(long)]
+    transport: String,
     #[arg(long)]
     endpoint: String,
     #[arg(long)]
@@ -54,30 +48,23 @@ struct Cli {
     messages: u64,
     #[arg(long, default_value_t = 0)]
     warmup: u64,
-    /// Benchmark kind: throughput | latency | pubsub | fanout | fanin.
-    #[arg(long, default_value = "throughput")]
-    kind: String,
-    /// Subscriber/pusher count (pubsub/fanout/fanin); omitted otherwise.
     #[arg(long)]
     peers: Option<u32>,
-    /// Runtime variant selector (engine-specific, e.g. "`multi_thread`").
     #[arg(long, default_value = "default")]
     variant: String,
-    #[arg(long = "knob", value_parser = parse_knob)]
-    knobs: Vec<(String, String)>,
+    /// Present on the binding side of a multi-peer kind.
+    #[arg(long)]
+    bind: bool,
+    /// Measurement window for duration-based kinds (pubsub).
+    #[arg(long, default_value_t = 0.0)]
+    duration_secs: f64,
+    /// Accepted and ignored: the crate's Tokio sockets expose no tuning knobs
+    /// this wrapper would be justified in setting.
+    #[arg(long = "knob")]
+    knobs: Vec<String>,
 }
 
-fn parse_knob(s: &str) -> Result<(String, String), String> {
-    match s.split_once('=') {
-        Some((k, v)) => Ok((k.trim().to_string(), v.trim().to_string())),
-        None => Err(format!("knob must be key=value, got `{s}`")),
-    }
-}
-
-/// One-line JSON classification the orchestrator captures into each record. The
-/// engine version is read from Cargo.lock at build time (see build.rs). celerity
-/// is a sans-IO ZMTP core driven by a tokio transport; describe stays binary-level
-/// until the socket loop lands.
+/// One-line JSON classification the orchestrator captures into each record.
 fn describe() -> String {
     format!(
         concat!(
@@ -89,50 +76,162 @@ fn describe() -> String {
     )
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// IO lanes this wrapper is allowed, from `--knob io_threads=N`.
+///
+/// Without it a tokio runtime silently sizes itself to the whole machine while
+/// libzmq sat on its default of one IO thread, so a PUB/SUB cell with 32
+/// subscribers compared one engine's single lane against another's four. The
+/// lane count is a first-class part of the configuration being measured, so the
+/// matrix states it and every engine gets the same budget.
+fn io_threads(knobs: &[String]) -> usize {
+    knobs
+        .iter()
+        .filter_map(|k| k.split_once('='))
+        .find(|(k, _)| *k == "io_threads")
+        .and_then(|(_, v)| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
+fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("describe") {
         println!("{}", describe());
         return Ok(());
     }
     let cli = Cli::parse();
-    let knobs: BTreeMap<String, String> = cli.knobs.iter().cloned().collect();
-
     eprintln!(
-        "celerity-target: role={:?} pattern={:?} transport={:?} endpoint={} payload={}B msgs={} warmup={} knobs={:?}",
+        "celerity-target: role={:?} kind={} transport={} endpoint={} payload={}B msgs={} warmup={}",
         cli.role,
-        cli.pattern,
+        cli.kind,
         cli.transport,
         cli.endpoint,
         cli.payload_bytes,
         cli.messages,
-        cli.warmup,
-        knobs
+        cli.warmup
     );
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(io_threads(&cli.knobs))
+        .enable_all()
+        .build()?;
+    rt.block_on(run(cli))
+}
 
-    match cli.role {
-        Role::Pub => run_publisher(&cli, &knobs).await,
-        Role::Sub => run_subscriber(&cli, &knobs).await,
+async fn run(cli: Cli) -> Result<()> {
+    let payload = Bytes::from(vec![b'x'; cli.payload_bytes as usize]);
+    let ep = cli.endpoint.clone();
+    let duration = Duration::from_secs_f64(cli.duration_secs);
+    match cli.kind.as_str() {
+        "latency" => latency(cli.role, &ep, cli.messages, cli.warmup, &payload).await,
+        "pubsub" => pubsub(cli.role, &ep, cli.peers.unwrap_or(1), duration, &payload).await,
+        other => bail!(
+            "celerity: kind '{other}' not supported. celerity 0.1.1 has no PUSH/PULL, \
+             so throughput, fan-out and fan-in cannot be run against it."
+        ),
     }
 }
 
-// Both are `async` with nothing to await because they are unimplemented stubs.
-// The signature is the contract the real socket loop will fill in, and dropping
-// `async` now would only force whoever writes it to put it back.
-#[allow(
-    clippy::unused_async,
-    reason = "stub signatures held for the real socket loops"
-)]
-/// TODO(maintainer): celerity producer (PUSH/PUB via `CelerityPeer` + Tokio io).
-async fn run_publisher(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
-    bail!("celerity publisher loop not implemented");
+fn frame(payload: &Bytes) -> Multipart {
+    vec![payload.clone()]
 }
 
-#[allow(
-    clippy::unused_async,
-    reason = "stub signatures held for the real socket loops"
-)]
-/// TODO(maintainer): celerity consumer (PULL/SUB), receive exactly messages.
-async fn run_subscriber(_cli: &Cli, _knobs: &BTreeMap<String, String>) -> Result<()> {
-    bail!("celerity subscriber loop not implemented");
+// ── latency (REQ/REP) ───────────────────────────────────────────────────────
+
+async fn latency(role: Role, ep: &str, messages: u64, warmup: u64, payload: &Bytes) -> Result<()> {
+    match role {
+        Role::Sub => {
+            let mut rep = RepSocket::bind(ep).await?;
+            // Echo until the REQ side goes away, the normal end of the cell.
+            while let Ok(msg) = rep.recv().await {
+                if rep.reply(msg).await.is_err() {
+                    break;
+                }
+            }
+        }
+        Role::Pub => {
+            let req = ReqSocket::connect(ep).await?;
+            for _ in 0..warmup {
+                req.request(frame(payload)).await?;
+            }
+            let mut rtts: Vec<u64> = Vec::with_capacity(messages as usize);
+            for _ in 0..messages {
+                let t = Instant::now();
+                // request() is send-then-receive in one call, which is exactly
+                // the REQ/REP round trip being timed.
+                req.request(frame(payload)).await?;
+                rtts.push(t.elapsed().as_nanos() as u64);
+            }
+            print_latency(&mut rtts);
+        }
+    }
+    Ok(())
+}
+
+fn print_latency(rtts: &mut [u64]) {
+    if rtts.is_empty() {
+        println!("LATENCY 0 0 0 0 0 0 0");
+        return;
+    }
+    rtts.sort_unstable();
+    let q = |p: f64| -> u64 {
+        let idx = ((rtts.len() as f64 * p) as usize).min(rtts.len() - 1);
+        rtts[idx]
+    };
+    println!(
+        "LATENCY {} {} {} {} {} {} {}",
+        rtts.len(),
+        rtts[0],
+        q(0.50),
+        q(0.90),
+        q(0.99),
+        q(0.999),
+        rtts[rtts.len() - 1]
+    );
+}
+
+// ── pub/sub ─────────────────────────────────────────────────────────────────
+
+async fn pubsub(
+    role: Role,
+    ep: &str,
+    peers: u32,
+    duration: Duration,
+    payload: &Bytes,
+) -> Result<()> {
+    if !ep.starts_with("tcp://") {
+        bail!("celerity pubsub: tcp only, got {ep}");
+    }
+    match role {
+        Role::Pub => {
+            let mut publisher = PubSocket::bind(ep).await?;
+            // Wait for every subscriber before publishing: PUB drops messages
+            // sent to peers that have not finished subscribing, so sending
+            // early would measure the drop path rather than delivery.
+            for _ in 0..peers.max(1) {
+                publisher
+                    .wait_for_subscriber(Duration::from_secs(30))
+                    .await?;
+            }
+            while publisher.send(frame(payload)).await.is_ok() {}
+        }
+        Role::Sub => {
+            let mut sub = SubSocket::connect(ep).await?;
+            sub.subscribe(Bytes::new()).await?;
+            if sub.recv().await.is_err() {
+                println!("THROUGHPUT 0 0.000001");
+                return Ok(());
+            }
+            let mut count: u64 = 1;
+            let t0 = Instant::now();
+            let deadline = t0 + duration;
+            while Instant::now() < deadline {
+                if sub.recv().await.is_err() {
+                    break;
+                }
+                count += 1;
+            }
+            let secs = t0.elapsed().as_secs_f64().max(1e-9);
+            println!("THROUGHPUT {count} {secs:.6}");
+        }
+    }
+    Ok(())
 }

@@ -142,6 +142,36 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # rzmq, epoll backend. The engine ships two IO backends and both are
+        # measured; the io_uring one is the entry below.
+        "id": "rzmq",
+        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "variant": "default",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Same binary, io_uring session with zero-copy send and multishot recv,
+        # matching the rzmq peer in the omq.rs comparison harness.
+        "id": "rzmq",
+        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "variant": "io_uring",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # pipeline core, so there is no PUSH/PULL to drive and the pipeline
+        # kinds are simply not scheduled for it.
+        "id": "celerity",
+        "binary": "targets/celerity_target/target/release/celerity-target",
+        "count_knobs": {},
+        "mp_knobs": {},
+        "kinds": ["latency", "pubsub"],
+    },
+    {
         # tmq: Tokio bindings over libzmq (via rust-zmq). The engine is libzmq,
         # so it runs all five kinds; the series is here to isolate binding and
         # async-wrapper overhead against `libzmq` and `rust_zmq`, which reach the
@@ -221,6 +251,16 @@ TARGETS = [
 # the quantity the OMQ chart reports too, and every implementation meets the same
 # oversubscription. It is not a per-subscriber latency measurement and must not be
 # read as one.
+# Every engine gets the same IO-lane budget, stated here rather than inherited
+# from whatever each runtime happens to default to. A tokio runtime sizes itself
+# to the machine while libzmq defaults to a single IO thread, so a 32-subscriber
+# PUB/SUB cell was comparing one engine's single lane against another's four.
+# The lane count is part of the configuration under test, so the matrix sets it.
+#
+# omq's multi_thread variant is the deliberate exception: running on more than
+# one lane is what that variant IS, and it is labelled as such.
+IO_THREADS = "1"
+
 ISOLATION = {"cpuset_cpus": "0-3", "cpuset_mems": "0", "memory_max_bytes": 268435456}
 
 # Replication policy recorded in the matrix so a run is reproducible from the file
@@ -243,8 +283,20 @@ REPLICATION = {
 }
 
 
+# Variants whose whole point is running on more than one IO lane. They are
+# labelled as such, so the extra lanes are the measurement rather than a hidden
+# advantage.
+MULTI_LANE_VARIANTS = {("omq_tokio", "multi_thread")}
+
+
 def target_spec(target, knobs_key):
-    spec = {"id": target["id"], "binary": target["binary"], "knobs": target[knobs_key]}
+    knobs = dict(target[knobs_key])
+    # Set centrally rather than on each entry: the point is that every engine
+    # gets the SAME budget, and fifteen hand-written copies is how one of them
+    # ends up different.
+    if (target["id"], target.get("variant")) not in MULTI_LANE_VARIANTS:
+        knobs.setdefault("io_threads", IO_THREADS)
+    spec = {"id": target["id"], "binary": target["binary"], "knobs": knobs}
     if target.get("variant"):
         spec["variant"] = target["variant"]
     return spec

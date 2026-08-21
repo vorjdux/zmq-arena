@@ -4,10 +4,6 @@
   "note": "Real weekly-grid runs.",
   "runs": [
     {
-      "date": "2026-08-20",
-      "file": "2026-08-20-run.json"
-    },
-    {
       "date": "2026-08-21",
       "file": "2026-08-21-run.json"
     }

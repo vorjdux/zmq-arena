@@ -158,13 +158,25 @@
     {
       "key": "rzmq",
       "label": "rzmq",
+      "note": "epoll",
+      "color": "#86efac",
+      "engine": "rzmq",
+      "io": "epoll",
+      "threading": "multi",
+      "dash": null
+    },
+    {
+      "key": "rzmq_io_uring",
+      "label": "rzmq (io_uring)",
       "note": "io_uring",
-      "color": "#22c55e",
+      "color": "#16a34a",
       "engine": "rzmq",
       "io": "io_uring",
       "threading": "multi",
-      "stub": true,
-      "dash": null
+      "dash": [
+        7,
+        4
+      ]
     },
     {
       "key": "celerity",
@@ -174,35 +186,9 @@
       "engine": "celerity",
       "io": "epoll",
       "threading": "multi",
-      "stub": true,
       "dash": null
-    },
-    {
-      "key": "omq_compio",
-      "label": "omq-compio",
-      "note": "io_uring",
-      "color": "#c026d3",
-      "engine": "omq",
-      "io": "io_uring",
-      "threading": "single",
-      "retired": true,
-      "dash": null
-    },
-    {
-      "key": "omq_compio_st",
-      "label": "omq-compio (ST)",
-      "note": "io_uring ST",
-      "color": "#e879f9",
-      "engine": "omq",
-      "io": "io_uring",
-      "threading": "single",
-      "retired": true,
-      "dash": [
-        7,
-        4
-      ]
     }
   ],
-  "_retired_note": "Retired entries stay so archived runs that measured them still render a name and a colour instead of a raw key. Stub entries are targets with no socket loop yet; they never produce records, but keeping them here means adding the loop needs no presentation change.",
-  "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine."
+  "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
+  "_stub_note": "Every entry here is produced by the matrix. Entries were once kept for retired engines so archived runs could still render a name, but no archive references them any more, and a registry that lists series nothing can emit is just a place for stale names to hide. Removing an engine means removing it here too."
 }

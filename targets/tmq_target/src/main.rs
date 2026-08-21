@@ -92,6 +92,23 @@ fn describe() -> String {
     )
 }
 
+/// IO lanes this wrapper is allowed, from `--knob io_threads=N`.
+///
+/// Without it a tokio runtime silently sizes itself to the whole machine while
+/// libzmq sat on its default of one IO thread, so a PUB/SUB cell with 32
+/// subscribers compared one engine's single lane against another's four. The
+/// lane count is a first-class part of the configuration being measured, so the
+/// matrix states it and every engine gets the same budget.
+fn io_threads(knobs: &[String]) -> usize {
+    knobs
+        .iter()
+        .filter_map(|k| k.split_once('='))
+        .find(|(k, _)| *k == "io_threads")
+        .and_then(|(_, v)| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
 fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("describe") {
         println!("{}", describe());
@@ -114,23 +131,38 @@ fn main() -> Result<()> {
     // drives the futures wrapper. Multi-thread matches the reference peer, which
     // runs under #[tokio::main].
     let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(io_threads(&cli.knobs))
         .enable_all()
         .build()?;
     rt.block_on(run(cli))
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    let lanes = io_threads(&cli.knobs);
     let payload = vec![b'x'; cli.payload_bytes as usize];
     let ep = cli.endpoint.clone();
     let duration = Duration::from_secs_f64(cli.duration_secs);
     match cli.kind.as_str() {
-        "throughput" => run_throughput(cli.role, &ep, cli.messages, cli.warmup, &payload).await,
-        "latency" => run_latency(cli.role, &ep, cli.messages, cli.warmup, &payload).await,
-        "pubsub" => run_pubsub(cli.role, &ep, duration, &payload).await,
-        "fanout" => run_fanout(cli.role, &ep, duration, &payload).await,
-        "fanin" => run_fanin(cli.role, &ep, duration, &payload).await,
+        "throughput" => {
+            run_throughput(cli.role, &ep, cli.messages, cli.warmup, &payload, lanes).await
+        }
+        "latency" => run_latency(cli.role, &ep, cli.messages, cli.warmup, &payload, lanes).await,
+        "pubsub" => run_pubsub(cli.role, &ep, duration, &payload, lanes).await,
+        "fanout" => run_fanout(cli.role, &ep, duration, &payload, lanes).await,
+        "fanin" => run_fanin(cli.role, &ep, duration, &payload, lanes).await,
         other => bail!("tmq: kind '{other}' not implemented"),
     }
+}
+
+/// A libzmq context with the matrix's IO-lane budget.
+///
+/// tmq's Tokio runtime only drives the futures wrapper: the actual socket IO
+/// happens on libzmq's own IO threads, so this is the knob that matters for
+/// this target, not `worker_threads`.
+fn context(lanes: usize) -> Result<Context> {
+    let ctx = Context::new();
+    ctx.set_io_threads(i32::try_from(lanes).unwrap_or(1))?;
+    Ok(ctx)
 }
 
 fn message(payload: &[u8]) -> Message {
@@ -163,15 +195,16 @@ async fn run_throughput(
     messages: u64,
     warmup: u64,
     payload: &[u8],
+    lanes: usize,
 ) -> Result<()> {
     match role {
         Role::Sub => {
-            let ctx = Context::new();
+            let ctx = context(lanes)?;
             let mut pull = tmq::pull(&ctx).bind(ep)?;
             recv_measured(&mut pull, warmup, messages).await;
         }
         Role::Pub => {
-            let ctx = Context::new();
+            let ctx = context(lanes)?;
             let mut push = tmq::push(&ctx).connect(ep)?;
             // Send until the orchestrator kills this side: the consumer's count
             // is the sole stop condition, so a producer that exits on a fixed
@@ -216,10 +249,11 @@ async fn run_latency(
     messages: u64,
     warmup: u64,
     payload: &[u8],
+    lanes: usize,
 ) -> Result<()> {
     match role {
         Role::Sub => {
-            let ctx = Context::new();
+            let ctx = context(lanes)?;
             let mut receiver = tmq::reply(&ctx).bind(ep)?;
             // Echo until the REQ side goes away, which is the normal end of the
             // cell.
@@ -231,7 +265,7 @@ async fn run_latency(
             }
         }
         Role::Pub => {
-            let ctx = Context::new();
+            let ctx = context(lanes)?;
             let mut sender = tmq::request(&ctx).connect(ep)?;
             for _ in 0..warmup {
                 let receiver = sender.send(multipart(payload)).await?;
@@ -276,9 +310,15 @@ fn print_latency(rtts: &mut [u64]) {
 
 // ── pub/sub, fan-out, fan-in ────────────────────────────────────────────────
 
-async fn run_pubsub(role: Role, ep: &str, duration: Duration, payload: &[u8]) -> Result<()> {
+async fn run_pubsub(
+    role: Role,
+    ep: &str,
+    duration: Duration,
+    payload: &[u8],
+    lanes: usize,
+) -> Result<()> {
     require_tcp("pubsub", ep)?;
-    let ctx = Context::new();
+    let ctx = context(lanes)?;
     match role {
         Role::Pub => {
             let mut publisher = tmq::publish(&ctx).bind(ep)?;
@@ -292,9 +332,15 @@ async fn run_pubsub(role: Role, ep: &str, duration: Duration, payload: &[u8]) ->
     Ok(())
 }
 
-async fn run_fanout(role: Role, ep: &str, duration: Duration, payload: &[u8]) -> Result<()> {
+async fn run_fanout(
+    role: Role,
+    ep: &str,
+    duration: Duration,
+    payload: &[u8],
+    lanes: usize,
+) -> Result<()> {
     require_tcp("fanout", ep)?;
-    let ctx = Context::new();
+    let ctx = context(lanes)?;
     match role {
         Role::Pub => {
             let mut push = tmq::push(&ctx).bind(ep)?;
@@ -308,9 +354,15 @@ async fn run_fanout(role: Role, ep: &str, duration: Duration, payload: &[u8]) ->
     Ok(())
 }
 
-async fn run_fanin(role: Role, ep: &str, duration: Duration, payload: &[u8]) -> Result<()> {
+async fn run_fanin(
+    role: Role,
+    ep: &str,
+    duration: Duration,
+    payload: &[u8],
+    lanes: usize,
+) -> Result<()> {
     require_tcp("fanin", ep)?;
-    let ctx = Context::new();
+    let ctx = context(lanes)?;
     match role {
         Role::Sub => {
             let mut pull = tmq::pull(&ctx).bind(ep)?;

@@ -24,6 +24,8 @@ clap = { version = "4", features = ["derive", "env"] }
 # pinned 0.2.0, which has never existed, so the target could not resolve at all
 # and `cargo build` failed before reaching the unimplemented socket loops.
 celerity = { version = "0.1.1", features = ["tokio", "ipc", "curve"] }
+# celerity frames are Vec<Bytes>.
+bytes = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [profile.release]
