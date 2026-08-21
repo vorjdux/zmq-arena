@@ -21,7 +21,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 | usable without an async runtime | yes | yes | no | no | yes | no | no | partial |
 | platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows |
 | bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. |
-| benchmarked here | headline + extended (reference) | headline | headline + extended | headline | headline | headline + extended | headline + extended | latency and pub/sub only |
+| benchmarked here | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline: latency, pubsub; extended |
 
 ## Notes
 

@@ -16,9 +16,46 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+
+
+def measured_kinds() -> dict:
+    """What the matrix actually schedules per implementation.
+
+    Derived rather than curated. `arena_tier` used to be a hand-written string
+    and drifted the moment the tiering changed: three implementations still
+    claimed "headline" long after they had started running the extended cells
+    too. A claim about our own matrix has no business being typed by hand when
+    the matrix is right there.
+    """
+    import gen_matrix
+
+    out = {}
+    for t in gen_matrix.TARGETS:
+        out.setdefault(t["id"], set()).update(t["kinds"])
+    return out
+
+
+def tier_of(impl_id: str, kinds: dict) -> str:
+    import gen_matrix
+
+    got = kinds.get(impl_id)
+    if not got:
+        return "not benchmarked"
+    headline = sorted(got & set(gen_matrix.HEADLINE_KINDS))
+    extended = got & (set(gen_matrix.EXTENDED_KINDS) | set(gen_matrix.IPC_KINDS))
+    if len(headline) == len(gen_matrix.HEADLINE_KINDS) and extended:
+        return "headline + extended"
+    parts = []
+    if headline:
+        parts.append("headline: " + ", ".join(headline))
+    if extended:
+        parts.append("extended")
+    return "; ".join(parts) or "not benchmarked"
 
 MARK = {"yes": "yes", "declared": "declared", "no": "no", "partial": "partial"}
 
@@ -66,6 +103,12 @@ def main():
 
     data = json.loads(args.features.read_text())
     impls = data["implementations"]
+
+    # Overwrite whatever the file claims: the matrix is the authority on what
+    # this repo measures.
+    kinds = measured_kinds()
+    for i in impls:
+        i["arena_tier"] = tier_of(i["id"], kinds)
 
     parts = [
         "# Feature matrix\n",

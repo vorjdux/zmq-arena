@@ -73,12 +73,14 @@ def main():
                   f"which has no hue in `engines`", file=sys.stderr)
             return 1
 
+    # An entry the matrix can never produce is dead weight: it cannot appear in a
+    # chart, and it keeps a name alive after the engine is gone. Report it.
     unused = sorted(known - matrix_variant_keys())
-    live = [v for v in data["variants"] if not v.get("stub") and not v.get("retired")]
-    print(f"variants.json: {len(data['variants'])} entries, {len(live)} live, "
+    print(f"variants.json: {len(data['variants'])} entries, "
           f"all {len(matrix_variant_keys())} matrix variants covered")
     if unused:
-        print(f"  not in the matrix (stubs and retired engines): {', '.join(unused)}")
+        print(f"  WARNING: described but never produced by the matrix: {', '.join(unused)}",
+              file=sys.stderr)
 
     if args.check:
         return 0

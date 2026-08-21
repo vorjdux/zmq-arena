@@ -696,14 +696,17 @@ fn target_args(entry: &MatrixEntry, role: &str, endpoint: &str) -> Vec<String> {
     a
 }
 
-/// Endpoint for a cell. ipc gets a unique socket path (returned for cleanup);
-/// tcp claims a free loopback port. netns is intentionally not used here: it
-/// needs root and is pointless on a single-core dev host. The bare-metal path
-/// will add netns isolation.
-fn make_endpoint(entry: &MatrixEntry, cell_id: &str) -> anyhow::Result<(String, Option<PathBuf>)> {
+/// Endpoint for a cell. ipc gets a unique socket path under the run's private
+/// directory (returned for cleanup); tcp claims a free loopback port, which the
+/// targets then bind inside the run's network namespace when there is one.
+fn make_endpoint(
+    entry: &MatrixEntry,
+    cell_id: &str,
+    run_id: &str,
+) -> anyhow::Result<(String, Option<PathBuf>)> {
     match entry.transport {
         Transport::Ipc => {
-            let path = std::env::temp_dir().join(format!("zmq-arena-{cell_id}.sock"));
+            let path = ipc_dir(run_id)?.join(format!("{cell_id}.sock"));
             let _ = std::fs::remove_file(&path);
             Ok((format!("ipc://{}", path.display()), Some(path)))
         }
@@ -783,6 +786,29 @@ static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::n
 /// Build the command for a target, inside the run's network namespace when the
 /// cell asked for `tcp_netns` and one exists. Every target spawn goes through
 /// here so no path can quietly escape the isolation.
+/// Private directory for this run's unix sockets, created 0700.
+///
+/// Sockets used to go straight into the shared temp dir. Two problems with
+/// that: two runs on one machine collide on identically named paths, and an
+/// engine that checks the ownership of the socket's parent directory refuses to
+/// bind there at all, because the shared temp dir is world-writable. celerity
+/// does exactly that check and rejected every ipc cell. A directory owned by the
+/// run, readable only by it, satisfies both.
+///
+/// Kept under the temp dir rather than the scratch dir because a unix socket
+/// path is capped at 108 bytes and the scratch dir can be arbitrarily deep.
+fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating ipc dir {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("locking down ipc dir {}", dir.display()))?;
+    }
+    Ok(dir)
+}
+
 fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
     if matches!(entry.transport, Transport::TcpNetns)
         && let Some(ns) = NETNS.get().and_then(Option::as_ref)
@@ -878,7 +904,7 @@ fn run_throughput(
     entry: &MatrixEntry,
     isolation: &Isolation,
 ) -> anyhow::Result<CellRecord> {
-    let (endpoint, ipc_path) = make_endpoint(entry, cell_id)?;
+    let (endpoint, ipc_path) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
@@ -996,7 +1022,7 @@ fn run_latency(
     entry: &MatrixEntry,
     isolation: &Isolation,
 ) -> anyhow::Result<CellRecord> {
-    let (endpoint, ipc_path) = make_endpoint(entry, cell_id)?;
+    let (endpoint, ipc_path) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let sub_cg = try_cgroup(run_id, &format!("{cell_id}-sub"), isolation);
@@ -1103,7 +1129,7 @@ fn run_multipeer(
     }
     let peers = entry.peers.unwrap_or(1).max(1);
     let duration = entry.duration_secs.unwrap_or(2.0);
-    let (endpoint, _ipc) = make_endpoint(entry, cell_id)?;
+    let (endpoint, _ipc) = make_endpoint(entry, cell_id, run_id)?;
     let binary = &entry.target.binary;
 
     let pub_cg = try_cgroup(run_id, &format!("{cell_id}-pub"), isolation);
