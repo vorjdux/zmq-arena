@@ -77,7 +77,7 @@ And the render steps, all pure data transformation:
 
 | script | in | out |
 |---|---|---|
-| `gen_matrix.py` | `--sizes` | `matrix.linode.json` |
+| `gen_matrix.py` | `--sizes`, `--cpuset` | `matrix.linode.json` |
 | `render_results.py` | `--scratch` | `docs/history/<date>-run.json` |
 | `render_variants.py` | `variants.json` | `docs/variants.json`, fails if the matrix has an undescribed variant |
 | `render_features.py` | `features.json` | `FEATURES.md`, `docs/features.json` |
@@ -183,7 +183,14 @@ four. omq's `multi_thread` variant is the deliberate exception, because running
 on more than one lane is what that variant is.
 
 Each cell runs in a cgroup v2 leaf with the cpuset and memory cap the matrix
-declares, so the producer and consumer do not time-share a core. Cells on the
+declares, so the producer and consumer do not time-share a core. Which CPUs those
+are is a per-machine decision: the default `0-3` is right only when they are
+four distinct physical performance cores. On a part that enumerates SMT siblings
+adjacently, `0-3` is two physical cores running both threads of each, and the two
+ends of a cell contend for the same execution units; on Intel hybrid parts the
+high-numbered CPUs are efficiency cores clocked differently. Read the topology
+with `lscpu -e=CPU,CORE,MAXMHZ` and regenerate with
+`gen_matrix.py --cpuset 0,2,4,6` or whatever that host's performance cores are. Cells on the
 `tcp_netns` transport run inside a network namespace created for the run, so
 loopback carries their traffic and nothing else; both peers of a cell share the
 namespace, which is why it is per run rather than per process. CPU and context
