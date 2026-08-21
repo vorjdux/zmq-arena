@@ -119,7 +119,16 @@ let RECORDS=[], VARMETA={};
 const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
-function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
+// Round before formatting. A log axis returns computed tick values, not the
+// integers we measured at, so 2^6 can arrive as 64.00000000001 and string
+// concatenation renders every one of those digits.
+function fmtPayload(b){
+  const n=Math.round(+b);
+  if(!Number.isFinite(n)) return String(b);
+  if(n>=1048576) return +(n/1048576).toFixed(2)+" MiB";
+  if(n>=1024) return +(n/1024).toFixed(2)+" KiB";
+  return n+" B";
+}
 function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+" G"; if(v>=1e6)return (v/1e6).toFixed(2)+" M";
   if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
