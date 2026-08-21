@@ -121,7 +121,7 @@
   </div>
   <div class="ctl"><label>Throughput unit</label>
     <div class="seg" id="tputSeg">
-      <button data-v="msgs" class="on">Mmsg/s</button><button data-v="mbps">MB/s</button>
+      <button data-v="msgs" class="on">msgs/s</button><button data-v="mbps">MB/s</button>
     </div>
   </div>
   <div class="ctl"><label>Layout</label>
@@ -182,7 +182,16 @@ let RECORDS=[], DATES=[], VARIANTS=[], VARMETA={}, selected=new Set(), PANELS=[]
 const varSort = (a,b)=>{ const ia=VORDER.indexOf(a), ib=VORDER.indexOf(b);
   return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b); };
 
-function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
+// Round before formatting. A log axis returns computed tick values, not the
+// integers we measured at, so 2^6 can arrive as 64.00000000001 and string
+// concatenation renders every one of those digits.
+function fmtPayload(b){
+  const n=Math.round(+b);
+  if(!Number.isFinite(n)) return String(b);
+  if(n>=1048576) return +(n/1048576).toFixed(2)+" MiB";
+  if(n>=1024) return +(n/1024).toFixed(2)+" KiB";
+  return n+" B";
+}
 function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+"G"; if(v>=1e6)return (v/1e6).toFixed(2)+"M";
   if(v>=1e3)return (v/1e3).toFixed(0)+"K"; return v.toFixed(0); }
@@ -342,9 +351,34 @@ function buildChips(){
       `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
+    // The chips are a shared legend, so hovering one picks that library out of
+    // every open panel at once. With twelve series across small multiples this
+    // is the fastest way to follow one library across scenarios.
+    const name=VARIANT_LABEL[v]||v;
+    c.addEventListener("mouseenter",()=>focusSeries(name));
+    c.addEventListener("mouseleave",()=>focusSeries(null));
     box.appendChild(c);
   }
 }
+/// Run `fn` against every panel that currently has a chart built.
+function eachChart(fn){ PANELS.forEach(p=>{ if(p.chart) fn(p.chart); }); }
+
+// Fade every series except `name`, in every open panel. Done by restyling
+// rather than by dispatching ECharts' highlight action: with an axis-trigger
+// tooltip the axis pointer owns the hover, so the built-in emphasis/blur never
+// fires and the action is a no-op. Passing null restores everything.
+function focusSeries(name){
+  eachChart(ch=>{
+    const cur=ch.getOption().series||[];
+    ch.setOption({series:cur.map(s=>{
+      const on = name===null || s.name===name;
+      return { name:s.name,
+        lineStyle:{ opacity:on?1:0.12, width:(name!==null&&on)?3.5:2 },
+        itemStyle:{ opacity:on?1:0.12 } };
+    })});
+  });
+}
+
 function setSelected(vs){ selected=new Set(vs);
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v))); render(); }
 function applyPreset(p){
@@ -354,12 +388,26 @@ function applyPreset(p){
 }
 
 // ── metric per kind ───────────────────────────────────────────────
+// A panel's values span four orders of magnitude across scenarios: 1-to-1
+// PUSH/PULL reaches ~22M msgs/s while pub/sub at 16 KiB is ~3K. A fixed unit
+// cannot serve both, and the old fixed Mmsg/s rendered every pub/sub row as
+// "0.00", which reads as a broken chart rather than a small number. Values stay
+// raw and the formatter picks the unit per value instead.
 function panelMetric(kind){
   if(kind==="latency"){ const p=segVal("latpctSeg");
-    return {get:r=>r.latency_ns[p]/1000, axis:`${p==="p999"?"p99.9":p} latency (µs)`, better:"lower", fmt:v=>v>=100?v.toFixed(0):v.toFixed(1)}; }
+    return {get:r=>r.latency_ns[p]/1000, axis:`${p==="p999"?"p99.9":p} latency (µs)`,
+      better:"lower", fmt:v=>(v>=100?v.toFixed(0):v.toFixed(1))+" µs"}; }
   return segVal("tputSeg")==="mbps"
-    ? {get:r=>r.throughput.mbps, axis:"MB/s", better:"higher", fmt:v=>v.toFixed(0)}
-    : {get:r=>r.throughput.msgs_per_s/1e6, axis:"Mmsg/s", better:"higher", fmt:v=>v.toFixed(2)};
+    ? {get:r=>r.throughput.mbps, axis:"MB/s", better:"higher",
+       fmt:v=>fmtSmall(v)+" MB/s", axisFmt:v=>fmtSmall(v)}
+    : {get:r=>r.throughput.msgs_per_s, axis:"msgs/s", better:"higher",
+       fmt:v=>fmtMsgs(v)+"/s", axisFmt:v=>fmtMsgs(v)};
+}
+
+// Keep small byte rates readable: 0.55 MB/s should not round to "1".
+function fmtSmall(v){
+  if(v==null||Number.isNaN(v)) return "-";
+  return v>=100 ? v.toFixed(0) : v>=10 ? v.toFixed(1) : v.toFixed(2);
 }
 
 // ── scenarios (one panel each) ────────────────────────────────────
@@ -392,6 +440,11 @@ function buildPanels(){
     const c=document.createElement("div"); c.className="chart";
     d.appendChild(s); d.appendChild(c); host.appendChild(d);
     const chart=echarts.init(c);
+    // Pointing at a line marks it, in this panel and every other. triggerLineEvent
+    // (set on each series) makes the whole line a hover target rather than only
+    // its data points, so this fires wherever the pointer meets the line.
+    chart.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    chart.on("mouseout", ()=>focusSeries(null));
     const panel={group:g, chart, details:d};
     d.addEventListener("toggle",()=>{ if(d.open){ chart.resize(); drawPanel(panel); } });
     PANELS.push(panel);
@@ -407,6 +460,15 @@ function drawPanel(p){
   const series=vars.map(v=>({
     name:VARIANT_LABEL[v]||v, type:"line", symbol:"circle", symbolSize:5, smooth:false, connectNulls:true,
     lineStyle:{width:2,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},
+    // Pointing at a line singles it out and fades the rest, so a reader can
+    // answer "which one is this" without counting dash patterns against the
+    // legend. triggerLineEvent makes the whole line hoverable, not just its
+    // data points, which is the difference between this working and only
+    // working if you land exactly on a marker.
+    emphasis:{ focus:"series", blurScope:"coordinateSystem",
+      lineStyle:{ width:4 }, itemStyle:{ borderWidth:2 } },
+    blur:{ lineStyle:{ opacity:0.15 }, itemStyle:{ opacity:0.15 } },
+    triggerLineEvent:true,
     data:sizes.map(s=>{ const r=recs.find(x=>x.payload_bytes===s&&x.variant===v); return [s, r?m.get(r):null]; }),
   }));
   p.chart.setOption({
@@ -430,7 +492,8 @@ function drawPanel(p){
       axisLabel:{color:css("--muted"),formatter:v=>fmtPayload(v)},
       axisLine:{lineStyle:{color:css("--line")}}, splitLine:{show:false}},
     yAxis:{type:logy?"log":"value", name:m.axis, nameTextStyle:{color:css("--muted"),align:"left"},
-      axisLabel:{color:css("--muted")}, splitLine:{lineStyle:{color:css("--line"),opacity:.5}}},
+      axisLabel:{color:css("--muted"), formatter:m.axisFmt||undefined},
+      splitLine:{lineStyle:{color:css("--line"),opacity:.5}}},
     series,
   }, true);
 }

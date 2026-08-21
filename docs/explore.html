@@ -223,7 +223,16 @@ const TPUT_METRICS = [
 ];
 const metricsForKind = k => (k==="latency" ? LATENCY_METRICS : TPUT_METRICS).concat(SHARED_METRICS);
 
-function fmtPayload(b){ return b>=1048576?(b/1048576)+" MiB":b>=1024?(b/1024)+" KiB":b+" B"; }
+// Round before formatting. A log axis returns computed tick values, not the
+// integers we measured at, so 2^6 can arrive as 64.00000000001 and string
+// concatenation renders every one of those digits.
+function fmtPayload(b){
+  const n=Math.round(+b);
+  if(!Number.isFinite(n)) return String(b);
+  if(n>=1048576) return +(n/1048576).toFixed(2)+" MiB";
+  if(n>=1024) return +(n/1024).toFixed(2)+" KiB";
+  return n+" B";
+}
 function fmtVal(v,unit){ if(v==null||Number.isNaN(v))return"n/a";
   return unit==="count"?v.toFixed(0):v>=100?v.toFixed(0):v>=10?v.toFixed(1):v.toFixed(2); }
 
@@ -443,7 +452,31 @@ function styleMap(vlist){
 }
 
 // ── charts ────────────────────────────────────────────────────────
-function buildCharts(){ evoChart=echarts.init(el("evoChart")); sweepChart=echarts.init(el("sweepChart")); }
+function buildCharts(){
+  evoChart=echarts.init(el("evoChart"));
+  sweepChart=echarts.init(el("sweepChart"));
+  // Pointing at a line marks it and fades the rest, in both charts at once.
+  // Done by restyling rather than by ECharts' emphasis: the axis-trigger tooltip
+  // owns the pointer, so the built-in focus/blur never fires.
+  for(const ch of [evoChart, sweepChart]){
+    ch.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    ch.on("mouseout", ()=>focusSeries(null));
+  }
+}
+
+function focusSeries(name){
+  for(const ch of [evoChart, sweepChart]){
+    if(!ch) continue;
+    const cur=ch.getOption().series||[];
+    if(!cur.length) continue;
+    ch.setOption({series:cur.map(s=>{
+      const on = name===null || s.name===name;
+      return { name:s.name,
+        lineStyle:{ opacity:on?1:0.12, width:(name!==null&&on)?3.5:2 },
+        itemStyle:{ opacity:on?1:0.12 } };
+    })});
+  }
+}
 function axisType(){ return el("logscale").checked?"log":"value"; }
 function baseOption(yName){
   return {
@@ -460,7 +493,7 @@ function baseOption(yName){
 }
 function mkSeries(v,data,style){
   return { name:VARIANT_LABEL[v]||v, type:"line", data, connectNulls:false,
-    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" },
+    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" }, triggerLineEvent:true,
     lineStyle:{ width:2, color:style.color, type:style.dash },
     itemStyle:{ color:style.color } };
 }
@@ -523,6 +556,16 @@ function renderSweep(){
   opt.xAxis={ type:"log", logBase:2, name:"payload (bytes)", nameLocation:"middle", nameGap:30,
     nameTextStyle:{ color:css("--muted") }, axisLabel:{ color:css("--muted"), formatter:v=>fmtPayload(v) },
     axisLine:{ lineStyle:{ color:css("--line") } } };
+  // Without a formatter ECharts prints the raw axis value as the tooltip
+  // header, which on a log axis is a float: "64.00000000". Label it the way the
+  // axis is labelled, and give the rows their unit.
+  opt.tooltip=Object.assign({}, opt.tooltip, {
+    formatter:pts=>{
+      const head=fmtPayload(pts[0].axisValue);
+      const rows=pts.filter(x=>x.value!=null&&x.value[1]!=null)
+        .map(x=>`${x.marker}${x.seriesName}: <b>${x.value[1]}</b> ${m.unit}`);
+      return `<b>${head}</b><br>${rows.join("<br>")}`;
+    }});
   opt.series=series;
   sweepChart.setOption(opt,true);
   el("sweepTitle").textContent=`Size sweep · ${m.label} · ${tr}`;
