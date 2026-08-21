@@ -443,7 +443,31 @@ function styleMap(vlist){
 }
 
 // ── charts ────────────────────────────────────────────────────────
-function buildCharts(){ evoChart=echarts.init(el("evoChart")); sweepChart=echarts.init(el("sweepChart")); }
+function buildCharts(){
+  evoChart=echarts.init(el("evoChart"));
+  sweepChart=echarts.init(el("sweepChart"));
+  // Pointing at a line marks it and fades the rest, in both charts at once.
+  // Done by restyling rather than by ECharts' emphasis: the axis-trigger tooltip
+  // owns the pointer, so the built-in focus/blur never fires.
+  for(const ch of [evoChart, sweepChart]){
+    ch.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    ch.on("mouseout", ()=>focusSeries(null));
+  }
+}
+
+function focusSeries(name){
+  for(const ch of [evoChart, sweepChart]){
+    if(!ch) continue;
+    const cur=ch.getOption().series||[];
+    if(!cur.length) continue;
+    ch.setOption({series:cur.map(s=>{
+      const on = name===null || s.name===name;
+      return { name:s.name,
+        lineStyle:{ opacity:on?1:0.12, width:(name!==null&&on)?3.5:2 },
+        itemStyle:{ opacity:on?1:0.12 } };
+    })});
+  }
+}
 function axisType(){ return el("logscale").checked?"log":"value"; }
 function baseOption(yName){
   return {
@@ -460,7 +484,7 @@ function baseOption(yName){
 }
 function mkSeries(v,data,style){
   return { name:VARIANT_LABEL[v]||v, type:"line", data, connectNulls:false,
-    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" },
+    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" }, triggerLineEvent:true,
     lineStyle:{ width:2, color:style.color, type:style.dash },
     itemStyle:{ color:style.color } };
 }

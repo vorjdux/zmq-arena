@@ -342,9 +342,34 @@ function buildChips(){
       `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); render(); });
+    // The chips are a shared legend, so hovering one picks that library out of
+    // every open panel at once. With twelve series across small multiples this
+    // is the fastest way to follow one library across scenarios.
+    const name=VARIANT_LABEL[v]||v;
+    c.addEventListener("mouseenter",()=>focusSeries(name));
+    c.addEventListener("mouseleave",()=>focusSeries(null));
     box.appendChild(c);
   }
 }
+/// Run `fn` against every panel that currently has a chart built.
+function eachChart(fn){ PANELS.forEach(p=>{ if(p.chart) fn(p.chart); }); }
+
+// Fade every series except `name`, in every open panel. Done by restyling
+// rather than by dispatching ECharts' highlight action: with an axis-trigger
+// tooltip the axis pointer owns the hover, so the built-in emphasis/blur never
+// fires and the action is a no-op. Passing null restores everything.
+function focusSeries(name){
+  eachChart(ch=>{
+    const cur=ch.getOption().series||[];
+    ch.setOption({series:cur.map(s=>{
+      const on = name===null || s.name===name;
+      return { name:s.name,
+        lineStyle:{ opacity:on?1:0.12, width:(name!==null&&on)?3.5:2 },
+        itemStyle:{ opacity:on?1:0.12 } };
+    })});
+  });
+}
+
 function setSelected(vs){ selected=new Set(vs);
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v))); render(); }
 function applyPreset(p){
@@ -392,6 +417,11 @@ function buildPanels(){
     const c=document.createElement("div"); c.className="chart";
     d.appendChild(s); d.appendChild(c); host.appendChild(d);
     const chart=echarts.init(c);
+    // Pointing at a line marks it, in this panel and every other. triggerLineEvent
+    // (set on each series) makes the whole line a hover target rather than only
+    // its data points, so this fires wherever the pointer meets the line.
+    chart.on("mouseover", e=>{ if(e.seriesName) focusSeries(e.seriesName); });
+    chart.on("mouseout", ()=>focusSeries(null));
     const panel={group:g, chart, details:d};
     d.addEventListener("toggle",()=>{ if(d.open){ chart.resize(); drawPanel(panel); } });
     PANELS.push(panel);
@@ -407,6 +437,15 @@ function drawPanel(p){
   const series=vars.map(v=>({
     name:VARIANT_LABEL[v]||v, type:"line", symbol:"circle", symbolSize:5, smooth:false, connectNulls:true,
     lineStyle:{width:2,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},
+    // Pointing at a line singles it out and fades the rest, so a reader can
+    // answer "which one is this" without counting dash patterns against the
+    // legend. triggerLineEvent makes the whole line hoverable, not just its
+    // data points, which is the difference between this working and only
+    // working if you land exactly on a marker.
+    emphasis:{ focus:"series", blurScope:"coordinateSystem",
+      lineStyle:{ width:4 }, itemStyle:{ borderWidth:2 } },
+    blur:{ lineStyle:{ opacity:0.15 }, itemStyle:{ opacity:0.15 } },
+    triggerLineEvent:true,
     data:sizes.map(s=>{ const r=recs.find(x=>x.payload_bytes===s&&x.variant===v); return [s, r?m.get(r):null]; }),
   }));
   p.chart.setOption({
