@@ -90,10 +90,15 @@ And the render steps, all pure data transformation:
 
 ## What gets measured
 
-Five patterns, over ipc and loopback tcp, across a payload sweep of 64, 256,
-1024, 4096 and 16384 bytes. That is the size set the OMQ comparison and
-monocoque's own benches use, so the points line up with what those projects
-publish.
+Five patterns, over ipc and loopback tcp, across a payload sweep of 16, 64, 256,
+1024, 4096 and 16384 bytes: the size set the OMQ comparison uses, so the points
+line up with what that project publishes.
+
+16 B is there deliberately. libzmq keeps messages up to roughly 33 bytes inline
+in the message struct and OMQ up to roughly 55, so a sweep starting at 64 never
+exercises either small-message path and the engines look more alike at the small
+end than they are. Every size is a power of two, which also keeps the log axis
+landing on real measured sizes.
 
 | pattern | shape |
 |---|---|

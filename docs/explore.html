@@ -449,8 +449,10 @@ function baseOption(yName){
   return {
     textStyle:{ color:css("--fg"), fontFamily:"system-ui,sans-serif" },
     grid:{ left:62, right:18, top:18, bottom:70 },
+    // confine keeps the popup inside the chart box; with a dozen series it is
+    // tall enough to be clipped near the edges otherwise.
     tooltip:{ trigger:"axis", backgroundColor:css("--panel2"), borderColor:css("--line"),
-      textStyle:{ color:css("--fg") }, order:"valueDesc" },
+      textStyle:{ color:css("--fg") }, order:"valueDesc", confine:true },
     legend:{ type:"scroll", bottom:0, textStyle:{ color:css("--muted") } },
     yAxis:{ type:axisType(), name:yName, nameTextStyle:{ color:css("--muted") },
       axisLabel:{ color:css("--muted") }, splitLine:{ lineStyle:{ color:css("--line") } } },
@@ -515,7 +517,10 @@ function renderSweep(){
     return mkSeries(v,data,sm[v]);
   });
   const opt=baseOption(`${m.label} (${m.unit})`);
-  opt.xAxis={ type:"log", name:"payload (bytes)", nameLocation:"middle", nameGap:30,
+  // logBase 2: every payload is a power of two, so base-2 ticks land on real
+  // measured sizes. The default base 10 ticked at 10000 B and rendered it as
+  // "9.765625 KiB".
+  opt.xAxis={ type:"log", logBase:2, name:"payload (bytes)", nameLocation:"middle", nameGap:30,
     nameTextStyle:{ color:css("--muted") }, axisLabel:{ color:css("--muted"), formatter:v=>fmtPayload(v) },
     axisLine:{ lineStyle:{ color:css("--line") } } };
   opt.series=series;
