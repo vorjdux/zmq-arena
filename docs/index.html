@@ -58,6 +58,7 @@
     background:var(--panel); user-select:none; opacity:.45; }
   .chip.on { opacity:1; }
   .chip .sw { width:11px; height:11px; border-radius:50%; }
+  .swline { vertical-align:middle; margin-right:6px; }
   .chip .swline { margin-right:7px; vertical-align:middle; flex:0 0 auto; }
   .chip small { color:var(--muted); }
   main { padding:14px 24px 8px; display:grid; gap:16px; }
@@ -161,6 +162,9 @@
 // Series identity, filled from variants.json by loadVariants() before anything
 // renders. Declared up here because the sort and colour helpers below close
 // over them.
+// Series carry their label as their ECharts name, so the tooltip needs the way
+// back to the key to look up a variant's dash pattern.
+let KEY_OF_LABEL = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, VARIANT_DASH = {}, ENGINE_COLOR = {}, VORDER = [];
 
 // ── registries ────────────────────────────────────────────────────
@@ -218,7 +222,7 @@ async function loadVariants(){
   const d = await r.json();
   ENGINE_COLOR = d.engines || {};
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color;
-    VARIANT_DASH[v.key] = v.dash || null; }
+    VARIANT_DASH[v.key] = v.dash || null; KEY_OF_LABEL[v.label] = v.key; }
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -380,6 +384,46 @@ function buildChips(){
     box.appendChild(c);
   }
 }
+// Which line is under the pointer, by distance in pixels to the drawn polyline.
+//
+// ECharts' own hit-testing cannot answer this here. `triggerLineEvent` gives
+// each polyline a hit region as wide as its stroke plus a tolerance, and where
+// several series run close together -- which is most of a payload sweep, since
+// variants of one engine perform alike -- those regions overlap. The event then
+// reports whichever region wins internally, not the line the pixel belongs to,
+// so pointing at the salmon line could mark a different variant of the same
+// engine. Measuring the distance to each segment instead resolves the same line
+// the eye picks, and ties break toward the genuinely nearest.
+//
+// Returns null beyond HOVER_SLOP so moving through empty chart space clears the
+// mark rather than leaving the last line stuck on.
+const HOVER_SLOP = 14;
+
+function distToSegment(px, py, ax, ay, bx, by){
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+function nearestSeries(p, x, y){
+  const series = (p.chart.getOption().series) || [];
+  let best = null, bestDist = HOVER_SLOP;
+  for(const s of series){
+    // Nulls are gaps in the sweep. connectNulls draws across them, so the
+    // hoverable line is the sequence of points that actually carry a value.
+    const pts = (s.data || []).filter(d => d && d[1] != null)
+      .map(d => p.chart.convertToPixel({xAxisIndex:0, yAxisIndex:0}, d))
+      .filter(Boolean);
+    for(let i = 0; i < pts.length; i++){
+      const a = pts[i], b = pts[i + 1] || a;
+      const d = distToSegment(x, y, a[0], a[1], b[0], b[1]);
+      if(d < bestDist){ bestDist = d; best = s.name; }
+    }
+  }
+  return best;
+}
+
 /// Run `fn` against every panel that currently has a chart built.
 function eachChart(fn){ PANELS.forEach(p=>{ if(p.chart) fn(p.chart); }); }
 
@@ -421,6 +465,16 @@ function applyPreset(p){
 // raw and the formatter picks the unit per value instead.
 // One tooltip row. The hovered series gets a tinted, bolded row so the line
 // under the pointer is identifiable at a glance; everything else stays plain.
+// ECharts' own `params.marker` is a round dot, so it carries colour but not dash.
+// Variants of one engine are deliberately close in hue and separated by dash, so
+// a dot cannot tell omq-tokio from omq (blocking): the tooltip would say one
+// thing while the chart drew another. Use the same line swatch the chips and
+// legend use, so a tooltip row looks like the line it names.
+function tipMarker(name){
+  const key = KEY_OF_LABEL[name];
+  return key ? swatch(key) : "";
+}
+
 function tipRow(marker, name, value){
   const on = name===HOVERED;
   const style = on
@@ -485,22 +539,24 @@ function buildPanels(){
     // ALONG a line never crosses a column and the marked row would not appear
     // until the pointer happened to move sideways. Re-issue the tooltip at the
     // point under the cursor so the mark lands on the same movement.
-    chart.on("mouseover", e=>{
-      if(!e.seriesName) return;
-      focusSeries(e.seriesName);
-      // Hovering the line rather than one of its points gives no dataIndex, so
-      // fall back to the column the tooltip is already showing.
-      const idx = e.dataIndex!=null ? e.dataIndex : panel.tipIndex;
+    chart.getZr().on("mousemove", e=>{
+      const name = nearestSeries(panel, e.offsetX, e.offsetY);
+      // Re-issuing the tooltip on every mouse move would flicker, so only act
+      // when the line under the pointer actually changes.
+      if(name === panel.hovered) return;
+      panel.hovered = name;
+      focusSeries(name);
       // showTip on its own is a no-op when the tooltip is already open on that
       // column: ECharts sees no state change and does not re-run the formatter,
       // so the newly hovered row would stay unmarked. Close it first to force a
       // real re-render. Same frame, so there is no visible flicker.
-      if(idx!=null){
+      const idx = panel.tipIndex;
+      if(name!==null && idx!=null){
         chart.dispatchAction({type:"hideTip"});
         chart.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
       }
     });
-    chart.on("mouseout", ()=>focusSeries(null));
+    chart.getZr().on("globalout", ()=>{ panel.hovered=null; focusSeries(null); });
     const panel={group:g, chart, details:d};
     d.addEventListener("toggle",()=>{ if(d.open){ chart.resize(); drawPanel(panel); } });
     PANELS.push(panel);
@@ -542,7 +598,7 @@ function drawPanel(p){
         // dataIndex, so this is how the refresh below knows where to reopen it.
         p.tipIndex = pts[0].dataIndex;
         const rows=pts.filter(p=>p.value[1]!=null).sort((a,b)=>better==="lower"?a.value[1]-b.value[1]:b.value[1]-a.value[1])
-          .map(p=>tipRow(p.marker, p.seriesName, m.fmt(p.value[1])));
+          .map(p=>tipRow(tipMarker(p.seriesName), p.seriesName, m.fmt(p.value[1])));
         return `<b>${s}</b><br>${rows.join("")}`; }},
     // logBase 2, not the default 10. Every payload in the sweep is a power of
     // two, so base-2 ticks land exactly on measured sizes; base 10 ticked at
