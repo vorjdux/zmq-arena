@@ -406,6 +406,27 @@ function distToSegment(px, py, ax, ay, bx, by){
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
 
+// The payload column nearest the pointer, as an index into the panel's sizes.
+//
+// Derived from the pointer rather than read back from the tooltip formatter: the
+// formatter only runs while a tooltip is open, so on a panel whose tooltip had
+// been dismissed there was no column to reopen on, and the hovered line was left
+// highlighted with nothing naming it. Deriving it means the mark and the tooltip
+// always appear together.
+function columnAt(p, x){
+  const sizes = p.sizes || [];
+  if(!sizes.length) return null;
+  const v = p.chart.convertFromPixel({xAxisIndex:0, yAxisIndex:0}, [x, 0]);
+  if(!v || !isFinite(v[0])) return null;
+  // Sizes are powers of two on a log axis, so nearest means nearest in log space.
+  let best = 0, bestD = Infinity;
+  sizes.forEach((sz, i) => {
+    const d = Math.abs(Math.log(sz) - Math.log(v[0]));
+    if(d < bestD){ bestD = d; best = i; }
+  });
+  return best;
+}
+
 function nearestSeries(p, x, y){
   const series = (p.chart.getOption().series) || [];
   let best = null, bestDist = HOVER_SLOP;
@@ -550,7 +571,7 @@ function buildPanels(){
       // column: ECharts sees no state change and does not re-run the formatter,
       // so the newly hovered row would stay unmarked. Close it first to force a
       // real re-render. Same frame, so there is no visible flicker.
-      const idx = panel.tipIndex;
+      const idx = columnAt(panel, e.offsetX);
       if(name!==null && idx!=null){
         chart.dispatchAction({type:"hideTip"});
         chart.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
@@ -569,6 +590,7 @@ function drawPanel(p){
   const sizes=[...new Set(recs.map(r=>r.payload_bytes))].sort((a,b)=>a-b);
   const vars=VORDER.filter(v=>selected.has(v) && recs.some(r=>r.variant===v));
   const logy=el("logscale").checked;
+  p.sizes = sizes;
   const series=vars.map(v=>({
     name:VARIANT_LABEL[v]||v, type:"line", symbol:"circle", symbolSize:5, smooth:false, connectNulls:true,
     lineStyle:{width:2.5,color:colorOf(v),type:VARIANT_DASH[v]||"solid"}, itemStyle:{color:colorOf(v)},

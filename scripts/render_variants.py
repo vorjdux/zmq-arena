@@ -25,6 +25,33 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
 
+# --panel in docs/*.html, the surface every line and swatch is drawn on. The
+# palette is tuned for the dark theme, which is what the dashboard ships in and
+# what the charts were designed against; LIGHT_PANEL is checked only to report
+# how much of the palette would wash out on a white background.
+PANEL_BG = "#171b21"
+LIGHT_PANEL = "#ffffff"
+# WCAG 2.1 minimum for non-text graphical objects.
+MIN_CONTRAST = 3.0
+
+
+def _channel(v: int) -> float:
+    c = v / 255
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(hex_color: str) -> float:
+    h = hex_color.lstrip("#")
+    r, g, b = (_channel(int(h[i:i + 2], 16)) for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = relative_luminance(a), relative_luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def matrix_variant_keys() -> set:
     """Every variant key the generated matrix will actually produce.
 
@@ -72,6 +99,31 @@ def main():
             print(f"error: variant {v['key']} names engine {v['engine']}, "
                   f"which has no hue in `engines`", file=sys.stderr)
             return 1
+
+    # A colour too close to the panel background is not a colour anyone can
+    # match against a legend. The dark end of each engine's ramp had drifted
+    # there: three variants sat under 2.5:1, and all three were the dotted ones,
+    # which put the least ink on screen. A dotted near-black line is invisible,
+    # so the reader falls back to guessing which line is which. Enforce the WCAG
+    # 3:1 floor for graphical objects.
+    for v in data["variants"]:
+        c = contrast(v["color"], PANEL_BG)
+        if c < MIN_CONTRAST:
+            print(f"error: variant {v['key']} colour {v['color']} has contrast "
+                  f"{c:.2f}:1 against the dashboard panel {PANEL_BG}, below the "
+                  f"{MIN_CONTRAST}:1 floor. Pick a lighter shade of the same hue.",
+                  file=sys.stderr)
+            return 1
+
+    # Known debt, reported rather than enforced: these hues were chosen for the
+    # dark theme and most of them wash out on white. Fixing it means a second
+    # palette keyed to the theme, not nudging these.
+    washed = [v["key"] for v in data["variants"]
+              if contrast(v["color"], LIGHT_PANEL) < MIN_CONTRAST]
+    if washed:
+        print(f"  NOTE: {len(washed)}/{len(data['variants'])} colours fall below "
+              f"{MIN_CONTRAST}:1 on the light theme; the palette is tuned for dark",
+              file=sys.stderr)
 
     # An entry the matrix can never produce is dead weight: it cannot appear in a
     # chart, and it keeps a name alive after the engine is gone. Report it.
