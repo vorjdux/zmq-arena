@@ -270,12 +270,22 @@ async function loadFrom(base){
 // silently produced a chart series labelled with its raw key and drawn in
 // fallback grey. Add a series in variants.json and nowhere else.
 
+// The palette is per theme. A hue bright enough to read on the dark panel is
+// washed out on the white one, so variants.json carries `color` for dark and
+// `color_light` for light, and this picks between them. Kept as a function of
+// the raw entry so a theme change can re-resolve without refetching.
+const LIGHT_THEME = window.matchMedia("(prefers-color-scheme: light)");
+const themedColor = e => (LIGHT_THEME.matches && e.color_light) || e.color;
+
 async function loadVariants(){
   const r = await fetch("variants.json?_=" + Date.now(), {cache:"no-store"});
   if(!r.ok) throw new Error("variants.json -> " + r.status);
   const d = await r.json();
-  ENGINE_COLOR = d.engines || {};
-  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = v.color; }
+  // Engine hues back the small swatches; same per-theme rule.
+  ENGINE_COLOR = {};
+  for(const k in (d.engines || {}))
+    ENGINE_COLOR[k] = themedColor({color: d.engines[k], color_light: (d.engines_light||{})[k]});
+  for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -704,6 +714,16 @@ el("footer").innerHTML=
 load().catch(e=>{ el("dataSource").textContent="failed to load data";
   const err=el("err"); err.hidden=false;
   err.textContent="Could not load results: "+e.message+". Serve this folder over HTTP (e.g. `python3 -m http.server` in docs/). Browser file:// fetches are blocked."; });
+
+// Following the OS theme means the palette can change while the page is open.
+// Re-resolve the colours and redraw rather than leaving the charts on the other
+// theme's hues, which would be exactly the unreadable state this all fixes.
+LIGHT_THEME.addEventListener("change", () => {
+  loadVariants().then(() => {
+    if(typeof buildChips === "function") buildChips();
+    render();
+  }).catch(() => {});
+});
 </script>
 </body>
 </html>

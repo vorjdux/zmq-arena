@@ -19,7 +19,8 @@
       "engine": "libzmq",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "color_light": "#9e7f03"
     },
     {
       "key": "rust_zmq",
@@ -32,7 +33,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "color_light": "#8d5b06"
     },
     {
       "key": "tmq",
@@ -45,7 +47,8 @@
       "dash": [
         2,
         3
-      ]
+      ],
+      "color_light": "#7c3906"
     },
     {
       "key": "zeromq_rs",
@@ -55,7 +58,8 @@
       "engine": "zmq.rs",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "color_light": "#0d7dfb"
     },
     {
       "key": "zeromq_rs_async_std",
@@ -68,20 +72,22 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "color_light": "#0a5ce0"
     },
     {
       "key": "zeromq_rs_async_dispatcher",
       "label": "zmq.rs (async-dispatcher)",
       "note": "async-dispatcher",
-      "color": "#1e40af",
+      "color": "#a78bfa",
       "engine": "zmq.rs",
       "io": "epoll",
       "threading": "multi",
       "dash": [
         2,
         3
-      ]
+      ],
+      "color_light": "#420ae9"
     },
     {
       "key": "omq_tokio",
@@ -91,7 +97,8 @@
       "engine": "omq",
       "io": "epoll",
       "threading": "single",
-      "dash": null
+      "dash": null,
+      "color_light": "#f71010"
     },
     {
       "key": "omq_tokio_mt",
@@ -104,20 +111,22 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "color_light": "#cb1111"
     },
     {
       "key": "omq_blocking",
       "label": "omq (blocking)",
       "note": "blocking",
-      "color": "#991b1b",
+      "color": "#fb7185",
       "engine": "omq",
       "io": "epoll",
       "threading": "single",
       "dash": [
         2,
         3
-      ]
+      ],
+      "color_light": "#9b041a"
     },
     {
       "key": "monocoque",
@@ -127,7 +136,8 @@
       "engine": "monocoque",
       "io": "io_uring",
       "threading": "single",
-      "dash": null
+      "dash": null,
+      "color_light": "#139480"
     },
     {
       "key": "monocoque_tokio",
@@ -140,20 +150,22 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "color_light": "#0c7267"
     },
     {
       "key": "monocoque_smol",
       "label": "monocoque (smol)",
       "note": "smol",
-      "color": "#0f645f",
+      "color": "#22d3ee",
       "engine": "monocoque",
       "io": "epoll",
       "threading": "single",
       "dash": [
         2,
         3
-      ]
+      ],
+      "color_light": "#07535f"
     },
     {
       "key": "rzmq",
@@ -163,7 +175,8 @@
       "engine": "rzmq",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "color_light": "#149744"
     },
     {
       "key": "rzmq_io_uring",
@@ -176,7 +189,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "color_light": "#107535"
     },
     {
       "key": "celerity",
@@ -186,9 +200,18 @@
       "engine": "celerity",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "color_light": "#e81f82"
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
-  "_stub_note": "Every entry here is produced by the matrix. Entries were once kept for retired engines so archived runs could still render a name, but no archive references them any more, and a registry that lists series nothing can emit is just a place for stale names to hide. Removing an engine means removing it here too."
+  "_stub_note": "Every entry here is produced by the matrix. Entries were once kept for retired engines so archived runs could still render a name, but no archive references them any more, and a registry that lists series nothing can emit is just a place for stale names to hide. Removing an engine means removing it here too.",
+  "engines_light": {
+    "libzmq": "#8e7203",
+    "zmq.rs": "#1368f4",
+    "omq": "#e91414",
+    "monocoque": "#0e8478",
+    "rzmq": "#178640",
+    "celerity": "#e0177a"
+  }
 }
