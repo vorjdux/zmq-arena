@@ -83,6 +83,7 @@
   th:first-child,td:first-child { text-align:left; }
   th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
   .sw2 { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+  .swline { vertical-align:middle; margin-right:6px; }
   .best { color:var(--accent); font-weight:600; }
   td small { color:var(--muted); }
   .err { padding:24px; color:var(--warn); }
@@ -463,14 +464,21 @@ function verTag(v,run){ const ver=libVerAt(v,run); const b=VARMETA[v].impl==="ff
 
 // ── series styling (color by category, dash within group) ─────────
 function catValue(v,dim){ return dim==="variant" ? v : VARMETA[v][dim]; }
+// Series style keyed by the label ECharts uses as the series name, so the
+// tooltip can draw a marker that matches the line. Refreshed by styleMap on
+// every render, because "colour by" can regroup everything.
+let STYLE_BY_LABEL = {};
+
 function styleMap(vlist){
   const dim=val("colorby"); const groups={};
   vlist.forEach(v=>{ const k=catValue(v,dim); (groups[k]=groups[k]||[]).push(v); });
   const keys=Object.keys(groups); const map={};
+  STYLE_BY_LABEL={};
   keys.forEach((k,gi)=>{
     groups[k].forEach((v,mi)=>{
       const color = dim==="engine" ? (ENGINE_COLOR[k]||PALETTE[gi%PALETTE.length]) : PALETTE[gi%PALETTE.length];
       map[v]={color, dash:DASHES[mi%DASHES.length], group:k};
+      STYLE_BY_LABEL[VARIANT_LABEL[v]||v]=map[v];
     });
   });
   return map;
@@ -484,25 +492,88 @@ function buildCharts(){
   // Done by restyling rather than by ECharts' emphasis: the axis-trigger tooltip
   // owns the pointer, so the built-in focus/blur never fires.
   for(const ch of [evoChart, sweepChart]){
-    ch.on("mouseover", e=>{
-      if(!e.seriesName) return;
-      focusSeries(e.seriesName);
-      const idx = e.dataIndex!=null ? e.dataIndex : ch.__tipIndex;
+    ch.getZr().on("mousemove", e=>{
+      const name = nearestSeries(ch, e.offsetX, e.offsetY);
+      // Only act when the line under the pointer changes; re-issuing the tooltip
+      // on every move would flicker.
+      if(name === ch.__hovered) return;
+      ch.__hovered = name;
+      focusSeries(name);
+      const idx = ch.__tipIndex;
       // hideTip first: showTip alone is a no-op on an already-open column, so
       // the formatter would not re-run and the row would stay unmarked.
-      if(idx!=null){
+      if(name!==null && idx!=null){
         ch.dispatchAction({type:"hideTip"});
         ch.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
       }
     });
-    ch.on("mouseout", ()=>focusSeries(null));
+    ch.getZr().on("globalout", ()=>{ ch.__hovered=null; focusSeries(null); });
   }
+}
+
+// Which line is under the pointer, by distance in pixels to the drawn polyline.
+//
+// `triggerLineEvent` gives each polyline a hit region as wide as its stroke plus
+// a tolerance, and ECharts reports whichever region wins internally rather than
+// the line the pointer is on. Where a sweep converges -- which is most of the
+// right-hand side, since every library trends the same way as payloads grow --
+// following one line and reading the mark gave a different library: walking
+// libzmq across the sweep reported rust-zmq at 1 KiB and tmq at 4 KiB, and both
+// zmq.rs and zmq.rs (async-std) reported async-dispatcher for their whole
+// length. Measuring distance to each segment resolves the line the eye picks.
+//
+// Returns null beyond HOVER_SLOP so empty chart space clears the mark.
+const HOVER_SLOP = 14;
+
+function distToSegment(px, py, ax, ay, bx, by){
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+function nearestSeries(ch, x, y){
+  const series = (ch.getOption().series) || [];
+  let best = null, bestDist = HOVER_SLOP;
+  for(const s of series){
+    const pts = [];
+    (s.data || []).forEach((d, i) => {
+      // A flagged cell is an object carrying its own marker style; a plain one
+      // is the value itself. The evolution chart is category-x, so a bare value
+      // is the y and the index is the x.
+      const raw = (d !== null && typeof d === "object" && !Array.isArray(d)) ? d.value : d;
+      if(raw === null || raw === undefined) return;
+      const pair = Array.isArray(raw) ? raw : [i, raw];
+      if(pair[1] === null || pair[1] === undefined) return;
+      const px = ch.convertToPixel({xAxisIndex:0, yAxisIndex:0}, pair);
+      if(px) pts.push(px);
+    });
+    for(let i = 0; i < pts.length; i++){
+      const a = pts[i], b = pts[i + 1] || a;
+      const d = distToSegment(x, y, a[0], a[1], b[0], b[1]);
+      if(d < bestDist){ bestDist = d; best = s.name; }
+    }
+  }
+  return best;
 }
 
 // Which series the pointer is on, read by the tooltip formatter so the hovered
 // line's row is marked. See index.html for why the tooltip has to be forced to
 // re-render when this changes.
 let HOVERED = null;
+
+// ECharts' own `params.marker` is a round dot, so it carries colour but not
+// dash. Colouring by engine deliberately gives every variant of an engine the
+// same hue and separates them by dash, so a dot cannot tell omq-tokio from omq
+// (blocking): the tooltip says one thing while the chart draws another. Draw the
+// series' actual line instead.
+function tipMarker(name){
+  const st = STYLE_BY_LABEL[name];
+  if(!st) return "";
+  const da = Array.isArray(st.dash) ? ` stroke-dasharray="${st.dash.join(" ")}"` : "";
+  return `<svg class="swline" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true">`
+    + `<line x1="0" y1="5" x2="22" y2="5" stroke="${st.color}" stroke-width="2.5"${da}/></svg>`;
+}
 
 // One tooltip row; the hovered series gets a tinted, bolded one.
 function tipRow(marker, name, value){
@@ -583,6 +654,16 @@ function renderEvolution(){
   opt.xAxis={ type:"category", data:DATES, boundaryGap:false,
     axisLabel:{ color:css("--muted") }, axisLine:{ lineStyle:{ color:css("--line") } } };
   opt.dataZoom=[{ type:"slider", bottom:32, height:16, borderColor:css("--line"), textStyle:{ color:css("--muted") } },{ type:"inside" }];
+  // Same rows as the sweep chart, so a marker means the same thing on both and
+  // the hovered line is marked here too. Left on ECharts' default formatter this
+  // chart showed round dots and never recorded a column to reopen on.
+  opt.tooltip=Object.assign({}, opt.tooltip, {
+    formatter:pts=>{
+      evoChart.__tipIndex = pts[0].dataIndex;
+      const rows=pts.filter(x=>x.value!=null)
+        .map(x=>tipRow(tipMarker(x.seriesName), x.seriesName, `${x.value} ${m.unit}`));
+      return `<b>${pts[0].axisValue}</b>${rows.join("")}`;
+    }});
   opt.series=series;
   evoChart.setOption(opt,true);
   el("evoTitle").textContent=`Evolution · ${KIND_LABEL[kind]} · ${m.label} · ${tr}`+(pe?` · ${pe} peers`:"")+` · ${fmtPayload(pay)}`;
@@ -615,7 +696,7 @@ function renderSweep(){
       sweepChart.__tipIndex = pts[0].dataIndex;
       const head=fmtPayload(pts[0].axisValue);
       const rows=pts.filter(x=>x.value!=null&&x.value[1]!=null)
-        .map(x=>tipRow(x.marker, x.seriesName, `${x.value[1]} ${m.unit}`));
+        .map(x=>tipRow(tipMarker(x.seriesName), x.seriesName, `${x.value[1]} ${m.unit}`));
       return `<b>${head}</b>${rows.join("")}`;
     }});
   opt.series=series;
