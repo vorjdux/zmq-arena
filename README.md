@@ -8,7 +8,7 @@ A benchmarking harness for ZMTP, the ZeroMQ wire protocol. It runs several
 implementations through the same isolated, instrumented conditions, so the
 comparison is about the implementations and not about the harness.
 
-Twelve series across six engines. Every runtime an engine ships is measured
+Fifteen series across six engines. Every runtime an engine ships is measured
 separately, so `monocoque` appears three times (io_uring, tokio, smol) and the
 difference between those lines is the IO model, not the protocol code.
 
@@ -24,7 +24,7 @@ Ubuntu, from a clean checkout. `setup-ubuntu.sh` installs the toolchains and
 
 ```bash
 bash scripts/setup-ubuntu.sh     # toolchains + system libzmq (once)
-make build                       # control plane + all 12 runnable variants
+make build                       # control plane + all 15 runnable variants
 make dry                         # expand the plan, spawn nothing
 make run                         # measure, then render into docs/
 make dashboard                   # serve docs/ at http://localhost:8000
@@ -37,7 +37,7 @@ pinning and no syscall counting, and a laptop governor is not pinned. Use
 [Provenance](#provenance-is-measured-not-declared) for what a real comparison
 requires.
 
-A full run is 390 cells with replication; expect it to take a while. For a fast
+A full run is 570 cells with replication; expect it to take a while. For a fast
 loop, shrink the matrix and the replicate count:
 
 ```bash
@@ -128,8 +128,9 @@ maintainable. The matrix splits by **pattern, never by library**:
 
 The only thing that excludes a library is a documented inability to serve that
 pattern: zmq.rs has no fan-out or fan-in because its PUSH/PULL does not
-multiplex several peers on the bound side, so it runs 25 cells per variant where
-everything else runs 35. A tier whose membership were a list of favoured names
+multiplex several peers on the bound side, so it runs 30 cells per variant
+where a fully capable one runs 42; celerity implements REQ/REP and PUB/SUB only,
+so it runs 18. A tier whose membership were a list of favoured names
 would not be a benchmark, and the ranking maths would quietly reward whichever
 libraries had been let into the extra cells.
 
@@ -236,7 +237,7 @@ The restrictions the run applied are recorded the same way, in `_run.json`:
 | `syscall_counting.captured` | whether perf registered. A host that cannot open the tracepoints records zero syscalls, which is "not measured", not "no syscalls" |
 
 The dashboard shows all of it beside the host, and badges anything unapplied.
-A run pinned to `cpuset 0-3` and one that silently ran unpinned produce numbers
+A run pinned to `cpuset 0,2,4,6` and one that silently ran unpinned produce numbers
 that look alike and mean different things.
 
 ### Enforcing it on the bench host
