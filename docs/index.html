@@ -70,6 +70,36 @@
   th:first-child,td:first-child { text-align:left; }
   th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
   td small { color:var(--muted); }
+  /* Docked readout. A floating tooltip sits on top of the chart it describes and
+     has to be chased with the pointer; this stays in one place, so the reading
+     is steady and nothing is covered. Width is reserved on the body so the
+     panels shrink rather than slide under it. */
+  #inspector { position:fixed; top:0; right:0; width:308px; height:100vh;
+    background:var(--panel); border-left:1px solid var(--line);
+    display:flex; flex-direction:column; z-index:40; }
+  body.noinspect #inspector { display:none; }
+  body.inspect { padding-right:308px; }
+  #inspector .ihead { padding:12px 14px 10px; border-bottom:1px solid var(--line); }
+  #inspector .ititle { font-weight:650; font-size:13px; }
+  #inspector .isub { color:var(--muted); font-size:11.5px; margin-top:3px;
+    text-transform:uppercase; letter-spacing:.5px; }
+  #inspector .ibody { overflow-y:auto; padding:6px 0 14px; flex:1 1 auto; }
+  #inspector .irow { display:flex; align-items:center; gap:8px; padding:4px 14px;
+    font-size:12.5px; border-left:3px solid transparent; }
+  /* The line under the pointer, marked so "which one am I on" needs no colour
+     matching against a legend. */
+  #inspector .irow.on { background:var(--panel2); border-left-color:var(--accent); font-weight:650; }
+  #inspector .irow .nm { flex:1 1 auto; min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  #inspector .irow .vl { flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  #inspector .iempty { color:var(--muted); font-size:12px; padding:14px; }
+  #inspector .ifoot { border-top:1px solid var(--line); padding:9px 14px;
+    color:var(--muted); font-size:11px; }
+  @media (max-width:1100px){
+    /* Too narrow to give up a column: fall back to the floating tooltip. */
+    #inspector { display:none; }
+    body.inspect { padding-right:0; }
+  }
   /* panels grid */
   #panels { padding:0 24px; display:grid; gap:14px;
     grid-template-columns:repeat(auto-fill, minmax(460px, 1fr)); }
@@ -131,6 +161,11 @@
       <button data-v="grid" class="on">Grid</button><button data-v="focus">Focus</button>
     </div>
   </div>
+  <div class="ctl"><label>Readout</label>
+    <div class="seg" id="readoutSeg">
+      <button data-v="inspect" class="on">Inspector</button><button data-v="tooltip">Tooltip</button>
+    </div>
+  </div>
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
 </div>
 
@@ -152,6 +187,15 @@
   </section>
 </main>
 <div id="panels" hidden></div>
+
+<aside id="inspector" hidden>
+  <div class="ihead">
+    <div class="ititle" id="iTitle">Inspector</div>
+    <div class="isub" id="iSub">hover a chart</div>
+  </div>
+  <div class="ibody" id="iBody"><div class="iempty">Point at any chart. The values for that payload size appear here, and the line under the pointer is marked.</div></div>
+  <div class="ifoot" id="iFoot"></div>
+</aside>
 
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
@@ -326,7 +370,7 @@ async function load(){
   el("run").value=DATES[DATES.length-1];
   if(DATES.length<2) el("run").closest(".ctl").style.display="none";
 
-  initControls(); buildChips(); buildPanels(); render();
+  initControls(); applyReadout(); buildChips(); buildPanels(); render();
   el("controls").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
 }
 
@@ -341,7 +385,11 @@ function initControls(){
   seg("tputSeg", ()=>render());
   el("logscale").addEventListener("change", render);
   seg("layoutSeg", applyLayout);
+  seg("readoutSeg", applyReadout);
   document.querySelectorAll(".preset").forEach(p=>p.addEventListener("click",()=>applyPreset(p.dataset.preset)));
+  // The rail is dropped below 1100px, so crossing that width changes the layout
+  // and every chart has to relayout with it.
+  window.matchMedia("(max-width:1100px)").addEventListener("change", applyReadout);
   window.addEventListener("resize",()=>PANELS.forEach(p=>p.chart.resize()));
 }
 function applyLayout(mode){
@@ -454,6 +502,54 @@ function nearestSeries(p, x, y){
     }
   }
   return best;
+}
+
+// ── docked readout ────────────────────────────────────────────────
+// A floating tooltip has to sit on top of the chart it describes, so it covers
+// the lines being compared and has to be chased with the pointer. The inspector
+// puts the same numbers in a fixed place: the reading is steady, the chart stays
+// visible, and losing the line for a moment no longer costs you the numbers.
+const inspectorOn = () => segVal("readoutSeg") !== "tooltip"
+  && !window.matchMedia("(max-width:1100px)").matches;
+
+function applyReadout(){
+  const on = inspectorOn();
+  document.body.classList.toggle("inspect", on);
+  document.body.classList.toggle("noinspect", !on);
+  el("inspector").hidden = !on;
+  // The panels change width when the rail appears, so the charts must relayout.
+  eachChart(ch => ch.resize());
+  // `showContent` is part of each chart's option, so switching readout has to
+  // redraw; resizing alone would leave the floating box suppressed after a
+  // switch back to it. Guarded because this also runs before the first draw.
+  if(PANELS.length) render();
+}
+
+function drawInspector(p, idx, hoveredName){
+  if(idx == null){ return; }
+  const g = p.group, m = panelMetric(g.kind);
+  const size = (p.sizes || [])[idx];
+  if(size == null) return;
+  const series = (p.chart.getOption().series) || [];
+  const byLabel = {}; for(const k in VARIANT_LABEL) byLabel[VARIANT_LABEL[k]] = k;
+  const rows = [];
+  for(const s of series){
+    const d = (s.data || [])[idx];
+    const v = Array.isArray(d) ? d[1] : (d && d.value ? d.value[1] : null);
+    if(v == null) continue;
+    rows.push({name:s.name, key:byLabel[s.name], v});
+  }
+  rows.sort((a, b) => m.better === "lower" ? a.v - b.v : b.v - a.v);
+  el("iTitle").textContent = `${KIND_LABEL[g.kind] || g.kind} · ${fmtPayload(size)}`;
+  el("iSub").textContent = `${TRANSPORT_LABEL[g.transport] || g.transport}`
+    + (g.peers != null ? ` · ${g.peers} peers` : "") + ` · ${m.axis}`;
+  el("iBody").innerHTML = rows.length
+    ? rows.map(r => `<div class="irow${r.name === hoveredName ? " on" : ""}">`
+        + `${r.key ? swatch(r.key) : ""}<span class="nm">${r.name}</span>`
+        + `<span class="vl">${m.fmt(r.v)}</span></div>`).join("")
+    : `<div class="iempty">No data at this size.</div>`;
+  el("iFoot").textContent = `${rows.length} libraries · `
+    + (m.better === "lower" ? "lower is better" : "higher is better");
 }
 
 /// Run `fn` against every panel that currently has a chart built.
@@ -573,6 +669,10 @@ function buildPanels(){
     // point under the cursor so the mark lands on the same movement.
     chart.getZr().on("mousemove", e=>{
       const name = nearestSeries(panel, e.offsetX, e.offsetY);
+      const idx = columnAt(panel, e.offsetX);
+      // The inspector redraws on any move, because moving along a line changes
+      // the column it should read out even when the line does not change.
+      if(inspectorOn()) drawInspector(panel, idx, name);
       // Re-issuing the tooltip on every mouse move would flicker, so only act
       // when the line under the pointer actually changes.
       if(name === panel.hovered) return;
@@ -582,12 +682,14 @@ function buildPanels(){
       // column: ECharts sees no state change and does not re-run the formatter,
       // so the newly hovered row would stay unmarked. Close it first to force a
       // real re-render. Same frame, so there is no visible flicker.
-      const idx = columnAt(panel, e.offsetX);
-      if(name!==null && idx!=null){
+      if(!inspectorOn() && name!==null && idx!=null){
         chart.dispatchAction({type:"hideTip"});
         chart.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
       }
     });
+    // Leaving a chart clears the highlight but leaves the inspector showing the
+    // last reading. Blanking it would make the numbers vanish exactly when the
+    // pointer moves off to go read them.
     chart.getZr().on("globalout", ()=>{ panel.hovered=null; focusSeries(null); });
     const panel={group:g, chart, details:d};
     d.addEventListener("toggle",()=>{ if(d.open){ chart.resize(); drawPanel(panel); } });
@@ -610,8 +712,13 @@ function drawPanel(p){
     // legend. triggerLineEvent makes the whole line hoverable, not just its
     // data points, which is the difference between this working and only
     // working if you land exactly on a marker.
+    // Pin the colour in the emphasis state. ECharts lifts a series' colour when
+    // it is emphasized, so the hovered line painted #ff4a4a where it declared
+    // #ef4444 -- brighter than the swatch naming it, and worst on the reds,
+    // whose red channel saturates. Emphasis should change weight, not hue.
     emphasis:{ focus:"series", blurScope:"coordinateSystem",
-      lineStyle:{ width:4 }, itemStyle:{ borderWidth:2 } },
+      lineStyle:{ width:4, color:colorOf(v) },
+      itemStyle:{ borderWidth:2, color:colorOf(v), borderColor:colorOf(v) } },
     blur:{ lineStyle:{ opacity:0.15 }, itemStyle:{ opacity:0.15 } },
     triggerLineEvent:true,
     data:sizes.map(s=>{ const r=recs.find(x=>x.payload_bytes===s&&x.variant===v); return [s, r?m.get(r):null]; }),
@@ -620,7 +727,11 @@ function drawPanel(p){
     color:vars.map(colorOf),
     textStyle:{color:css("--fg"),fontFamily:"system-ui,sans-serif"},
     grid:{left:58,right:16,top:14,bottom:34},
-    tooltip:{trigger:"axis", backgroundColor:css("--panel2"), borderColor:css("--line"),
+    // With the inspector docked, the floating box is redundant and would cover
+    // the lines it describes. Keep trigger:"axis" either way so the axis pointer
+    // still marks the column being read out; only the box is suppressed.
+    tooltip:{trigger:"axis", showContent:!inspectorOn(),
+      backgroundColor:css("--panel2"), borderColor:css("--line"),
       textStyle:{color:css("--fg")},
       // Keep the popup inside the panel. With twelve series it is tall, and near
       // the panel edges it was being clipped by the container instead of being
