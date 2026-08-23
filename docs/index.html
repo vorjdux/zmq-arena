@@ -571,8 +571,15 @@ function focusSeries(name){
     ch.setOption({series:cur.map(s=>{
       const on = name===null || s.name===name;
       return { name:s.name,
-        lineStyle:{ opacity:on?1:0.12, width:(name!==null&&on)?3.5:2 },
-        itemStyle:{ opacity:on?1:0.12 } };
+        // Enough contrast to say which line is under the pointer, not so much
+        // that the others stop being readable. Fading to 0.12 and jumping the
+        // width to 3.5 answered "which one is this" by removing the comparison
+        // that made the question worth asking: against the panel, a line faded
+        // to 0.12 measured 1.1:1, which is not a dimmer line but an absent one.
+        // At 0.55 the faintest of them holds about 1.9:1 and stays legible,
+        // while the hovered line keeps full opacity and a little extra weight.
+        lineStyle:{ opacity:on?1:0.55, width:(name!==null&&on)?3.2:2.5 },
+        itemStyle:{ opacity:on?1:0.55 } };
     })});
   });
 }
@@ -717,7 +724,7 @@ function drawPanel(p){
     // #ef4444 -- brighter than the swatch naming it, and worst on the reds,
     // whose red channel saturates. Emphasis should change weight, not hue.
     emphasis:{ focus:"series", blurScope:"coordinateSystem",
-      lineStyle:{ width:4, color:colorOf(v) },
+      lineStyle:{ width:3.2, color:colorOf(v) },
       itemStyle:{ borderWidth:2, color:colorOf(v), borderColor:colorOf(v) } },
     blur:{ lineStyle:{ opacity:0.15 }, itemStyle:{ opacity:0.15 } },
     triggerLineEvent:true,
@@ -737,6 +744,15 @@ function drawPanel(p){
       // the panel edges it was being clipped by the container instead of being
       // nudged back in.
       confine:true, extraCssText:"max-height:none;",
+      // ECharts' default crosshair is faint and snaps to the nearest column, so
+      // it drew ~60px from the pointer and read as absent. Snapping is right --
+      // the readout is per payload size, not per pixel -- so keep it and make
+      // the line legible instead, with a label naming the column it landed on.
+      axisPointer:{ type:"line", snap:true,
+        lineStyle:{ color:css("--muted"), width:1, type:[5,4], opacity:0.9 },
+        label:{ show:true, backgroundColor:css("--panel2"), color:css("--fg"),
+          borderColor:css("--line"), borderWidth:1, margin:6,
+          formatter:o=>fmtPayload(o.value) } },
       formatter:pts=>{ const s=fmtPayload(pts[0].value[0]); const better=m.better;
         // The column the tooltip is on. A line-level mouseover carries no
         // dataIndex, so this is how the refresh below knows where to reopen it.
