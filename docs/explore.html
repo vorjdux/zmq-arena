@@ -42,6 +42,10 @@
   .ctl label { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
   select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
     border-radius:7px; padding:7px 9px; font-size:13px; min-width:128px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button { background:var(--panel); color:var(--muted); border:0; padding:6px 11px;
+    font-size:13px; cursor:pointer; }
+  .seg button.on { background:var(--accent); color:#fff; }
   .toggle { display:inline-flex; align-items:center; gap:7px; cursor:pointer; user-select:none; font-size:13px; }
   .toggle input { accent-color:var(--accent); }
   .variants { padding:12px 24px 0; }
