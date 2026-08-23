@@ -84,6 +84,31 @@
   th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
   .sw2 { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
   .swline { vertical-align:middle; margin-right:6px; }
+  /* Docked readout, same as the Overview page: a floating tooltip covers the
+     lines it describes and has to be chased with the pointer. */
+  #inspector { position:fixed; top:0; right:0; width:308px; height:100vh;
+    background:var(--panel); border-left:1px solid var(--line);
+    display:flex; flex-direction:column; z-index:40; }
+  body.noinspect #inspector { display:none; }
+  body.inspect { padding-right:308px; }
+  #inspector .ihead { padding:12px 14px 10px; border-bottom:1px solid var(--line); }
+  #inspector .ititle { font-weight:650; font-size:13px; }
+  #inspector .isub { color:var(--muted); font-size:11.5px; margin-top:3px;
+    text-transform:uppercase; letter-spacing:.5px; }
+  #inspector .ibody { overflow-y:auto; padding:6px 0 14px; flex:1 1 auto; }
+  #inspector .irow { display:flex; align-items:center; gap:8px; padding:4px 14px;
+    font-size:12.5px; border-left:3px solid transparent; }
+  #inspector .irow.on { background:var(--panel2); border-left-color:var(--accent); font-weight:650; }
+  #inspector .irow .nm { flex:1 1 auto; min-width:0; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  #inspector .irow .vl { flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  #inspector .iempty { color:var(--muted); font-size:12px; padding:14px; }
+  #inspector .ifoot { border-top:1px solid var(--line); padding:9px 14px;
+    color:var(--muted); font-size:11px; }
+  @media (max-width:1100px){
+    #inspector { display:none; }
+    body.inspect { padding-right:0; }
+  }
   .best { color:var(--accent); font-weight:600; }
   td small { color:var(--muted); }
   .err { padding:24px; color:var(--warn); }
@@ -122,6 +147,11 @@
     <option value="language">wrapper language</option>
     <option value="variant">variant</option>
   </select></div>
+  <div class="ctl"><label>Readout</label>
+    <div class="seg" id="readoutSeg">
+      <button data-v="inspect" class="on">Inspector</button><button data-v="tooltip">Tooltip</button>
+    </div>
+  </div>
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
 </div>
 
@@ -142,6 +172,15 @@
   </div>
   <div class="chips" id="chips"></div>
 </div>
+
+<aside id="inspector" hidden>
+  <div class="ihead">
+    <div class="ititle" id="iTitle">Inspector</div>
+    <div class="isub" id="iSub">hover a chart</div>
+  </div>
+  <div class="ibody" id="iBody"><div class="iempty">Point at either chart. The values at that point appear here, and the line under the pointer is marked.</div></div>
+  <div class="ifoot" id="iFoot"></div>
+</aside>
 
 <main id="main" hidden>
   <section class="card">
@@ -382,7 +421,7 @@ async function load(){
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }
 
-  initControls(); buildChips(); buildCharts(); refreshKindDependent(); render();
+  initControls(); applyReadout(); buildChips(); buildCharts(); refreshKindDependent(); render();
 }
 
 // ── controls ──────────────────────────────────────────────────────
@@ -394,6 +433,62 @@ function fill(sel,items,labeler,value){ sel.innerHTML="";
 function kindsPresent(){ const order=["throughput","latency","pubsub","fanout","fanin"];
   return order.filter(k=>RECORDS.some(r=>r.kind===k)); }
 
+// ── docked readout ────────────────────────────────────────────────
+// Same rail as the Overview page. A floating tooltip sits on top of the chart it
+// describes, so it hides the lines being compared and has to be chased with the
+// pointer; a fixed panel keeps the reading in one place.
+const inspectorOn = () => el("readoutSeg").querySelector("button.on").dataset.v !== "tooltip"
+  && !window.matchMedia("(max-width:1100px)").matches;
+
+function applyReadout(){
+  const on = inspectorOn();
+  document.body.classList.toggle("inspect", on);
+  document.body.classList.toggle("noinspect", !on);
+  el("inspector").hidden = !on;
+  if(evoChart) evoChart.resize();
+  if(sweepChart) sweepChart.resize();
+  // showContent lives in each chart's option, so the readout switch has to
+  // redraw or the floating box stays suppressed after switching back to it.
+  if(evoChart && sweepChart) render();
+}
+
+// `which` names the chart, because the two have different x axes: the sweep is
+// payload size, the evolution is a run date.
+function drawInspector(which, ch, idx, hoveredName){
+  if(idx == null) return;
+  const m = metricDef();
+  const series = (ch.getOption().series) || [];
+  const byLabel = {}; for(const k in VARIANT_LABEL) byLabel[VARIANT_LABEL[k]] = k;
+  const rows = [];
+  // The x value comes from whichever series actually has a point here; series[0]
+  // can be null at this column, which read out as "0 B".
+  let xAt = null;
+  for(const sr of series){
+    const d = (sr.data || [])[idx];
+    if(d === null || d === undefined) continue;
+    const raw = (typeof d === "object" && !Array.isArray(d)) ? d.value : d;
+    if(raw === null || raw === undefined) continue;
+    const v = Array.isArray(raw) ? raw[1] : raw;
+    if(v === null || v === undefined) continue;
+    if(xAt === null && Array.isArray(raw)) xAt = raw[0];
+    rows.push({name:sr.name, key:byLabel[sr.name], v});
+  }
+  rows.sort((a, b) => m.better === "lower" ? a.v - b.v : b.v - a.v);
+  const head = which === "sweep"
+    ? `${KIND_LABEL[val("kind")]}${xAt != null ? ` · ${fmtPayload(xAt)}` : ""}`
+    : `${KIND_LABEL[val("kind")]} · ${DATES[idx] || ""}`;
+  el("iTitle").textContent = head;
+  el("iSub").textContent = `${val("transport")}`
+    + (currentPeers() ? ` · ${currentPeers()} peers` : "") + ` · ${m.label} (${m.unit})`;
+  el("iBody").innerHTML = rows.length
+    ? rows.map(r => `<div class="irow${r.name === hoveredName ? " on" : ""}">`
+        + `${tipMarker(r.name)}<span class="nm">${r.name}</span>`
+        + `<span class="vl">${r.v} ${m.unit}</span></div>`).join("")
+    : `<div class="iempty">No data here.</div>`;
+  el("iFoot").textContent = `${rows.length} libraries · `
+    + (m.better === "lower" ? "lower is better" : "higher is better");
+}
+
 function initControls(){
   fill(el("kind"), kindsPresent(), k=>KIND_LABEL[k]||k, kindsPresent()[0]);
   fill(el("run"), DATES, null, DATES[DATES.length-1]);
@@ -402,6 +497,10 @@ function initControls(){
   for(const id of ["metric","transport","peers","payload","run","colorby","logscale"])
     el(id).addEventListener("change", render);
   document.querySelectorAll(".preset").forEach(p=>p.addEventListener("click",()=>applyPreset(p.dataset.preset)));
+  el("readoutSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+    el("readoutSeg").querySelectorAll("button").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on"); applyReadout(); }));
+  window.matchMedia("(max-width:1100px)").addEventListener("change", applyReadout);
   window.addEventListener("resize",()=>{ evoChart&&evoChart.resize(); sweepChart&&sweepChart.resize(); });
 }
 
@@ -494,15 +593,18 @@ function buildCharts(){
   for(const ch of [evoChart, sweepChart]){
     ch.getZr().on("mousemove", e=>{
       const name = nearestSeries(ch, e.offsetX, e.offsetY);
+      const idx = columnAt(ch, e.offsetX);
+      // The inspector redraws on any move: moving along a line changes the
+      // column to read out even when the line itself does not change.
+      if(inspectorOn()) drawInspector(ch===sweepChart?"sweep":"evo", ch, idx, name);
       // Only act when the line under the pointer changes; re-issuing the tooltip
       // on every move would flicker.
       if(name === ch.__hovered) return;
       ch.__hovered = name;
       focusSeries(name);
-      const idx = ch.__tipIndex;
       // hideTip first: showTip alone is a no-op on an already-open column, so
       // the formatter would not re-run and the row would stay unmarked.
-      if(name!==null && idx!=null){
+      if(!inspectorOn() && name!==null && idx!=null){
         ch.dispatchAction({type:"hideTip"});
         ch.dispatchAction({type:"showTip", seriesIndex:0, dataIndex:idx});
       }
@@ -530,6 +632,32 @@ function distToSegment(px, py, ax, ay, bx, by){
   const len2 = dx * dx + dy * dy;
   const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+// The column nearest the pointer, as an index into the series' data.
+//
+// Derived from the pointer rather than read back from the tooltip formatter,
+// which only runs while a floating box is open: with the box suppressed there
+// would be no column to read out. The sweep's x is a log payload axis, so
+// nearest means nearest in log space; the evolution chart is category-x, where
+// convertFromPixel already returns the index.
+function columnAt(ch, x){
+  const s0 = (ch.getOption().series || [])[0];
+  if(!s0 || !(s0.data || []).length) return null;
+  const v = ch.convertFromPixel({xAxisIndex:0, yAxisIndex:0}, [x, 0]);
+  if(!v || !isFinite(v[0])) return null;
+  const first = s0.data.find(d => d !== null && d !== undefined);
+  const raw = (first && typeof first === "object" && !Array.isArray(first)) ? first.value : first;
+  if(!Array.isArray(raw)) return Math.max(0, Math.min(s0.data.length - 1, Math.round(v[0])));
+  let best = 0, bestD = Infinity;
+  s0.data.forEach((d, i) => {
+    if(d === null || d === undefined) return;
+    const r = (typeof d === "object" && !Array.isArray(d)) ? d.value : d;
+    if(!Array.isArray(r) || !(r[0] > 0)) return;
+    const dd = Math.abs(Math.log(r[0]) - Math.log(v[0]));
+    if(dd < bestD){ bestD = dd; best = i; }
+  });
+  return best;
 }
 
 function nearestSeries(ch, x, y){
@@ -615,7 +743,11 @@ function baseOption(yName){
 }
 function mkSeries(v,data,style){
   return { name:VARIANT_LABEL[v]||v, type:"line", data, connectNulls:false,
-    symbol:"circle", symbolSize:6, emphasis:{ focus:"series" }, triggerLineEvent:true,
+    symbol:"circle", symbolSize:6, triggerLineEvent:true,
+    // Pin the colour: ECharts lifts a series' hue in the emphasis state, so the
+    // hovered line painted brighter than the swatch naming it.
+    emphasis:{ focus:"series", lineStyle:{ color:style.color },
+      itemStyle:{ color:style.color, borderColor:style.color } },
     lineStyle:{ width:2, color:style.color, type:style.dash },
     itemStyle:{ color:style.color } };
 }
@@ -658,6 +790,7 @@ function renderEvolution(){
   // the hovered line is marked here too. Left on ECharts' default formatter this
   // chart showed round dots and never recorded a column to reopen on.
   opt.tooltip=Object.assign({}, opt.tooltip, {
+    showContent:!inspectorOn(),
     formatter:pts=>{
       evoChart.__tipIndex = pts[0].dataIndex;
       const rows=pts.filter(x=>x.value!=null)
@@ -692,6 +825,7 @@ function renderSweep(){
   // header, which on a log axis is a float: "64.00000000". Label it the way the
   // axis is labelled, and give the rows their unit.
   opt.tooltip=Object.assign({}, opt.tooltip, {
+    showContent:!inspectorOn(),
     formatter:pts=>{
       sweepChart.__tipIndex = pts[0].dataIndex;
       const head=fmtPayload(pts[0].axisValue);
