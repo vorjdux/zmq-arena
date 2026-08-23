@@ -45,6 +45,23 @@
   .intro b { color:var(--fg); }
   main { padding:14px 24px 28px; display:grid; gap:16px;
     grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); }
+  /* A table wider than the page must scroll inside its own box. `main` is a
+     grid, and a grid item defaults to min-width:auto, which means "as wide as my
+     content": the card grew to fit the widest table and took the whole page
+     sideways with it, so the header, the controls and every other table scrolled
+     away too. min-width:0 lets the item shrink, which is what makes the wrapper
+     below actually scroll. */
+  main > * { min-width:0; }
+  .tw { overflow-x:auto; max-width:100%; }
+  /* Freeze the identifying column. Scrolled far enough right, every row became
+     an anonymous line of numbers; keeping the first cell pinned means a value is
+     always attached to the thing it describes. It needs an opaque background of
+     its own, or the cells passing underneath show through. */
+  .tw th:first-child, .tw td:first-child {
+    position:sticky; left:0; z-index:1; background:var(--panel);
+    box-shadow:1px 0 0 var(--line); }
+  .tw thead th:first-child { z-index:2; }
+
   .board { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
   .board h2 { margin:0 0 2px; font-size:14px; }
   .board .note { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -327,7 +344,7 @@ function board(m, recs){
   // compute it; the efficiency boards compare deterministic counters.
   let h=`<section class="board"><h2>${m.label} <small style="color:var(--muted);font-weight:400">· ${m.group}</small></h2>`+
     `<div class="note">${m.note}</div>`+
-    `<table><thead><tr><th>#</th><th>library</th><th>vs libzmq</th><th>cells</th><th>ties</th></tr></thead><tbody>`;
+    `<div class="tw"><table><thead><tr><th>#</th><th>library</th><th>vs libzmq</th><th>cells</th><th>ties</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const partial = r.n<total ? ` <span class="partial" title="${r.n}/${total} cells shared with libzmq">*</span>` : "";
     const ties = m.gated ? `${r.t}` : `<span title="not applicable: this metric is not noise-gated">-</span>`;
@@ -335,7 +352,7 @@ function board(m, recs){
       `<td>${swatch(r.v)}${VARIANT_LABEL[r.v]||r.v}</td>`+
       `<td>${r.x.toFixed(2)}x</td><td>${r.n}/${total}${partial}</td><td>${ties}</td></tr>`;
   });
-  h+=`</tbody></table></section>`;
+  h+=`</tbody></table></div></section>`;
   return h;
 }
 function render(){

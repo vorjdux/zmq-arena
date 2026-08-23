@@ -58,6 +58,23 @@
   .chip .sw { width:10px; height:10px; border-radius:50%; }
   .chip small { color:var(--muted); }
   main { padding:10px 24px 28px; display:grid; gap:18px; }
+  /* A table wider than the page must scroll inside its own box. `main` is a
+     grid, and a grid item defaults to min-width:auto, which means "as wide as my
+     content": the card grew to fit the widest table and took the whole page
+     sideways with it, so the header, the controls and every other table scrolled
+     away too. min-width:0 lets the item shrink, which is what makes the wrapper
+     below actually scroll. */
+  main > *, .row2 > * { min-width:0; }
+  .tw { overflow-x:auto; max-width:100%; }
+  /* Freeze the identifying column. Scrolled far enough right, every row became
+     an anonymous line of numbers; keeping the first cell pinned means a value is
+     always attached to the thing it describes. It needs an opaque background of
+     its own, or the cells passing underneath show through. */
+  .tw th:first-child, .tw td:first-child {
+    position:sticky; left:0; z-index:1; background:var(--panel);
+    box-shadow:1px 0 0 var(--line); }
+  .tw thead th:first-child { z-index:2; }
+
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
   .card h2 { margin:0 0 2px; font-size:14px; }
   .card .hint { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -849,7 +866,7 @@ function renderRanking(){
   const best=rows.length?rows[0].x:null;
   el("rankTitle").textContent=`Ranking · ${m.label}`;
   el("rankHint").textContent=`Run ${run} · ${KIND_LABEL[kind]} · ${tr}${pe?` · ${pe} peers`:""} · ${fmtPayload(pay)} · ${m.better==="lower"?"lower":"higher"} is better. CPU and memory are the footprint across all of the cell's processes.`;
-  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>${m.label} (${m.unit})</th><th>vs best</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
+  let html=`<div class="tw"><table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>${m.label} (${m.unit})</th><th>vs best</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     let rel="n/a";
     if(best){ const ratio=m.better==="lower"?r.x/best:best/r.x; rel=i===0?"best":"×"+ratio.toFixed(2); }
@@ -861,7 +878,7 @@ function renderRanking(){
       `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td>`+
       `<td>${cpu==null?"-":cpu.toFixed(3)}</td><td>${mem==null?"-":mem.toFixed(1)}</td></tr>`;
   });
-  html+="</tbody></table>";
+  html+="</tbody></table></div>";
   if(!rows.length) html=`<div class="hint">No data for this combination.</div>`;
   el("rankTable").innerHTML=html;
 }
@@ -902,7 +919,7 @@ function renderGlobalRanking(){
     `benchmarks over ${rows.length} selected variants (lower is better). Each benchmark ranks the `+
     `selected variants; positions are averaged, so latency and throughput count equally. CPU and `+
     `memory are the mean footprint across all of each cell's processes.`;
-  let html=`<table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
+  let html=`<div class="tw"><table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{ const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
       `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
@@ -910,7 +927,7 @@ function renderGlobalRanking(){
       `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td>`+
       `<td>${r.cpu==null?"-":r.cpu.toFixed(3)}</td><td>${r.mem==null?"-":r.mem.toFixed(1)}</td></tr>`;
   });
-  html+="</tbody></table>";
+  html+="</tbody></table></div>";
   if(!rows.length) html=`<div class="hint">Select variants to build a global ranking.</div>`;
   el("globalTable").innerHTML=html;
 }

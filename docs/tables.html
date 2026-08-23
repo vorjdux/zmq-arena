@@ -42,6 +42,23 @@
     border:1px solid var(--warn); font-size:13px; }
   .banner.hidden { display:none; }
   main { padding:14px 24px 28px; display:grid; gap:18px; }
+  /* A table wider than the page must scroll inside its own box. `main` is a
+     grid, and a grid item defaults to min-width:auto, which means "as wide as my
+     content": the card grew to fit the widest table and took the whole page
+     sideways with it, so the header, the controls and every other table scrolled
+     away too. min-width:0 lets the item shrink, which is what makes the wrapper
+     below actually scroll. */
+  main > * { min-width:0; }
+  .tw { overflow-x:auto; max-width:100%; }
+  /* Freeze the identifying column. Scrolled far enough right, every row became
+     an anonymous line of numbers; keeping the first cell pinned means a value is
+     always attached to the thing it describes. It needs an opaque background of
+     its own, or the cells passing underneath show through. */
+  .tw th:first-child, .tw td:first-child {
+    position:sticky; left:0; z-index:1; background:var(--panel);
+    box-shadow:1px 0 0 var(--line); }
+  .tw thead th:first-child { z-index:2; }
+
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
   .card h2 { margin:0 0 4px; font-size:16px; }
   .card h3 { margin:14px 0 6px; font-size:13px; font-weight:600; }
