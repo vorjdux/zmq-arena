@@ -261,9 +261,22 @@ const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/
 // a raw count that flatters the batched path. Returns null (plotted as a gap, not
 // a misleading 0) when the perf counters were not captured, e.g. an unprivileged
 // run. Legacy records without the normalized block also return null.
-function iosysPerK(r){
+// A cell that moved messages had to hand bytes to the kernel somehow, so a
+// data-path total of zero means this build traced none of the syscalls the
+// runtime actually used -- "not measured", not "no kernel work". Checked here
+// rather than trusting the stored flag, so archives written before the rule
+// existed are read correctly too. Without it the least understood runtime wins
+// the efficiency board: the async-io family (smol, async-std, async-dispatcher)
+// waits in epoll_pwait and sends with sendto, and older builds traced neither,
+// so all three posted a perfect zero.
+function ioMeasured(r){
   const p = r.syscalls_per_kmsg;
-  if(!p || r.syscalls_captured===false) return null;
+  if(!p || r.syscalls_captured===false) return false;
+  return ((p.io_uring_enter||0)+(p.sendmsg||0)+(p.recvmsg||0)) > 0;
+}
+function iosysPerK(r){
+  if(!ioMeasured(r)) return null;
+  const p = r.syscalls_per_kmsg;
   return (p.io_uring_enter||0)+(p.epoll_wait||0)+(p.sendmsg||0)+(p.recvmsg||0);
 }
 // CPU spent per message, split by end. The orchestrator scales a sampled

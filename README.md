@@ -198,6 +198,23 @@ namespace, which is why it is per run rather than per process. CPU and context
 switches come from `getrusage`, peak memory from the summed per-process `VmHWM`,
 and syscall counts from `perf_event_open` tracepoints scoped to the cgroup.
 
+Each syscall counter names a **role** in the data path rather than one syscall,
+because which syscall fills that role is the runtime's choice: the send counter
+traces `sendmsg`, `sendto`, `sendmmsg` and `writev`, and the wait counter traces
+`epoll_wait`, `epoll_pwait`, `epoll_pwait2`, `poll` and `ppoll`. Counting a
+single spelling measured taste rather than behaviour, and produced the worst
+kind of wrong number: every implementation here sends with `sendto`, so an
+earlier build that traced only `sendmsg` recorded zero for all of them, and the
+async-io runtimes, which also wait in `epoll_pwait`, recorded zero for every
+counter the efficiency board adds up. A zero there reads as "no kernel work",
+which is the best possible score, so the least understood runtime won.
+
+A cell that moved messages had to hand bytes to the kernel somehow, so a
+data-path total of zero is now reported as unmeasured rather than as zero, and
+the dashboard leaves a gap instead of a value. `read` and `write` are
+deliberately not traced: they are not socket-specific, and libzmq makes about
+13k of them per cell on its internal signaller, which would count as payload.
+
 `getrusage` gives an exact CPU total for the cell but cannot say which process
 spent it, so the sender/receiver split comes from sampling `/proc/<pid>/stat` on
 the same 20 ms poll that tracks peak RSS. Those samples can miss the last tick
@@ -234,7 +251,7 @@ The restrictions the run applied are recorded the same way, in `_run.json`:
 | `isolation.applied` | whether a cgroup leaf was actually created. Without root it is not, and the cells run unpinned on the whole machine, which is a different experiment than the matrix describes |
 | `netns.applied` | whether the run got its own network namespace. `tcp_netns` cells run on a private loopback with nothing else on it; without root they fall back to host loopback, shared with every other process on the machine |
 | `replication` | the policy actually used, since `--replicates` overrides the matrix |
-| `syscall_counting.captured` | whether perf registered. A host that cannot open the tracepoints records zero syscalls, which is "not measured", not "no syscalls" |
+| `syscall_counting.captured` | whether perf registered *and* the data path was actually seen. A host that cannot open the tracepoints records zero syscalls, and so does a runtime whose syscalls this build does not trace; both are "not measured", not "no syscalls" |
 
 The dashboard shows all of it beside the host, and badges anything unapplied.
 A run pinned to `cpuset 0,2,4,6` and one that silently ran unpinned produce numbers

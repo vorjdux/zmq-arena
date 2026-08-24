@@ -48,6 +48,21 @@ pub struct SyscallCounters {
     pub io_uring_enter: u64,
 }
 
+impl SyscallCounters {
+    /// Whether these counts can be believed as a measurement of the data path.
+    ///
+    /// A cell that moved messages had to hand bytes to the kernel somehow. If
+    /// every data-path counter is zero, the runtime used a syscall this build
+    /// does not trace, and the honest report is "not measured" -- because the
+    /// alternative is that the implementation we understand least scores best.
+    /// That is exactly what happened with the async-io runtimes: they waited in
+    /// `epoll_pwait` and sent with `sendto`, neither of which was traced, so
+    /// they posted a flawless zero on the efficiency board.
+    pub const fn are_plausible(&self) -> bool {
+        self.io_uring_enter > 0 || self.sendmsg > 0 || self.recvmsg > 0
+    }
+}
+
 /// Context-switch deltas across the measurement block.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SchedCounters {
@@ -167,13 +182,47 @@ pub struct SyscallProbe {
     counters: Vec<(SyscallKind, i32)>,
 }
 
-const WANT: [(SyscallKind, &str); 5] = [
+/// Tracepoints per counter. Several entries map to the same `SyscallKind`,
+/// because the counter names a *role* in the data path rather than one syscall:
+/// which syscall fills that role is the runtime's choice, and counting only one
+/// spelling of it measures the runtime's taste rather than its behaviour.
+///
+/// This was not hypothetical. The original list traced `sendmsg`/`recvmsg`, and
+/// every implementation here sends with `sendto` and receives with `recvfrom`,
+/// so both counters read zero across all fifteen. Worse, `epoll_wait` misses the
+/// async-io family (smol, async-std, async-dispatcher), which waits in
+/// `epoll_pwait`: those three recorded zero for every counter the dashboard adds
+/// up, and a zero there reads as "no kernel work" -- the best possible score --
+/// when it means "not measured". Tracepoints that do not exist on a given kernel
+/// are skipped, so listing a superset is safe.
+const WANT: [(SyscallKind, &str); 15] = [
+    // Waiting for readiness, or submitting and reaping in the io_uring case.
     (SyscallKind::EpollWait, "sys_enter_epoll_wait"),
-    (SyscallKind::EpollCtl, "sys_enter_epoll_ctl"),
-    (SyscallKind::SendMsg, "sys_enter_sendmsg"),
-    (SyscallKind::RecvMsg, "sys_enter_recvmsg"),
+    (SyscallKind::EpollWait, "sys_enter_epoll_pwait"),
+    (SyscallKind::EpollWait, "sys_enter_epoll_pwait2"),
+    (SyscallKind::EpollWait, "sys_enter_poll"),
+    (SyscallKind::EpollWait, "sys_enter_ppoll"),
     (SyscallKind::IoUringEnter, "sys_enter_io_uring_enter"),
+    // Registering interest. Not data path, kept separate for that reason.
+    (SyscallKind::EpollCtl, "sys_enter_epoll_ctl"),
+    // Handing bytes to the kernel.
+    (SyscallKind::SendMsg, "sys_enter_sendmsg"),
+    (SyscallKind::SendMsg, "sys_enter_sendmmsg"),
+    (SyscallKind::SendMsg, "sys_enter_sendto"),
+    (SyscallKind::SendMsg, "sys_enter_writev"),
+    // Taking bytes from the kernel.
+    (SyscallKind::RecvMsg, "sys_enter_recvmsg"),
+    (SyscallKind::RecvMsg, "sys_enter_recvmmsg"),
+    (SyscallKind::RecvMsg, "sys_enter_recvfrom"),
+    (SyscallKind::RecvMsg, "sys_enter_readv"),
 ];
+
+// Deliberately absent: plain `read` and `write`. They are not socket-specific,
+// and libzmq makes about 13k of them per cell on its internal signaller mailbox,
+// which would be counted as payload traffic and inflate its receive side by
+// roughly 40%. The cost of leaving them out is that an implementation moving
+// payload through read/write would count zero here -- which the zero guard in
+// `syscalls_are_plausible` reports as unmeasured rather than as a perfect score.
 
 impl SyscallProbe {
     /// Scope counters to a cgroup with `PERF_FLAG_PID_CGROUP`. This is the robust

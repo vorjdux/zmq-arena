@@ -129,6 +129,20 @@ const relSpread = r => (r.stability && r.stability.rel_iqr) || 0;
 const kindOk = k => (r => r.kind === k && !!r.throughput);
 const ctxTotal = r => ((r.sched && (r.sched.voluntary||0) + (r.sched.involuntary||0)) || 0);
 const syscTotal = r => { const p=r.syscalls_per_kmsg; return p ? Object.values(p).reduce((a,b)=>a+b,0) : 0; };
+// A cell that moved messages had to hand bytes to the kernel somehow, so a
+// data-path total of zero means this build traced none of the syscalls the
+// runtime actually used -- "not measured", not "no kernel work". Checked here
+// rather than trusting the stored flag, so archives written before the rule
+// existed are read correctly too. Without it the least understood runtime wins
+// the efficiency board: the async-io family (smol, async-std, async-dispatcher)
+// waits in epoll_pwait and sends with sendto, and older builds traced neither,
+// so all three posted a perfect zero.
+function ioMeasured(r){
+  const p = r.syscalls_per_kmsg;
+  if(!p || r.syscalls_captured===false) return false;
+  return ((p.io_uring_enter||0)+(p.sendmsg||0)+(p.recvmsg||0)) > 0;
+}
+
 
 // Cost per message is not one number: a library that batches well can look
 // cheap on 16 B and expensive on 16 KiB, and the two ends of a connection do
@@ -172,7 +186,7 @@ const METRICS = [
   {group:"Efficiency", label:"Context switches per message", note:"Messages per context switch. Higher means less scheduler churn per message.",
    ok:r=>r.messages_basis>0 && ctxTotal(r)>0, score:r=>r.messages_basis/ctxTotal(r), gated:false},
   {group:"Efficiency", label:"Syscalls per message", note:"Inverse of kernel crossings per message. Batched io_uring beats per-message epoll. Needs captured counters.",
-   ok:r=>r.syscalls_captured && r.syscalls_per_kmsg && syscTotal(r)>0, score:r=>1/syscTotal(r), gated:false},
+   ok:r=>ioMeasured(r) && syscTotal(r)>0, score:r=>1/syscTotal(r), gated:false},
   {group:"Efficiency", label:"Memory footprint", note:"Reciprocal peak RSS across the cell's processes. Higher is leaner.",
    ok:r=>r.peak_memory_bytes>0, score:r=>1/r.peak_memory_bytes, gated:false},
 ];
@@ -335,7 +349,19 @@ async function load(){
 
 function board(m, recs){
   const rows=geomeanVsBase(recs, m.ok, m.score, m.gated);
-  if(!rows.length) return "";
+  // Say that a metric had nothing to rank rather than quietly omitting it. A
+  // board that vanishes looks the same as a board that was never written, and
+  // the reason it vanished is itself worth reporting: this run traced none of
+  // the syscalls most of the implementations actually use, so the metric has no
+  // evidence behind it for any library and ranking the survivors would compare
+  // the ones we happened to measure against each other.
+  if(!rows.length) return `<section class="board"><h2>${m.label} `
+    + `<small style="color:var(--muted);font-weight:400">· ${m.group}</small></h2>`
+    + `<div class="note">${m.note}</div>`
+    + `<div class="note" style="color:var(--warn)">Not measured in this run: no `
+    + `cell recorded enough to score this metric, so there is nothing to rank. `
+    + `A value here would say more about the harness than the libraries.</div>`
+    + `</section>`;
   const total=baselineCells(recs, m.ok);
   // `ties` is how many of a library's cells landed inside the combined replicate
   // spread of itself and the baseline and were therefore scored as 1.00x. A row
