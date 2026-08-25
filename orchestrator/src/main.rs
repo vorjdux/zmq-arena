@@ -430,6 +430,20 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
             s.rel_iqr,
             if s.stable { "stable" } else { "UNSTABLE" },
         );
+        // Say it at the point of measurement. A cell that moved messages had to
+        // hand bytes to the kernel somehow, so counters that never saw the data
+        // path mean this build does not trace the syscalls this runtime uses.
+        // Silently that becomes zero kernel work, which is the best possible
+        // score, so the implementation we understand least wins the efficiency
+        // board. Noticing it during the run beats noticing it in the dashboard.
+        if telemetry::syscalls_were_captured() && !record.syscalls.are_plausible() {
+            eprintln!(
+                "    NOTE {}: no data-path syscalls seen ({} epoll_ctl, {} wait). \
+                 This runtime uses syscalls the tracepoint set does not cover; \
+                 the cell is recorded as not measured rather than as zero.",
+                cell.id, record.syscalls.epoll_ctl, record.syscalls.epoll_wait,
+            );
+        }
         written += 1;
     }
     eprintln!("zmq-arena: wrote {written}/{} cell records", cells.len());

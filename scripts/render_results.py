@@ -144,8 +144,17 @@ def to_archive_record(cell: dict) -> dict:
     #  2. On an unprivileged host the perf tracepoints do not register and every
     #     counter reads 0. That is "not measured", not "zero syscalls", so we mark
     #     the whole block uncaptured rather than letting a 0 read as a real value.
+    #  3. "Captured" has to mean the DATA PATH was captured, not that some counter
+    #     moved. epoll_ctl is interest registration, not traffic, and treating it
+    #     as evidence let the async-io runtimes through: they registered interest
+    #     (epoll_ctl > 0) while waiting in an untraced epoll_pwait and sending
+    #     with an untraced sendto, so the block counted as captured and their
+    #     kernel-work total came out as a flawless zero. A cell that moved
+    #     messages had to hand bytes to the kernel somehow; if none of the
+    #     data-path counters moved, this build did not see how.
     syscall_names = ("epoll_wait", "epoll_ctl", "sendmsg", "recvmsg", "io_uring_enter")
-    syscalls_captured = any(sysc.get(k, 0) for k in syscall_names)
+    data_path = ("sendmsg", "recvmsg", "io_uring_enter")
+    syscalls_captured = any(sysc.get(k, 0) for k in data_path)
     # Messages that flowed during the probe window (it spans warmup + measured).
     # Count-based kinds carry the counts; duration kinds derive it from the rate.
     basis = entry.get("messages", 0) + entry.get("warmup_messages", 0)
