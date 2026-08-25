@@ -2,6 +2,11 @@
   <img src="docs/zmq-arena-logo.svg" alt="zmq-arena: ZMTP benchmark battleground" width="520">
 </p>
 
+<p align="center">
+  <b><a href="https://vorjdux.github.io/zmq-arena/">Live dashboard &rarr; vorjdux.github.io/zmq-arena</a></b><br>
+  <sub>rankings, payload-size explorer, full tables and the feature matrix</sub>
+</p>
+
 # zmq-arena
 
 A benchmarking harness for ZMTP, the ZeroMQ wire protocol. It runs several
@@ -12,7 +17,9 @@ Fifteen series across six engines. Every runtime an engine ships is measured
 separately, so `monocoque` appears three times (io_uring, tokio, smol) and the
 difference between those lines is the IO model, not the protocol code.
 
-- **[Results](#results)** live only in the dashboard under `docs/`.
+- **[Results](https://vorjdux.github.io/zmq-arena/)** live only in the dashboard.
+  The pages under `docs/` are what gets published; see [Results](#results) for
+  what an archive holds.
 - **[FEATURES.md](FEATURES.md)** covers what each library supports: socket types,
   transports, CURVE, whether it works without an async runtime.
 - **[What is not done yet](#what-is-not-done-yet)** is the honest gap list.
@@ -295,7 +302,8 @@ hardware note, and the dashboard shows it on every page.
 
 ## Results
 
-**The dashboard is the only place results live.** A run produces one archive
+**The dashboard is the only place results live**, published at
+<https://vorjdux.github.io/zmq-arena/>. A run produces one archive
 under `docs/history/`, and the dashboard is the one thing that interprets it:
 nothing else ranks, summarises, or re-renders those numbers. There is no second
 ledger to drift out of step.
