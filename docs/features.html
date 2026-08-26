@@ -97,9 +97,9 @@
      comparing a row across libraries meant tracking cells of wildly different
      widths. A uniform grid reads down a row instead. */
   .wrap table { table-layout:fixed; width:max-content; }
-  .wrap th, .wrap td { width:150px; white-space:normal; overflow-wrap:break-word;
+  .wrap th, .wrap td { width:186px; white-space:normal; overflow-wrap:break-word;
     vertical-align:top; }
-  .wrap th:first-child, .wrap td:first-child { width:200px; }
+  .wrap th:first-child, .wrap td:first-child { width:210px; }
   /* Vertical rules between the library columns. With uniform widths and cells
      that wrap over several lines, a row of values is easy to lose track of:
      "declared" under omq and "declared" under monocoque are the same words in
@@ -107,12 +107,19 @@
   .wrap th, .wrap td { border-right:1px solid var(--line); }
   .wrap th:last-child, .wrap td:last-child { border-right:0; }
   .wrap tbody td:first-child { color:var(--muted); white-space:nowrap; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    padding:14px 16px; margin:0 0 14px; }
-  .card h2 { margin:0 0 6px; font-size:15px; }
-  .card ul { margin:6px 0 0; padding-left:18px; }
-  .card li { margin:3px 0; color:var(--muted); font-size:13px; }
-  .card li b { color:var(--fg); font-weight:600; }
+  /* The details cell: a disclosure per library, in that library's column. */
+  .detailrow td { padding-top:8px; }
+  .more > summary { list-style:none; cursor:pointer; font-size:12px;
+    color:var(--accent); white-space:nowrap; }
+  .more > summary::-webkit-details-marker { display:none; }
+  .more > summary::after { content:" ▾"; opacity:.6; }
+  .more[open] > summary::after { content:" ▴"; }
+  .more-body { margin-top:6px; text-align:left; font-size:12px; }
+  .more-body h4 { margin:0 0 5px; font-size:12px; color:var(--fg); }
+  .drow { margin:0 0 5px; }
+  .drow b { display:block; font-size:9.5px; text-transform:uppercase;
+    letter-spacing:.6px; color:var(--muted); font-weight:600; }
+  .drow span { color:var(--muted); }
   .hint { color:var(--muted); font-size:13px; }
   .err { padding:24px; color:var(--warn); }
   footer { color:var(--muted); font-size:12px; text-align:center;
@@ -182,25 +189,35 @@ const ROWS = [
   ["benchmarked here",                 i => esc(i.arena_tier)],
 ];
 
+// Everything that does not fit a row of its own: the full socket list, the
+// runtime note, the caveats and the source it was read from.
+//
+// This used to be thirteen cards stacked under the table, which meant scrolling
+// away from the matrix and then finding the right one by name. As the last row
+// of the grid it stays in the column it belongs to, so the detail for monocoque
+// is directly under monocoque.
+function details(i){
+  const rows = [
+    ["Socket types", i.socket_types.join(", ")],
+    ["Runtime", i.runtime_note],
+    i.notes ? ["Notes", i.notes] : null,
+    ["Source", i.source],
+  ].filter(Boolean);
+  const body = rows.map(([k, v]) =>
+    `<div class="drow"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("");
+  return `<details class="more"><summary>More details</summary>` +
+    `<div class="more-body"><h4>${esc(i.label)} ${esc(i.version)}</h4>${body}</div></details>`;
+}
+
 function matrix(impls){
   let h = `<div class="wrap"><table><thead><tr><th>capability</th>` +
     impls.map(i => `<th>${esc(i.label)}</th>`).join("") + `</tr></thead><tbody>`;
   for (const [label, fn] of ROWS){
     h += `<tr><td>${esc(label)}</td>` + impls.map(i => `<td>${fn(i)}</td>`).join("") + `</tr>`;
   }
+  h += `<tr class="detailrow"><td>details</td>` +
+    impls.map(i => `<td>${details(i)}</td>`).join("") + `</tr>`;
   return h + `</tbody></table></div>`;
-}
-
-function notes(impls){
-  return impls.map(i => {
-    const extra = i.notes ? `<li>${esc(i.notes)}</li>` : "";
-    return `<section class="card"><h2>${esc(i.label)} ${esc(i.version)}</h2><ul>` +
-      `<li><b>Socket types:</b> ${i.socket_types.map(esc).join(", ")}</li>` +
-      `<li><b>Runtime:</b> ${esc(i.runtime_note)}</li>` +
-      extra +
-      `<li><b>Source:</b> ${esc(i.source)}</li>` +
-      `</ul></section>`;
-  }).join("");
 }
 
 async function load(){
@@ -220,7 +237,7 @@ async function load(){
     `project's claim and have not tested it. Edit <code>features.json</code> and run ` +
     `<code>scripts/render_features.py</code> to change it.`;
 
-  el("main").innerHTML = matrix(impls) + notes(impls);
+  el("main").innerHTML = matrix(impls);
   el("main").hidden = false;
 }
 
