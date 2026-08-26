@@ -7,7 +7,8 @@
     "omq": "#ef4444",
     "monocoque": "#14b8a6",
     "rzmq": "#22c55e",
-    "celerity": "#ec4899"
+    "celerity": "#ec4899",
+    "python": "#f97316"
   },
   "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
   "variants": [
@@ -202,6 +203,31 @@
       "threading": "multi",
       "dash": null,
       "color_light": "#e81f82"
+    },
+    {
+      "key": "pyzmq_pyzmq",
+      "label": "pyzmq (Python)",
+      "note": "binding to libzmq",
+      "color": "#fdba74",
+      "color_light": "#a85c07",
+      "engine": "python",
+      "io": "epoll",
+      "threading": "native",
+      "dash": null
+    },
+    {
+      "key": "pyzmq_pyomq",
+      "label": "pyomq (Python)",
+      "note": "binding to the omq Rust core",
+      "color": "#f97316",
+      "color_light": "#7c3d05",
+      "engine": "python",
+      "io": "epoll",
+      "threading": "native",
+      "dash": [
+        7,
+        4
+      ]
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
@@ -212,6 +238,7 @@
     "omq": "#e91414",
     "monocoque": "#0e8478",
     "rzmq": "#178640",
-    "celerity": "#e0177a"
+    "celerity": "#e0177a",
+    "python": "#b8560a"
   }
 }

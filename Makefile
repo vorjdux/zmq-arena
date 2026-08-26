@@ -39,7 +39,8 @@ build: orchestrator images  ## build the control plane and every target image
 IMAGES = libzmq:libzmq_cpp_target monocoque:monocoque_target \
          zeromq_rs:zeromq_rs_target omq_tokio:omq_tokio_target \
          rzmq:rzmq_target celerity:celerity_target \
-         rust_zmq:rust_zmq_target tmq:tmq_target
+         rust_zmq:rust_zmq_target tmq:tmq_target \
+         pyzmq:pyzmq_target
 
 images:                   ## build and export every target image
 	@for pair in $(IMAGES); do \
