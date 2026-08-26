@@ -206,4 +206,10 @@ else
   warn "omq-rb-target: unsupported kind #{KIND}"
   exit 1
 end
-end
+# `Async { }` reports a failed task to the logger and returns normally, so a
+# publisher that dies mid-window still exits 0 and reads as a healthy feeder.
+# For a pubsub or fanout cell that is the worst outcome available: the consumer
+# on the other side keeps timing a stream nobody is feeding any more and reports
+# real arithmetic over a starved window. `wait` re-raises, which makes the
+# process exit non-zero and the cell fail instead of publishing the number.
+end.wait

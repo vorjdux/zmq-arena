@@ -1524,12 +1524,32 @@ fn run_multipeer(
         let _ = so.read_to_string(&mut out);
     }
     let syscalls = syscall_probe.read();
+    // A peer that died on its own does not show up in the measured process's
+    // status, and it is the one failure this cell cannot survive: the consumer
+    // goes on timing a stream nobody is feeding and reports real arithmetic over
+    // a starved window. Sampled before the kill, because afterwards every status
+    // is the signal we just sent. Peers that finish cleanly are expected -- the
+    // drains are bounded by duration -- so only a failing status is a problem.
+    let mut died: Vec<String> = Vec::new();
+    for (i, c) in others.iter_mut().enumerate() {
+        if let Ok(Some(st)) = c.try_wait()
+            && !st.success()
+        {
+            died.push(format!("peer {i} exited with {st}"));
+        }
+    }
     for mut c in others {
         let _ = c.kill();
         let _ = c.wait();
     }
     if !ok {
         anyhow::bail!("{:?} measured consumer timed out", entry.kind);
+    }
+    if !died.is_empty() {
+        anyhow::bail!(
+            "{}; the measured window was not fully fed",
+            died.join("; ")
+        );
     }
     // Same reason as the throughput path: a launch failure exits immediately and
     // would otherwise be reported as a missing output line, which reads like a
