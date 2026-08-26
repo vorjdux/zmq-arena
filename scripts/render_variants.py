@@ -91,7 +91,10 @@ def main():
     # hue, or a swatch silently falls back and two engines look alike.
     engines = data["engines"]
     for v in data["variants"]:
-        for field in ("label", "color", "engine"):
+        # language and impl drive the dashboard's filters, so a variant without
+        # them silently disappears from "show me only the Java ones" rather than
+        # showing up unfiltered.
+        for field in ("label", "color", "engine", "language", "impl"):
             if not v.get(field):
                 print(f"error: variant {v['key']} has no {field}", file=sys.stderr)
                 return 1

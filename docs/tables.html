@@ -64,6 +64,16 @@
   .card h3 { margin:14px 0 6px; font-size:13px; font-weight:600; }
   .card h3 small { color:var(--muted); font-weight:400; margin-left:6px; }
   .tw { overflow-x:auto; }
+  .facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
+  .facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+    color:var(--muted); min-width:74px; }
+  .fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
+    border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
+  .fbtn:hover { color:var(--fg); }
+  .fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .fbtn.some { color:var(--fg); border-color:var(--accent); }
+  .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
   table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums;
     white-space:nowrap; }
   th,td { text-align:right; padding:6px 12px; border-bottom:1px solid var(--line); }
@@ -107,17 +117,36 @@
   <div class="ctl"><label for="run">Run</label><select id="run"></select></div>
 </div>
 
+<div class="facets" id="facets" hidden></div>
 <main id="main" hidden></main>
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<script src="arena-filter.js"></script>
 <script>
 "use strict";
 
 // Series identity, filled from variants.json by loadVariants() before anything
 // renders. Declared up here because the sort and colour helpers below close
 // over them.
+// Facets come from the registry rather than from the run, so "show me the Java
+// ones" works the same on every page and does not change shape with whichever
+// archive is loaded. Per-run details (versions) are layered on top where the
+// data has them.
+let REGMETA = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+// The selection made on any page applies here too, so "just the Java ones"
+// survives navigating between Overview, Explore, Rankings and Tables.
+let selected = new Set();
+
+function buildFacets(){
+  ArenaFilter.renderFilters(el("facets"), VARMETA, VORDER, selected, next=>{
+    selected = next; render();
+  });
+}
+
+/// Records for the libraries currently selected.
+const inSelection = r => !selected.size || selected.has(r.variant);
 
 const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
   pubsub:"Pub/Sub", fanout:"Fan-out", fanin:"Fan-in" };
@@ -197,6 +226,9 @@ async function loadVariants(){
   for(const k in (d.engines || {}))
     ENGINE_COLOR[k] = themedColor({color: d.engines[k], color_light: (d.engines_light||{})[k]});
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
+  REGMETA = {};
+  for(const v of d.variants) REGMETA[v.key] =
+    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -273,7 +305,9 @@ async function load(){
   RECORDS=[];
   for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
+  for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
+  for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
+    {engine:r.engine,io:r.io,threading:r.threading,language:r.language,impl:r.impl});
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
@@ -286,13 +320,15 @@ async function load(){
   for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
   el("run").value=dates[dates.length-1];
   el("run").addEventListener("change", render);
-  el("controls").hidden=false; el("main").hidden=false;
+  selected = ArenaFilter.load(VORDER);
+  buildFacets();
+  el("controls").hidden=false; el("facets").hidden=false; el("main").hidden=false;
   render();
 }
 
 function render(){
   const run=val("run");
-  const recs=RECORDS.filter(r=>r.date===run);
+  const recs=RECORDS.filter(r=>r.date===run && inSelection(r));
   const kinds=KIND_ORDER.filter(k=>recs.some(r=>r.kind===k));
   let html="";
   for(const kind of kinds){

@@ -24,7 +24,9 @@
       "io": "epoll",
       "threading": "native",
       "dash": null,
-      "color_light": "#9e7f03"
+      "color_light": "#9e7f03",
+      "language": "C++",
+      "impl": "native"
     },
     {
       "key": "rust_zmq",
@@ -38,7 +40,9 @@
         7,
         4
       ],
-      "color_light": "#8d5b06"
+      "color_light": "#8d5b06",
+      "language": "Rust",
+      "impl": "ffi"
     },
     {
       "key": "tmq",
@@ -52,7 +56,9 @@
         2,
         3
       ],
-      "color_light": "#7c3906"
+      "color_light": "#7c3906",
+      "language": "Rust",
+      "impl": "ffi"
     },
     {
       "key": "zeromq_rs",
@@ -63,7 +69,9 @@
       "io": "epoll",
       "threading": "multi",
       "dash": null,
-      "color_light": "#0d7dfb"
+      "color_light": "#0d7dfb",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "zeromq_rs_async_std",
@@ -77,7 +85,9 @@
         7,
         4
       ],
-      "color_light": "#0a5ce0"
+      "color_light": "#0a5ce0",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "zeromq_rs_async_dispatcher",
@@ -91,7 +101,9 @@
         2,
         3
       ],
-      "color_light": "#420ae9"
+      "color_light": "#420ae9",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "omq_tokio",
@@ -102,7 +114,9 @@
       "io": "epoll",
       "threading": "single",
       "dash": null,
-      "color_light": "#f71010"
+      "color_light": "#f71010",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "omq_tokio_mt",
@@ -116,7 +130,9 @@
         7,
         4
       ],
-      "color_light": "#cb1111"
+      "color_light": "#cb1111",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "omq_blocking",
@@ -130,7 +146,9 @@
         2,
         3
       ],
-      "color_light": "#9b041a"
+      "color_light": "#9b041a",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "monocoque",
@@ -141,7 +159,9 @@
       "io": "io_uring",
       "threading": "single",
       "dash": null,
-      "color_light": "#139480"
+      "color_light": "#139480",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "monocoque_tokio",
@@ -155,7 +175,9 @@
         7,
         4
       ],
-      "color_light": "#0c7267"
+      "color_light": "#0c7267",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "monocoque_smol",
@@ -169,7 +191,9 @@
         2,
         3
       ],
-      "color_light": "#07535f"
+      "color_light": "#07535f",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "rzmq",
@@ -180,7 +204,9 @@
       "io": "epoll",
       "threading": "multi",
       "dash": null,
-      "color_light": "#149744"
+      "color_light": "#149744",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "rzmq_io_uring",
@@ -194,7 +220,9 @@
         7,
         4
       ],
-      "color_light": "#107535"
+      "color_light": "#107535",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "celerity",
@@ -205,7 +233,9 @@
       "io": "epoll",
       "threading": "multi",
       "dash": null,
-      "color_light": "#e81f82"
+      "color_light": "#e81f82",
+      "language": "Rust",
+      "impl": "native"
     },
     {
       "key": "pyzmq_pyzmq",
@@ -216,7 +246,9 @@
       "engine": "python",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "language": "Python",
+      "impl": "ffi"
     },
     {
       "key": "pyzmq_pyomq",
@@ -230,7 +262,9 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "language": "Python",
+      "impl": "ffi"
     },
     {
       "key": "omq_rb",
@@ -241,7 +275,9 @@
       "engine": "omq.rb",
       "io": "epoll",
       "threading": "single",
-      "dash": null
+      "dash": null,
+      "language": "Ruby",
+      "impl": "native"
     },
     {
       "key": "netmq",
@@ -252,7 +288,9 @@
       "engine": "netmq",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "language": "C#",
+      "impl": "native"
     },
     {
       "key": "jeromq",
@@ -263,7 +301,9 @@
       "engine": "jeromq",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "language": "Java",
+      "impl": "native"
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",

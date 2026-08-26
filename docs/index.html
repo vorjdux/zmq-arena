@@ -52,6 +52,22 @@
   .preset { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
     border-radius:999px; padding:3px 11px; font-size:12px; cursor:pointer; }
   .preset:hover { color:var(--fg); }
+  /* Facet bar: pick the libraries worth comparing before reading anything. */
+  .facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
+  .facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+    color:var(--muted); min-width:74px; }
+  .fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
+    border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
+  .fbtn:hover { color:var(--fg); }
+  .fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* Partly selected: the group is on the chart but not all of it. */
+  .fbtn.some { color:var(--fg); border-color:var(--accent); }
+  .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
+  /* Chips grouped by engine, so twenty series read as seven families. */
+  .chipgroup { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; }
+  .chipgroup .gname { font-size:10px; text-transform:uppercase; letter-spacing:.7px;
+    color:var(--muted); min-width:74px; text-align:right; opacity:.75; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
     border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
@@ -169,6 +185,7 @@
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
 </div>
 
+<div class="facets" id="facets" hidden></div>
 <div class="variants" id="variantsBox" hidden>
   <div class="head">
     <span class="ttl">Libraries (click to toggle across all charts)</span>
@@ -200,6 +217,7 @@
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<script src="arena-filter.js"></script>
 <script>
 "use strict";
 
@@ -209,6 +227,11 @@
 // Series carry their label as their ECharts name, so the tooltip needs the way
 // back to the key to look up a variant's dash pattern.
 let KEY_OF_LABEL = {};
+// Facets come from the registry rather than from the run, so "show me the Java
+// ones" works the same on every page and does not change shape with whichever
+// archive is loaded. Per-run details (versions) are layered on top where the
+// data has them.
+let REGMETA = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, VARIANT_DASH = {}, ENGINE_COLOR = {}, VORDER = [];
 
 // ── registries ────────────────────────────────────────────────────
@@ -278,6 +301,9 @@ async function loadVariants(){
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label;
     VARIANT_COLOR[v.key] = themedColor(v);
     VARIANT_DASH[v.key] = v.dash || null; KEY_OF_LABEL[v.label] = v.key; }
+  REGMETA = {};
+  for(const v of d.variants) REGMETA[v.key] =
+    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -354,10 +380,14 @@ async function load(){
   for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]=
-    {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version};
+  for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
+  for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
+    {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version,
+     language:r.language,impl:r.impl});
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort(varSort);
-  selected=new Set(VARIANTS);
+  // Restored from the last visit and shared with every other page, rather than
+  // defaulting to all twenty every time.
+  selected=ArenaFilter.load(VARIANTS);
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} libraries · ${DATES.length} run${DATES.length>1?"s":""} · `+
@@ -370,8 +400,8 @@ async function load(){
   el("run").value=DATES[DATES.length-1];
   if(DATES.length<2) el("run").closest(".ctl").style.display="none";
 
-  initControls(); applyReadout(); buildChips(); buildPanels(); render();
-  el("controls").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
+  initControls(); applyReadout(); buildFacets(); buildChips(); buildPanels(); render();
+  el("controls").hidden=false; el("facets").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
 }
 
 // ── controls ──────────────────────────────────────────────────────
@@ -424,16 +454,39 @@ function swatch(v){
     + `<line x1="0" y1="5" x2="22" y2="5" stroke="${colorOf(v)}" stroke-width="2.5"${da}/></svg>`;
 }
 
+function buildFacets(){
+  ArenaFilter.renderFilters(el("facets"), VARMETA, VARIANTS, selected, next=>{
+    selected=next; buildChips(); buildFacets(); render();
+  });
+}
+
+// Chips grouped by engine. Twenty flat chips is a wall; seven labelled families
+// is a legend you can scan.
 function buildChips(){
   const box=el("chips"); box.innerHTML="";
+  const byEngine=new Map();
   for(const v of VARIANTS){
+    const e=(VARMETA[v]||{}).engine||"other";
+    if(!byEngine.has(e)) byEngine.set(e,[]);
+    byEngine.get(e).push(v);
+  }
+  for(const [engine,vars] of byEngine){
+    const g=document.createElement("div"); g.className="chipgroup";
+    g.innerHTML=`<span class="gname">${engine}</span>`;
+    box.appendChild(g);
+    buildChipsInto(g, vars);
+  }
+}
+
+function buildChipsInto(box, list){
+  for(const v of list){
     const m=VARMETA[v]||{};
     const c=document.createElement("span");
     c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
     c.innerHTML=`${swatch(v)}${VARIANT_LABEL[v]||v}`+
       `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
     c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
-      c.classList.toggle("on"); render(); });
+      c.classList.toggle("on"); ArenaFilter.save(selected); buildFacets(); render(); });
     // The chips are a shared legend, so hovering one picks that library out of
     // every open panel at once. With twelve series across small multiples this
     // is the fastest way to follow one library across scenarios.
@@ -585,7 +638,8 @@ function focusSeries(name){
 }
 
 function setSelected(vs){ selected=new Set(vs);
-  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v))); render(); }
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v)));
+  ArenaFilter.save(selected); buildFacets(); render(); }
 function applyPreset(p){
   if(p==="all")  return setSelected(VARIANTS);
   if(p==="none") return setSelected([]);

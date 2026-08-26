@@ -62,6 +62,16 @@
     box-shadow:1px 0 0 var(--line); }
   .tw thead th:first-child { z-index:2; }
 
+  .facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
+  .facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+    color:var(--muted); min-width:74px; }
+  .fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
+    border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
+  .fbtn:hover { color:var(--fg); }
+  .fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .fbtn.some { color:var(--fg); border-color:var(--accent); }
+  .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
   .board { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
   .board h2 { margin:0 0 2px; font-size:14px; }
   .board .note { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -107,17 +117,36 @@
   <div class="ctl"><label for="run">Run</label><select id="run"></select></div>
 </div>
 
+<div class="facets" id="facets" hidden></div>
 <main id="main" hidden></main>
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<script src="arena-filter.js"></script>
 <script>
 "use strict";
 
 // Series identity, filled from variants.json by loadVariants() before anything
 // renders. Declared up here because the sort and colour helpers below close
 // over them.
+// Facets come from the registry rather than from the run, so "show me the Java
+// ones" works the same on every page and does not change shape with whichever
+// archive is loaded. Per-run details (versions) are layered on top where the
+// data has them.
+let REGMETA = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+// The selection made on any page applies here too, so "just the Java ones"
+// survives navigating between Overview, Explore, Rankings and Tables.
+let selected = new Set();
+
+function buildFacets(){
+  ArenaFilter.renderFilters(el("facets"), VARMETA, VORDER, selected, next=>{
+    selected = next; render();
+  });
+}
+
+/// Records for the libraries currently selected.
+const inSelection = r => !selected.size || selected.has(r.variant);
 
 const BASELINE = "libzmq";
 const el = id => document.getElementById(id);
@@ -250,6 +279,9 @@ async function loadVariants(){
   for(const k in (d.engines || {}))
     ENGINE_COLOR[k] = themedColor({color: d.engines[k], color_light: (d.engines_light||{})[k]});
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
+  REGMETA = {};
+  for(const v of d.variants) REGMETA[v.key] =
+    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -326,7 +358,9 @@ async function load(){
   RECORDS=[];
   for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine, io:r.io, threading:r.threading};
+  for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
+  for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
+    {engine:r.engine, io:r.io, threading:r.threading, language:r.language, impl:r.impl});
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
@@ -343,12 +377,14 @@ async function load(){
   for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
   el("run").value=dates[dates.length-1];
   el("run").addEventListener("change", render);
-  el("controls").hidden=false; el("main").hidden=false;
+  selected = ArenaFilter.load(VORDER);
+  buildFacets();
+  el("controls").hidden=false; el("facets").hidden=false; el("main").hidden=false;
   render();
 }
 
 function board(m, recs){
-  const rows=geomeanVsBase(recs, m.ok, m.score, m.gated);
+  const rows=geomeanVsBase(recs, m.ok, m.score, m.gated).filter(r=>inSelection({variant:r.v}));
   // Say that a metric had nothing to rank rather than quietly omitting it. A
   // board that vanishes looks the same as a board that was never written, and
   // the reason it vanished is itself worth reporting: this run traced none of
@@ -370,12 +406,23 @@ function board(m, recs){
   // compute it; the efficiency boards compare deterministic counters.
   let h=`<section class="board"><h2>${m.label} <small style="color:var(--muted);font-weight:400">· ${m.group}</small></h2>`+
     `<div class="note">${m.note}</div>`+
-    `<div class="tw"><table><thead><tr><th>#</th><th>library</th><th>vs libzmq</th><th>cells</th><th>ties</th></tr></thead><tbody>`;
+    `<div class="tw"><table><thead><tr><th>#</th><th>library</th><th>engine</th>`+
+    `<th>vs libzmq</th><th>cells</th><th>ties</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{
     const partial = r.n<total ? ` <span class="partial" title="${r.n}/${total} cells shared with libzmq">*</span>` : "";
     const ties = m.gated ? `${r.t}` : `<span title="not applicable: this metric is not noise-gated">-</span>`;
+    // The engine, spelled out. pyzmq is libzmq underneath, so a row where it
+    // trails a native implementation says Python costs more than that language
+    // did, not that libzmq is the slower engine -- libzmq's own row is right
+    // there to compare against. Without this column that inference is easy to
+    // get backwards.
+    const vm=VARMETA[r.v]||{};
+    const eng=vm.impl==="ffi"
+      ? `<small>${vm.language||"?"} &rarr; ${vm.engine||"?"}</small>`
+      : `<small>${vm.engine||"?"} <span style="opacity:.6">native</span></small>`;
     h+=`<tr class="${i===0?"lead":""}"><td>${i+1}</td>`+
       `<td>${swatch(r.v)}${VARIANT_LABEL[r.v]||r.v}</td>`+
+      `<td>${eng}</td>`+
       `<td>${r.x.toFixed(2)}x</td><td>${r.n}/${total}${partial}</td><td>${ties}</td></tr>`;
   });
   h+=`</tbody></table></div></section>`;
@@ -383,6 +430,11 @@ function board(m, recs){
 }
 function render(){
   const run=val("run");
+  // Every score here is a ratio to libzmq, so the baseline has to stay in the
+  // maths even when the reader has filtered it off the page. Selection decides
+  // which rows are shown, not what they are measured against; dropping the
+  // baseline from the computation would empty every board the moment someone
+  // asked to see only monocoque and omq.
   const recs=RECORDS.filter(r=>r.date===run);
   const drawn=METRICS.map(m=>({m, html:board(m, recs)}));
   const html=drawn.map(d=>d.html).join("");
