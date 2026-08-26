@@ -150,8 +150,9 @@ fn target_meta(
     variant: Option<&str>,
     fallback_id: &str,
 ) -> TargetMeta {
-    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, PathBuf, String), TargetMeta>>> =
-        OnceLock::new();
+    /// (rootfs, binary, variant): what makes one measured series distinct.
+    type MetaKey = (PathBuf, PathBuf, String);
+    static CACHE: OnceLock<Mutex<HashMap<MetaKey, TargetMeta>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     // The rootfs is part of the identity. Every image-built target names its
     // binary `/app/target`, so keying on the path alone made all of them the
