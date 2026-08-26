@@ -317,7 +317,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "derived_from": "libzmq"
     },
     {
       "key": "jeromq",
@@ -331,7 +332,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "derived_from": "libzmq"
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",

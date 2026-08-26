@@ -282,7 +282,7 @@ async function loadVariants(){
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
     {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
-     language:v.language, impl:v.impl};
+     language:v.language, impl:v.impl, derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -418,8 +418,15 @@ function board(m, recs){
     // there to compare against. Without this column that inference is easy to
     // get backwards.
     const vm=VARMETA[r.v]||{};
+    // Three relationships a row can have to its engine, and the reader needs
+    // to tell them apart: a binding runs someone else's engine, a port
+    // reimplements one without running any of it, and everything else is its
+    // own. Collapsing the middle case into "native" loses why JeroMQ tracks
+    // libzmq's behaviour, and calling it a binding would be false.
     const eng=vm.impl==="ffi"
       ? `<small>${vm.language||"?"} &rarr; ${vm.engine||"?"}</small>`
+      : vm.derived_from
+      ? `<small>${vm.engine||"?"} <span style="opacity:.6">port of ${vm.derived_from}</span></small>`
       : `<small>${vm.engine||"?"} <span style="opacity:.6">native</span></small>`;
     h+=`<tr class="${i===0?"lead":""}"><td>${i+1}</td>`+
       `<td>${swatch(r.v)}${VARIANT_LABEL[r.v]||r.v}</td>`+

@@ -229,7 +229,7 @@ async function loadVariants(){
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
     {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
-     language:v.language, impl:v.impl};
+     language:v.language, impl:v.impl, derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 

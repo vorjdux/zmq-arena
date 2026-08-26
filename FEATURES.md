@@ -104,13 +104,13 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
 - Runtime: Synchronous API over NetMQ's own poller threads; no async runtime required in the caller.
-- Pure C#, no libzmq. PLAIN is recorded as absent on the evidence of the source tree rather than the docs: src/NetMQ/Core/Mechanisms contains only Null and Curve mechanisms. The prose transport page is also stale, listing neither IPC nor UDP while both exist in the source, so the transport row is cited to the source tree.
+- Pure C#, no libzmq: its README calls it "a 100% native C# port" of ZeroMQ, so like JeroMQ it reimplements the protocol rather than binding it. PLAIN is recorded as absent on the evidence of the source tree rather than the docs: src/NetMQ/Core/Mechanisms contains only Null and Curve mechanisms. The prose transport page is also stale, listing neither IPC nor UDP while both exist in the source, so the transport row is cited to the source tree.
 - Source: NetMQ docs and source tree; the docs and the tree disagree, see notes
 
 ### JeroMQ 0.6.0
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
 - Runtime: Synchronous API over JeroMQ's own IO threads; no async framework required.
-- Pure Java, no JNI and no libzmq. Its ipc:// is emulated over tcp://127.0.0.1 and interoperates only with other JeroMQ peers, so an ipc cell measures a loopback TCP socket rather than a unix socket and is not comparable with the other targets' ipc numbers. 0.6.0 is from February 2024 and the project has been quiet since; the version travels with every record so a reader can weigh that.
+- Pure Java, no JNI and no libzmq: its own README calls it a "pure Java implementation of libzmq", based on libzmq 4.1.7, so it tracks libzmq's behaviour without running any of its code. Pure Java, no JNI and no libzmq. Its ipc:// is emulated over tcp://127.0.0.1 and interoperates only with other JeroMQ peers, so an ipc cell measures a loopback TCP socket rather than a unix socket and is not comparable with the other targets' ipc numbers. 0.6.0 is from February 2024 and the project has been quiet since; the version travels with every record so a reader can weigh that.
 - Source: zeromq/jeromq README, Features and Unsupported sections
 
