@@ -49,6 +49,41 @@ ${DOCKER} build --build-arg "ISA=${isa}" -t "${tag}" "${repo}/${dir}"
 # next to the run so a published result can be reproduced rather than trusted.
 digest=$(${DOCKER} image inspect --format '{{.Id}}' "${tag}")
 
+# Everything mounted inside the tree, deepest first. /proc/self/mounts escapes
+# the field, so compare the escaped form of the path we are asking about.
+mounts_under() {
+  local p
+  p=$(printf '%s' "$1" | sed 's/ /\\040/g')
+  awk -v p="${p}" 'index($2, p"/") == 1 || $2 == p { print $2 }' /proc/self/mounts | sort -r
+}
+
+# Never rm -rf a tree that still has something mounted in it. The orchestrator
+# bind-mounts /proc into each rootfs and unmounts on the way out, but a run that
+# was killed leaves the mount behind -- and then this rm walks a live procfs.
+# That is survivable only because procfs refuses to be deleted; any other bind,
+# a host directory among them, would be deleted for real. Take the mounts down
+# first, and refuse to delete anything if one will not come off.
+leftover=$(mounts_under "${rootfs}")
+if [ -n "${leftover}" ]; then
+  echo "== unmounting leftovers under ${rootfs}"
+  while IFS= read -r m; do
+    [ -n "${m}" ] || continue
+    echo "   ${m}"
+    umount "${m}" 2>/dev/null \
+      || sudo umount "${m}" 2>/dev/null \
+      || sudo umount -l "${m}" 2>/dev/null \
+      || true
+  done <<< "${leftover}"
+fi
+still=$(mounts_under "${rootfs}")
+if [ -n "${still}" ]; then
+  echo "error: something is still mounted under ${rootfs}:" >&2
+  printf '       %s\n' ${still} >&2
+  echo "       refusing to delete a tree with live mounts. Stop any running" >&2
+  echo "       arena process, then re-run." >&2
+  exit 1
+fi
+
 echo "== exporting filesystem to ${rootfs}"
 rm -rf "${rootfs}"
 mkdir -p "${rootfs}"

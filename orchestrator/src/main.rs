@@ -1632,6 +1632,24 @@ mod ipc_tests {
         assert_eq!(host, guest);
     }
 
+    /// Asserting the path string is not enough: the bug was that the directory
+    /// was created somewhere the target could not see. Create it for real under
+    /// a stand-in rootfs and check it lands inside that tree, where a chrooted
+    /// target resolving /tmp/... would find it.
+    #[test]
+    fn directory_is_created_inside_the_rootfs() {
+        let root = std::env::temp_dir().join(format!("arena-ipc-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (host, guest) = ipc_paths("testrun", Some(&root));
+        super::prepare_ipc_dir(&host).expect("creating ipc dir");
+        assert!(host.is_dir(), "{} was not created", host.display());
+        assert!(host.starts_with(&root), "created outside the rootfs");
+        // What the target passes to bind, rooted at the rootfs, is the directory
+        // we just made.
+        assert_eq!(root.join(guest.strip_prefix("/").unwrap()), host);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// sockaddr_un caps the path at 108 bytes, and the guest path is what gets
     /// passed to bind. The longest cell id in the shipped matrix is well under
     /// this, but the margin is worth asserting rather than assuming.
