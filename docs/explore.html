@@ -146,6 +146,24 @@
     border-top:1px solid var(--line); }
   footer div { max-width:900px; margin:0 auto; }
   a { color:var(--accent); }
+  /* Run header: one line of facts, with the provenance caveats behind a
+     disclosure. Laid out this way because spelling them inline wrapped the
+     header over three rows and buried the reasons between badges. */
+  .sub { display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:flex-end; align-items:center; }
+  .hline { color:var(--muted); }
+  .hdet { position:relative; }
+  .hdet > summary { list-style:none; cursor:pointer; }
+  .hdet > summary::-webkit-details-marker { display:none; }
+  .hdet > summary::after { content:" ▾"; color:var(--warn); font-size:10px; }
+  .hdet-body { position:absolute; right:0; top:calc(100% + 5px); z-index:60;
+    width:max-content; max-width:min(560px, 90vw); text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    padding:9px 11px; box-shadow:0 8px 26px rgba(0,0,0,.45); }
+  .hrow { display:flex; align-items:baseline; gap:8px; padding:3px 0; }
+  .hrow + .hrow { border-top:1px solid var(--line); }
+  .hwhy { font-size:11.5px; color:var(--muted); }
+  .ok-tag { color:var(--ok,#4ade80); border:1px solid currentColor; border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
     padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
     white-space:nowrap; }
@@ -398,45 +416,63 @@ function denormalize(data){
 // it measured on (governor, turbo, virtualisation, root), not typed by whoever
 // rendered the run, so a run that cannot support a verdict says so in its own
 // data. Flag it visibly: a reader who misses it will quote the numbers.
-function hwLine(hw, run){
-  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
-  // The note already opens with "not admissible: " when it is one; the badge
-  // says that, so show only the reasons after it rather than saying it twice.
-  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
-  const tail = note ? " \u00b7 " + note : "";
+// The run header, as three labelled groups rather than one sentence.
+//
+// It used to be a single run-on line: scale, hardware, replication and every
+// provenance warning strung together with middots, wrapping over three lines
+// with "not admissible" buried in the middle of it. Those are different kinds
+// of claim and a reader weighs them differently -- how much was measured, on
+// what, and whether any of it can be trusted -- so they are now separated and
+// the warnings come last, where they read as a verdict rather than an aside.
+function runHeader(hw, run, cells, libs, runs, span){
+  const rep = run && run.replication
+    ? `${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
+  const iso = run && run.isolation ? run.isolation : null;
+  const req = (iso && iso.requested) || {};
+  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB` : "";
+  const asked = req.cpuset_cpus ? `cpuset ${req.cpuset_cpus}${cap}` : "";
+  const applied = iso && iso.applied !== false;
+
   // Three states, not two. `false` means the run measured its host and the host
-  // did not qualify. `undefined` means nothing was recorded, which is not the
-  // same as fine: it is an archive whose conditions nobody can check. Rendering
-  // that as an unbadged host would let the oldest, least verifiable runs look
-  // like the most trustworthy ones.
-  let badge = "";
-  if(hw.admissible === false) badge = ` <span class="warn-tag">not admissible</span>`;
-  else if(hw.admissible !== true) badge = ` <span class="warn-tag">provenance not recorded</span>`;
-  return cpu + badge + tail + isoLine(run);
+  // did not qualify; `undefined` means nothing was recorded, which is not the
+  // same as fine -- it is an archive whose conditions nobody can check.
+  const warn = [];
+  if(hw.admissible === false)
+    warn.push(["not admissible", (hw.note||"").replace(/^not admissible:\s*/,"")]);
+  else if(hw.admissible !== true) warn.push(["provenance not recorded", ""]);
+  if(iso && iso.applied === false)
+    warn.push(["isolation not applied", asked ? `asked for ${asked}` : ""]);
+  if(run && run.syscall_counting && run.syscall_counting.captured === false)
+    warn.push(["no syscall counters", "cells record 0, which is not measured rather than none"]);
+  if(run && run.netns && run.netns.requested && run.netns.applied === false)
+    warn.push(["host loopback", "cells shared loopback with everything else on the machine"]);
+
+  // One line, with the rest behind a disclosure. Spelling every warning out
+  // inline wrapped the header over three ragged rows and pushed the reasons
+  // into the gaps between badges, which is how a provenance note stops being
+  // read at all. The count is the part that has to be seen; the reasons are
+  // what you open when you care why.
+  const facts = [
+    `${cells.toLocaleString()} cells`,
+    `${libs} librar${libs === 1 ? "y" : "ies"}`,
+    span || "",
+    hw.cpu ? `<code>${hw.cpu}</code>` : "unknown host",
+    rep,
+    applied && asked ? asked : "",
+  ].filter(Boolean).join(" \u00b7 ");
+
+  if(!warn.length)
+    return `<span class="hline">${facts} \u00b7 <span class="ok-tag">admissible</span></span>`;
+
+  const rows = warn.map(([tag, why]) =>
+    `<div class="hrow"><span class="warn-tag">${tag}</span>` +
+    `${why ? `<span class="hwhy">${why}</span>` : ""}</div>`).join("");
+  return `<span class="hline">${facts}</span>` +
+    `<details class="hdet"><summary><span class="warn-tag">` +
+    `${warn.length} caveat${warn.length>1?"s":""}</span></summary>` +
+    `<div class="hdet-body">${rows}</div></details>`;
 }
 
-// What the run actually restricted, which is not the same as what the matrix
-// asked for: without root the cpuset and memory cap are skipped and the cells
-// ran on the whole machine. A reader comparing two runs has to be able to see
-// that difference, so an unapplied restriction is called out, not hidden.
-function isoLine(run){
-  if(!run || !run.isolation) return "";
-  const iso = run.isolation, req = iso.requested || {};
-  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB cap` : "";
-  const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
-  const sysc = run.syscall_counting && run.syscall_counting.captured === false
-    ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
-  // Only worth saying when the run asked for a namespace and did not get one:
-  // those cells shared host loopback with everything else on the machine.
-  const ns = run.netns && run.netns.requested && run.netns.applied === false
-    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
-  const rep = run.replication
-    ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
-  if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
-  }
-  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
-}
 
 async function load(){
   await loadVariants();
@@ -463,9 +499,10 @@ async function load(){
   selected=ArenaFilter.load(VARIANTS, VARMETA);
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
-  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} variants · ${DATES.length} runs · `+
-    `${DATES[0]} → ${DATES[DATES.length-1]} · ` + hwLine(hw, latest.run) + ` · `+
-    `<a href="tables.html">results tables →</a>`;
+  el("dataSource").innerHTML=
+    runHeader(hw, latest.run, RECORDS.length, VARIANTS.length, DATES.length,
+              `${DATES[0]} → ${DATES[DATES.length-1]}`)
+    + `<span class="hgroup"><a href="tables.html">results tables →</a></span>`;
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }
 

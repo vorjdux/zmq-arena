@@ -79,12 +79,23 @@
   .cap-partial { color:var(--accent); }
   /* The matrix is one wide table, not a card: it must span every column of the
      grid main lays out, and scroll inside itself rather than stretching the page. */
+  /* `main` is a grid, and a grid item defaults to min-width:auto -- "as wide as
+     my content" -- so the wrapper stretched to fit the table instead of
+     scrolling it, and thirteen columns were squeezed until every cell wrapped
+     over four lines. min-width:0 lets it shrink, which is what makes the
+     overflow below actually scroll. */
+  main > * { min-width:0; }
   .wrap { grid-column:1 / -1; overflow-x:auto; max-width:100%; margin-bottom:6px; }
   .wrap th:first-child, .wrap td:first-child {
     position:sticky; left:0; z-index:1; background:var(--panel);
     box-shadow:1px 0 0 var(--line); }
   .wrap thead th:first-child { z-index:2; }
-  .wrap table { min-width:900px; }
+  /* Give every column room to say its value on one or two lines and let the
+     table scroll, rather than fitting the viewport by wrapping "tcp, ipc,
+     inproc, udp, pgm, epgm, tipc, vmci" into a column two words wide. */
+  .wrap table { min-width:max-content; }
+  .wrap th, .wrap td { min-width:112px; }
+  .wrap th:first-child, .wrap td:first-child { min-width:210px; }
   .wrap th, .wrap td { vertical-align:top; }
   .wrap tbody td:first-child { color:var(--muted); white-space:nowrap; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
