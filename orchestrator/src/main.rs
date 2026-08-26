@@ -144,7 +144,12 @@ struct TargetMeta {
 /// targets ignore the flag. On any failure, fall back to a minimal record
 /// carrying the target id as the engine, so a target without a `describe` mode
 /// still produces a well-formed (if sparse) record rather than aborting the cell.
-fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> TargetMeta {
+fn target_meta(
+    binary: &Path,
+    rootfs: Option<&Path>,
+    variant: Option<&str>,
+    fallback_id: &str,
+) -> TargetMeta {
     static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), TargetMeta>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let key = (
@@ -154,7 +159,16 @@ fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> Targe
     if let Some(m) = cache.lock().unwrap().get(&key) {
         return m.clone();
     }
-    let mut cmd = ProcCommand::new(binary);
+    // `describe` has to run from the same filesystem the measured process will,
+    // or the versions recorded describe a different build from the one measured.
+    let mut cmd = rootfs.map_or_else(
+        || ProcCommand::new(binary),
+        |root| {
+            let mut c = ProcCommand::new("chroot");
+            c.arg(root).arg(binary);
+            c
+        },
+    );
     cmd.arg("describe");
     if let Some(v) = variant {
         cmd.arg("--variant").arg(v);
@@ -224,6 +238,8 @@ struct CellAcc<'a> {
 fn run(args: &RunArgs) -> anyhow::Result<()> {
     let cfg = RunConfig::load(&args.matrix)
         .with_context(|| format!("loading matrix {}", args.matrix.display()))?;
+
+    preflight_rootfs(&cfg)?;
 
     // A CLI --replicates N forces a fixed count (min=max=N, no warmup) for quick
     // local iteration; otherwise the matrix's adaptive policy applies.
@@ -639,6 +655,7 @@ fn execute_cell(
     }?;
     record.meta = target_meta(
         &entry.target.binary,
+        entry.target.rootfs.as_deref(),
         entry.target.variant.as_deref(),
         &entry.target.id,
     );
@@ -782,6 +799,11 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
 /// What the poll loop observed per process: peak RSS, and CPU split between the
 /// measured child (index 0) and everything else in the cell.
 pub struct CellUsage {
+    /// How the measured process ended, or None if it was still running at the
+    /// deadline and had to be killed. A target that failed to start at all exits
+    /// almost immediately, which is indistinguishable from a very fast one by
+    /// timing alone -- the status is what tells them apart.
+    pub status: Option<std::process::ExitStatus>,
     pub rss_total: u64,
     /// CPU of the measured process, the one whose stdout carries the result.
     pub cpu_measured: f64,
@@ -803,7 +825,8 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
     pids.extend_from_slice(others);
     let mut peaks = vec![0u64; pids.len()];
     let mut cpus = vec![0f64; pids.len()];
-    let usage = |peaks: &[u64], cpus: &[f64]| CellUsage {
+    let usage = |peaks: &[u64], cpus: &[f64], status: Option<std::process::ExitStatus>| CellUsage {
+        status,
         rss_total: peaks.iter().sum(),
         cpu_measured: cpus.first().copied().unwrap_or(0.0),
         cpu_others: cpus.iter().skip(1).sum(),
@@ -820,16 +843,16 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
             }
         }
         match child.try_wait() {
-            Ok(Some(_)) => return (true, usage(&peaks, &cpus)),
+            Ok(Some(st)) => return (true, usage(&peaks, &cpus, Some(st))),
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return (false, usage(&peaks, &cpus));
+                    return (false, usage(&peaks, &cpus, None));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return (false, usage(&peaks, &cpus)),
+            Err(_) => return (false, usage(&peaks, &cpus, None)),
         }
     }
 }
@@ -868,13 +891,75 @@ fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
     Ok(dir)
 }
 
-fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
-    if matches!(entry.transport, Transport::TcpNetns)
-        && let Some(ns) = NETNS.get().and_then(Option::as_ref)
-    {
-        return ns.command(binary);
+/// Build the command that launches a target.
+///
+/// Both wrappers this may add -- `ip netns exec` and `chroot` -- exec rather
+/// than fork, so however many are stacked, the process the orchestrator spawns
+/// IS the target, with the PID it was given. That is what lets the telemetry
+/// stay honest: `getrusage(RUSAGE_CHILDREN)` sees it as a direct child, the
+/// peak-RSS and per-process CPU polling find it at `/proc/<pid>`, and the
+/// cgroup attach that scopes the perf counters lands on the right task.
+/// Fail before the first cell if a target's image filesystem is missing or
+/// cannot be entered.
+///
+/// Checked up front because the alternative is finding out 570 times, once per
+/// cell, in a run that takes hours. chroot needs `CAP_SYS_CHROOT`, so an
+/// unprivileged run against image-built targets cannot work at all; saying so
+/// here is kinder than failing every cell with a launch error.
+fn preflight_rootfs(cfg: &RunConfig) -> anyhow::Result<()> {
+    let mut roots: Vec<&std::path::Path> = cfg
+        .entries
+        .iter()
+        .filter_map(|e| e.target.rootfs.as_deref())
+        .collect();
+    roots.sort_unstable();
+    roots.dedup();
+    for root in roots {
+        if !root.is_dir() {
+            anyhow::bail!(
+                "target rootfs {} does not exist. Build it with: \
+                 scripts/build-image.sh <target-dir> <name>",
+                root.display()
+            );
+        }
+        let probe = ProcCommand::new("chroot")
+            .arg(root)
+            .arg("/app/target")
+            .arg("describe")
+            .output();
+        match probe {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => anyhow::bail!(
+                "cannot run targets from {}: chroot exited with {} ({}). \
+                 Image-built targets need root; use `make run-root`.",
+                root.display(),
+                o.status,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => anyhow::bail!("cannot exec chroot for {}: {e}", root.display()),
+        }
     }
-    ProcCommand::new(binary)
+    Ok(())
+}
+
+fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
+    let netns = matches!(entry.transport, Transport::TcpNetns)
+        .then(|| NETNS.get().and_then(Option::as_ref))
+        .flatten();
+    match (netns, entry.target.rootfs.as_deref()) {
+        (Some(ns), Some(root)) => {
+            let mut cmd = ns.command(std::path::Path::new("chroot"));
+            cmd.arg(root).arg(binary);
+            cmd
+        }
+        (Some(ns), None) => ns.command(binary),
+        (None, Some(root)) => {
+            let mut cmd = ProcCommand::new("chroot");
+            cmd.arg(root).arg(binary);
+            cmd
+        }
+        (None, None) => ProcCommand::new(binary),
+    }
 }
 
 static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
@@ -1014,6 +1099,18 @@ fn run_throughput(
     if !consumer_ok {
         anyhow::bail!("cell timed out after {budget:?} (consumer did not finish)");
     }
+    // A target that could not start exits at once, which by timing alone looks
+    // like an extremely fast one: the throughput fallback below divides the
+    // message count by the elapsed wall clock, and a process that died in a
+    // millisecond yields a headline number in the hundreds of millions. Refuse
+    // the cell instead of publishing an artifact of a failed launch.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!(
+            "measured process exited with {st}; it never ran, so there is nothing to measure"
+        );
+    }
 
     // Prefer the target's own steady-state window: it discards warmup and times
     // only the measured block, so process spawn, the connection handshake, and
@@ -1131,6 +1228,14 @@ fn run_latency(
     }
     if !ok {
         anyhow::bail!("latency cell timed out after {budget:?}");
+    }
+    // Same reason as the throughput path: a launch failure exits immediately and
+    // would otherwise be reported as a missing output line, which reads like a
+    // target-contract bug rather than the environment problem it is.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!("measured process exited with {st}; it never ran");
     }
 
     let Some(latency) = parse_latency(&out) else {
@@ -1288,6 +1393,14 @@ fn run_multipeer(
     }
     if !ok {
         anyhow::bail!("{:?} measured consumer timed out", entry.kind);
+    }
+    // Same reason as the throughput path: a launch failure exits immediately and
+    // would otherwise be reported as a missing output line, which reads like a
+    // target-contract bug rather than the environment problem it is.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!("measured process exited with {st}; it never ran");
     }
 
     let (count, elapsed) = parse_throughput_line(&out)

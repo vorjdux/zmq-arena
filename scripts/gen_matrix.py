@@ -99,7 +99,12 @@ ALL_FIVE = ["throughput", "latency", "pubsub", "fanout", "fanin"]
 TARGETS = [
     {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        # Built and shipped as an image: `binary` is a path inside `rootfs`, not
+        # on the host. The orchestrator chroots into the tree and execs, so the
+        # target is still its own direct child under the harness's cgroup and
+        # netns. Build it with: scripts/build-image.sh targets/libzmq_cpp_target libzmq
+        "rootfs": "targets/libzmq_cpp_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
         "mp_knobs": {"io_threads": "1"},
         "kinds": ALL_FIVE,
@@ -312,6 +317,8 @@ def target_spec(target, knobs_key):
     if (target["id"], target.get("variant")) not in MULTI_LANE_VARIANTS:
         knobs.setdefault("io_threads", IO_THREADS)
     spec = {"id": target["id"], "binary": target["binary"], "knobs": knobs}
+    if target.get("rootfs"):
+        spec["rootfs"] = target["rootfs"]
     if target.get("variant"):
         spec["variant"] = target["variant"]
     return spec

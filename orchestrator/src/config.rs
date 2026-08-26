@@ -65,6 +65,19 @@ pub struct TargetSpec {
     /// `sndhwm`, `rcvhwm`, `tcp_nodelay`, `io_threads`, `batch_size`.
     #[serde(default)]
     pub knobs: BTreeMap<String, String>,
+    /// Exported image filesystem to run the target from, if it has one. `binary`
+    /// is then interpreted inside that root, so the same matrix entry works
+    /// whether the target was built on the host or shipped as an image.
+    ///
+    /// This is a chroot, not a container: `chroot` execs, so the process stays a
+    /// direct child of the orchestrator with its PID intact, in the cgroup and
+    /// network namespace the harness already set up. Everything the telemetry
+    /// depends on -- `getrusage(RUSAGE_CHILDREN)`, `/proc/<pid>` polling, perf
+    /// tracepoints scoped to the cgroup -- keeps working. Running the target
+    /// under a container runtime instead would put it in another process tree
+    /// and silently zero all three.
+    #[serde(default)]
+    pub rootfs: Option<PathBuf>,
 }
 
 /// Fully expanded unit of work: one process pair, one measurement block.

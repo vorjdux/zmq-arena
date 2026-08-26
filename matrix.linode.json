@@ -17,12 +17,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -33,12 +34,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -49,10 +51,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -65,12 +68,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -81,12 +85,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -97,10 +102,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -113,12 +119,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -129,12 +136,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -145,10 +153,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -161,12 +170,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -177,12 +187,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -193,10 +204,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -209,12 +221,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -225,12 +238,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -241,10 +255,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -257,12 +272,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "latency",
@@ -273,12 +289,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "throughput",
@@ -289,10 +306,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "pubsub",
@@ -4085,12 +4103,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4101,12 +4120,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4117,10 +4137,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4133,10 +4154,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
@@ -4149,12 +4171,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4165,12 +4188,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4181,10 +4205,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4197,10 +4222,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
@@ -4213,12 +4239,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4229,12 +4256,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4245,10 +4273,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4261,10 +4290,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
@@ -4277,12 +4307,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4293,12 +4324,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4309,10 +4341,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4325,10 +4358,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
@@ -4341,12 +4375,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4357,12 +4392,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4373,10 +4409,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4389,10 +4426,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
@@ -4405,12 +4443,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "throughput",
@@ -4421,12 +4460,13 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "sndhwm": "1000",
           "rcvhwm": "1000",
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "ipc",
       "kind": "latency",
@@ -4437,10 +4477,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanout",
@@ -4453,10 +4494,11 @@
     {
       "target": {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        "binary": "/app/target",
         "knobs": {
           "io_threads": "1"
-        }
+        },
+        "rootfs": "targets/libzmq_cpp_target/rootfs"
       },
       "transport": "tcp_netns",
       "kind": "fanin",
