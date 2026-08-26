@@ -12,9 +12,14 @@
 #   - Intel Turbo Boost / AMD CPB disabled.
 #   - C-states locked (e.g. intel_idle.max_cstate=1 / processor.max_cstate=1).
 #   - cpufreq governor = performance.
-# These remove frequency-scaling artifacts from the p99/p99.9 distribution. A
-# shared cloud runner will not produce admissible tail numbers; the job asserts
-# the runner label before measuring.
+#   - docker, to build the target images. Nothing else: the targets' own
+#     toolchains live in those images and never on this machine.
+#   - passwordless sudo, for cgroups, perf counters and the chroot the targets
+#     are executed from.
+# The first four remove frequency-scaling artifacts from the p99/p99.9
+# distribution. A shared cloud runner will not produce admissible tail numbers;
+# the job asserts the runner label before measuring, and the orchestrator
+# refuses to run at all if the machine does not qualify.
 
 name: weekly-arena
 
@@ -50,11 +55,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build control plane + every target (each in its own invocation)
-        # build-targets.sh builds the control plane and each standalone target
-        # separately so per-target lockfiles and toolchain pins are honored. No
-        # --workspace build of the targets, by design.
-        run: ./scripts/build-targets.sh
+      - name: Build the control plane and every target image
+        # Each target is built inside its own pinned image and exported to
+        # targets/<name>/rootfs, which is what the orchestrator chroots into.
+        # The runner therefore needs docker and the Rust toolchain for the
+        # control plane, and none of the targets' toolchains: no C++ compiler,
+        # no libzmq headers, no JDK, no .NET SDK, no interpreters. That is what
+        # keeps a bench host from drifting between runs.
+        #
+        # `make build` is orchestrator + images. build-image.sh verifies each
+        # exported filesystem can answer `describe` outside its image before
+        # declaring success, so a broken image fails here rather than mid-grid.
+        run: make build
 
       - name: Regenerate the matrix
         # The committed matrix is generated, so regenerate rather than trusting
@@ -62,12 +74,21 @@ jobs:
         run: python3 scripts/gen_matrix.py
 
       - name: Run the matrix
+        # Root, and not only for cgroups and the perf counters: image-built
+        # targets are entered with chroot, which needs CAP_SYS_CHROOT, and the
+        # orchestrator bind-mounts /proc into each rootfs for the runtimes that
+        # read /proc/self at startup. It fails fast with an actionable message
+        # if any of that is missing, rather than failing every cell.
+        #
+        # -E so ZMQ_ARENA_BENCH_HOST survives into the sudo environment; without
+        # it the admissibility gate silently does not apply.
         run: |
           RUN_ID=$(date -u +%F)
-          ./target/release/zmq-arena run \
+          sudo -E ./target/release/zmq-arena run \
             --matrix matrix.linode.json \
             --run-id "$RUN_ID" \
             --out "scratch/$RUN_ID"
+          sudo chown -R "$USER" "scratch/$RUN_ID"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
 
       - name: Generate ledger + dashboard archive

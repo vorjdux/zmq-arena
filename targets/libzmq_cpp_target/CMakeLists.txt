@@ -4,13 +4,24 @@ project(libzmq_target LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Hyper-optimized release profile per the arena spec. -march=native ties the
-# binary to the grid's bare-metal microarchitecture; do not ship these
-# artifacts, rebuild on the runner.
+# Release profile. ARENA_ISA is the instruction-set baseline every target in the
+# arena compiles against, so the comparison is between implementations rather
+# than between whatever each build system happened to default to.
+#
+# This was -march=native, which has two problems. It pins the binary to the
+# machine that compiled it, so it cannot be built once and shipped as an image;
+# and it applied only here, because the Rust targets never pass target-cpu, so
+# the C++ wrapper alone got microarchitecture-specific codegen.
+#
+# x86-64-v3 (AVX2, Haswell and later) is satisfied by any plausible bench host.
+# Override with -DARENA_ISA=native for a local build that will not be shipped.
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -flto -march=native")
+if(NOT ARENA_ISA)
+  set(ARENA_ISA "x86-64-v3")
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -flto -march=${ARENA_ISA}")
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
 add_executable(libzmq_target src/main.cpp)

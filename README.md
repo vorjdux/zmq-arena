@@ -13,9 +13,16 @@ A benchmarking harness for ZMTP, the ZeroMQ wire protocol. It runs several
 implementations through the same isolated, instrumented conditions, so the
 comparison is about the implementations and not about the harness.
 
-Fifteen series across six engines. Every runtime an engine ships is measured
-separately, so `monocoque` appears three times (io_uring, tokio, smol) and the
-difference between those lines is the IO model, not the protocol code.
+Twenty series across eight families, in six languages: C++, Rust, Python,
+Ruby, C# and Java.
+
+Every runtime an engine ships is measured separately, because benchmarking a
+subset would mean choosing which of an engine's configurations may represent it.
+So zmq.rs appears three times, once per async runtime it supports, and the gap
+between those lines is the runtime rather than the protocol code. A binding is
+filed with the engine it binds, which makes each family a controlled comparison:
+libzmq, rust-zmq, tmq and pyzmq are one C++ engine reached four ways, so what
+separates them is language and wrapper overhead and nothing else.
 
 - **[Results](https://vorjdux.github.io/zmq-arena/)** live only in the dashboard.
   The pages under `docs/` are what gets published; see [Results](#results) for
@@ -26,12 +33,16 @@ difference between those lines is the IO model, not the protocol code.
 
 ## Quick start
 
-Ubuntu, from a clean checkout. `setup-ubuntu.sh` installs the toolchains and
-`libzmq3-dev`, which the libzmq and rust-zmq targets link against.
+Ubuntu, from a clean checkout. Targets are built inside pinned images and run
+from the exported filesystem, so `setup-ubuntu.sh` installs only the control
+plane's toolchain, docker and python. No C++ compiler, no libzmq headers, and
+none of the target runtimes go on this machine. See
+[docs/CONTAINERS.md](docs/CONTAINERS.md) for why the images are a build artifact
+rather than a runtime.
 
 ```bash
-bash scripts/setup-ubuntu.sh     # toolchains + system libzmq (once)
-make build                       # control plane + all 15 runnable variants
+bash scripts/setup-ubuntu.sh     # control plane toolchain + docker (once)
+make build                       # control plane + every target image
 make dry                         # expand the plan, spawn nothing
 make run                         # measure, then render into docs/
 make dashboard                   # serve docs/ at http://localhost:8000
@@ -44,7 +55,7 @@ pinning and no syscall counting, and a laptop governor is not pinned. Use
 [Provenance](#provenance-is-measured-not-declared) for what a real comparison
 requires.
 
-A full run is 570 cells with replication; expect it to take a while. For a fast
+A full run is 780 cells with replication; expect it to take a while. For a fast
 loop, shrink the matrix and the replicate count:
 
 ```bash
@@ -95,6 +106,51 @@ And the render steps, all pure data transformation:
 |---|---|
 | `ZMQ_ARENA_BENCH_HOST` | marks this machine the designated benchmark host: the run refuses to start unless it qualifies. See [Enforcing it](#enforcing-it-on-the-bench-host) |
 
+## Built in a container, run outside one
+
+Every target is built inside a pinned image and then executed **outside** any
+container. Those are two separate decisions and both matter.
+
+**Building in an image** is what keeps the machine that produces the numbers
+from drifting. Thirteen implementations across seven languages means a C++
+compiler, a Rust toolchain, a JDK, a .NET SDK, and Python, Ruby and Node
+runtimes. Installing all of that on the bench host is how one library quietly
+gets a newer compiler than it had last month. Each target directory carries a
+`Dockerfile`, and `make build` builds it.
+
+**Running outside one** is what keeps the measurement honest. The same script
+then runs `docker export`, which flattens the image into a plain directory at
+`targets/<name>/rootfs`, and the orchestrator launches the target with:
+
+```
+ip netns exec <ns> chroot targets/<name>/rootfs /app/target --role sub ...
+```
+
+`chroot` and `ip netns exec` both `exec` rather than fork, so the process the
+orchestrator holds **is** the target, with the PID it was given. It sits in the
+cgroup leaf the harness created, in the network namespace the harness created,
+on the host kernel. There is no container runtime anywhere in the measurement
+path, and nothing is virtualised.
+
+That distinction is not stylistic. The telemetry depends on the target being a
+direct child: CPU and context switches come from `getrusage(RUSAGE_CHILDREN)`,
+peak memory and the per-end CPU split poll `/proc/<pid>`, and the syscall
+counters are scoped to the harness's own cgroup. Under `docker run` the workload
+lands in another process tree, so the CPU total collapses to the CLI's rounding
+error, the `/proc` polling follows the wrong process, and the syscall counters
+read zero. None of that fails loudly; the numbers still appear, they are just
+measuring nothing. Docker's bridge networking would also put veth and NAT in
+front of every latency measurement.
+
+So the image is used as a filesystem, not as a runtime. Measured before adopting
+it, same binary and same libraries: chroot cost 0.79% against a 3.1% run-to-run
+spread, which is below what the harness resolves. `docs/CONTAINERS.md` has the
+numbers and the reasoning.
+
+**What the bench host needs:** docker to build the images, Rust for the control
+plane, python to render, and root to run. No target toolchain, no libzmq
+headers, no JVM.
+
 ## What gets measured
 
 Five patterns, over ipc and loopback tcp, across a payload sweep of 16, 64, 256,
@@ -136,28 +192,39 @@ maintainable. The matrix splits by **pattern, never by library**:
 The only thing that excludes a library is a documented inability to serve that
 pattern: zmq.rs has no fan-out or fan-in because its PUSH/PULL does not
 multiplex several peers on the bound side, so it runs 30 cells per variant
-where a fully capable one runs 42; celerity implements REQ/REP and PUB/SUB only,
-so it runs 18. A tier whose membership were a list of favoured names
+where a fully capable one runs 42; celerity implements REQ/REP and PUB/SUB
+only, so it runs 18. A tier whose membership were a list of favoured names
 would not be a benchmark, and the ranking maths would quietly reward whichever
 libraries had been let into the extra cells.
 
 ## Implementations
 
-| directory | engine | crate or source | model |
-|---|---|---|---|
-| `libzmq_cpp_target` | libzmq | system `libzmq` via CMake | epoll, the reference |
-| `rust_zmq_target` | libzmq | `zmq = "0.10"` (rust-zmq) | epoll, FFI binding |
-| `tmq_target` | libzmq | `tmq = "0.5"` | epoll, Tokio over rust-zmq |
-| `zeromq_rs_target` | zmq.rs | `zeromq = "0.6"` | epoll, three runtimes |
-| `omq_tokio_target` | omq | `omq-tokio = "0.21.3"` | mio/epoll, three execution models |
-| `monocoque_target` | monocoque | `monocoque-rs = "0.4.0"` | io_uring or epoll, three runtimes |
-| `rzmq_target` | rzmq | `rzmq = "0.5.25"` | epoll or io_uring, two variants |
-| `celerity_target` | celerity | `celerity = "0.1.1"` | tokio; REQ/REP and PUB/SUB only |
+| directory | family | language | kind | model |
+|---|---|---|---|---|
+| `libzmq_cpp_target` | libzmq | C++ | implementation | epoll, the reference |
+| `rust_zmq_target` | libzmq | Rust | binding | epoll, synchronous FFI |
+| `tmq_target` | libzmq | Rust | binding | epoll, Tokio over rust-zmq |
+| `pyzmq_target` | libzmq | Python | binding | epoll, Cython |
+| `zeromq_rs_target` | zmq.rs | Rust | implementation | epoll, three runtimes |
+| `omq_tokio_target` | omq | Rust | implementation | mio/epoll, three execution models |
+| `pyzmq_target` | omq | Python | binding | the same wrapper, `--variant pyomq` |
+| `omq_rb_target` | omq | Ruby | implementation | fibres, pure Ruby |
+| `monocoque_target` | monocoque | Rust | implementation | io_uring or epoll, three runtimes |
+| `rzmq_target` | rzmq | Rust | implementation | epoll or io_uring |
+| `celerity_target` | celerity | Rust | implementation | tokio; REQ/REP and PUB/SUB only |
+| `netmq_target` | netmq | C# | implementation | epoll, a port of libzmq |
+| `jeromq_target` | jeromq | Java | implementation | epoll, a port of libzmq |
 
-Three of these reach the **same** engine by different routes: `libzmq` is the C++
-peer, `rust_zmq` the synchronous binding, `tmq` that binding wrapped in futures.
-The gaps between them are binding and async-wrapper overhead, isolated from any
-protocol difference.
+An **implementation** speaks ZMTP itself. A **binding** calls into someone
+else's engine, so its row answers what a language costs rather than how good an
+implementation it is: pyzmq is libzmq, and the distance between them is CPython.
+The dashboard says which is which, because reading a binding as an
+implementation gets the conclusion backwards.
+
+Two families are worth knowing about. The libzmq family holds one engine reached
+four ways. The omq family holds a Rust implementation, its Python binding, and a
+separate pure-Ruby implementation of the same project, so `family` and `engine`
+are recorded separately rather than one standing in for the other.
 
 A measured series is a **variant**: an engine plus a runtime. Every runtime an
 engine ships gets one, because benchmarking a subset would mean choosing which
@@ -173,12 +240,14 @@ profile and toolchain pin, and is deliberately not a workspace member. A shared
 workspace resolves one dependency graph and one toolchain across every member,
 so each implementation would be measured against whatever the resolver settled
 on rather than what it ships. Standalone builds let `zeromq` pin its own tokio,
-`monocoque` set its own LTO, and a future Go or C target use its native
-toolchain. `scripts/build-targets.sh` builds them one invocation at a time for
-the same reason.
+`netmq` publish self-contained against its own .NET runtime, and a future Go
+target use its native toolchain. Each is built inside its own image and run from the exported
+filesystem, which is also what keeps those toolchains off the machine that
+produces the numbers.
 
 Adding a target means implementing the command-line contract in
-[targets/README.md](targets/README.md); it can be written in any language.
+[targets/README.md](targets/README.md) and adding a `Dockerfile` beside it; it
+can be written in any language, and its toolchain never touches the bench host.
 
 ## Isolation and telemetry
 
@@ -316,10 +385,10 @@ A cell record is a measurement and a reference, nothing else. Everything about
 ```json
 { "schema": 2,
   "builds": {
-    "monocoque@0.4.0":            { "variant": "monocoque", "engine": "monocoque", "io": "io_uring", "lib_version": "0.4.0", "...": "..." },
+    "jeromq@0.6.0":               { "variant": "jeromq", "engine": "jeromq", "io": "epoll", "lib_version": "0.6.0", "...": "..." },
     "tmq@0.5.0+libzmq-4.3.4":     { "variant": "tmq", "engine": "libzmq", "binding_version": "0.5.0", "lib_version": "4.3.4", "...": "..." }
   },
-  "records": [ { "build": "monocoque@0.4.0", "kind": "throughput", "payload_bytes": 64, "...": "..." } ] }
+  "records": [ { "build": "jeromq@0.6.0", "kind": "throughput", "payload_bytes": 64, "...": "..." } ] }
 ```
 
 A build id names every version in the measured stack, so it changes the moment
@@ -328,7 +397,7 @@ any of them does. `tmq@0.5.0` alone would have stayed identical across a libzmq
 
 **The map is written into the archive rather than looked up in `variants.json`,
 and that is the point.** An archive is history; `variants.json` is current. When
-monocoque goes 0.4.0 to 0.5.0, last month's run has to keep reporting 0.4.0
+pyzmq goes 27.2.0 to 28.0.0, last month's run has to keep reporting 27.2.0
 forever, so it carries its own versions. `variants.json` supplies only
 presentation, which is safe to keep current because a variant key never changes.
 
@@ -420,6 +489,32 @@ cheating entry fails the cell rather than the review.
 - **A second machine.** Every published run comes from one host. Comparing the
   same libraries across CPU vendors and kernels would say more than another
   digit of precision on this one.
+
+## Running a measured cell without Docker
+
+Docker is a build-time dependency. Once `make build` has run, the daemon can be
+stopped and every measurement still works, because what the orchestrator needs
+is a directory, not a container.
+
+An exported target is a plain filesystem. This runs one, by hand, with docker
+shut down:
+
+```bash
+sudo systemctl stop docker            # prove it is not involved
+sudo mount --bind /proc targets/pyzmq_target/rootfs/proc
+sudo chroot targets/pyzmq_target/rootfs /app/target describe
+```
+
+That prints the target's classification, read out of the image's own Python and
+its own libzmq, with neither installed on the host. The orchestrator does
+exactly this, adding the cgroup, the network namespace, and the arguments for
+the cell.
+
+It also means the images do not have to be built where they are measured. Build
+them on a workstation or in CI, copy `targets/*/rootfs` to the bench host, and
+that host never needs docker at all. The run record carries each image's id, so
+a published number identifies the filesystem it came from rather than asking to
+be trusted.
 
 ## Acknowledgments
 

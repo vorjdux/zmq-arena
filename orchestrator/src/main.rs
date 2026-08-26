@@ -144,17 +144,41 @@ struct TargetMeta {
 /// targets ignore the flag. On any failure, fall back to a minimal record
 /// carrying the target id as the engine, so a target without a `describe` mode
 /// still produces a well-formed (if sparse) record rather than aborting the cell.
-fn target_meta(binary: &Path, variant: Option<&str>, fallback_id: &str) -> TargetMeta {
-    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), TargetMeta>>> = OnceLock::new();
+fn target_meta(
+    binary: &Path,
+    rootfs: Option<&Path>,
+    variant: Option<&str>,
+    fallback_id: &str,
+) -> TargetMeta {
+    /// (rootfs, binary, variant): what makes one measured series distinct.
+    type MetaKey = (PathBuf, PathBuf, String);
+    static CACHE: OnceLock<Mutex<HashMap<MetaKey, TargetMeta>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    // The rootfs is part of the identity. Every image-built target names its
+    // binary `/app/target`, so keying on the path alone made all of them the
+    // same cache entry: whichever was described first supplied the engine name
+    // and version for every target after it, and the records looked complete
+    // while attributing one library's results to another.
     let key = (
+        rootfs
+            .unwrap_or_else(|| std::path::Path::new(""))
+            .to_path_buf(),
         binary.to_path_buf(),
         variant.unwrap_or("default").to_string(),
     );
     if let Some(m) = cache.lock().unwrap().get(&key) {
         return m.clone();
     }
-    let mut cmd = ProcCommand::new(binary);
+    // `describe` has to run from the same filesystem the measured process will,
+    // or the versions recorded describe a different build from the one measured.
+    let mut cmd = rootfs.map_or_else(
+        || ProcCommand::new(binary),
+        |root| {
+            let mut c = ProcCommand::new("chroot");
+            c.arg(root).arg(binary);
+            c
+        },
+    );
     cmd.arg("describe");
     if let Some(v) = variant {
         cmd.arg("--variant").arg(v);
@@ -224,6 +248,11 @@ struct CellAcc<'a> {
 fn run(args: &RunArgs) -> anyhow::Result<()> {
     let cfg = RunConfig::load(&args.matrix)
         .with_context(|| format!("loading matrix {}", args.matrix.display()))?;
+
+    // Mount before the preflight, so the probe runs against the same filesystem
+    // the cells will. Held for the whole run; unmounted when it drops.
+    let _rootfs_mounts = RootfsMounts::mount_all(&cfg);
+    preflight_rootfs(&cfg)?;
 
     // A CLI --replicates N forces a fixed count (min=max=N, no warmup) for quick
     // local iteration; otherwise the matrix's adaptive policy applies.
@@ -453,6 +482,10 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     let isolation_applied = CGROUP_APPLIED.load(Ordering::Relaxed);
     let run_meta = serde_json::json!({
         "matrix": args.matrix.display().to_string(),
+        // The exact filesystem behind each target. Versions say what a target
+        // claims to be; the image id says what it actually was, and lets someone
+        // else reproduce the run rather than trust it.
+        "images": image_provenance(&cfg),
         "cells": cells.len(),
         "cells_written": written,
         "isolation": {
@@ -639,6 +672,7 @@ fn execute_cell(
     }?;
     record.meta = target_meta(
         &entry.target.binary,
+        entry.target.rootfs.as_deref(),
         entry.target.variant.as_deref(),
         &entry.target.id,
     );
@@ -782,6 +816,11 @@ fn wait_until(child: &mut Child, deadline: Instant) -> bool {
 /// What the poll loop observed per process: peak RSS, and CPU split between the
 /// measured child (index 0) and everything else in the cell.
 pub struct CellUsage {
+    /// How the measured process ended, or None if it was still running at the
+    /// deadline and had to be killed. A target that failed to start at all exits
+    /// almost immediately, which is indistinguishable from a very fast one by
+    /// timing alone -- the status is what tells them apart.
+    pub status: Option<std::process::ExitStatus>,
     pub rss_total: u64,
     /// CPU of the measured process, the one whose stdout carries the result.
     pub cpu_measured: f64,
@@ -803,7 +842,8 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
     pids.extend_from_slice(others);
     let mut peaks = vec![0u64; pids.len()];
     let mut cpus = vec![0f64; pids.len()];
-    let usage = |peaks: &[u64], cpus: &[f64]| CellUsage {
+    let usage = |peaks: &[u64], cpus: &[f64], status: Option<std::process::ExitStatus>| CellUsage {
+        status,
         rss_total: peaks.iter().sum(),
         cpu_measured: cpus.first().copied().unwrap_or(0.0),
         cpu_others: cpus.iter().skip(1).sum(),
@@ -820,16 +860,16 @@ fn wait_until_peak(child: &mut Child, others: &[u32], deadline: Instant) -> (boo
             }
         }
         match child.try_wait() {
-            Ok(Some(_)) => return (true, usage(&peaks, &cpus)),
+            Ok(Some(st)) => return (true, usage(&peaks, &cpus, Some(st))),
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return (false, usage(&peaks, &cpus));
+                    return (false, usage(&peaks, &cpus, None));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return (false, usage(&peaks, &cpus)),
+            Err(_) => return (false, usage(&peaks, &cpus, None)),
         }
     }
 }
@@ -868,13 +908,164 @@ fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
     Ok(dir)
 }
 
-fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
-    if matches!(entry.transport, Transport::TcpNetns)
-        && let Some(ns) = NETNS.get().and_then(Option::as_ref)
-    {
-        return ns.command(binary);
+/// Build the command that launches a target.
+///
+/// Both wrappers this may add -- `ip netns exec` and `chroot` -- exec rather
+/// than fork, so however many are stacked, the process the orchestrator spawns
+/// IS the target, with the PID it was given. That is what lets the telemetry
+/// stay honest: `getrusage(RUSAGE_CHILDREN)` sees it as a direct child, the
+/// peak-RSS and per-process CPU polling find it at `/proc/<pid>`, and the
+/// cgroup attach that scopes the perf counters lands on the right task.
+/// `/proc` bind-mounted into each image filesystem for the life of the run.
+///
+/// A chrooted process still sees the host kernel, but not the host's `/proc`
+/// unless one is mounted at the new root. Native binaries mostly do not care;
+/// managed runtimes do, because they read `/proc/self` and the cpu count at
+/// startup and fail or misconfigure themselves without it. Mounted once per
+/// rootfs rather than once per cell, and unmounted on drop so a run does not
+/// leave mounts behind on the bench host.
+struct RootfsMounts {
+    mounted: Vec<PathBuf>,
+}
+
+impl RootfsMounts {
+    fn mount_all(cfg: &RunConfig) -> Self {
+        let mut roots: Vec<&std::path::Path> = cfg
+            .entries
+            .iter()
+            .filter_map(|e| e.target.rootfs.as_deref())
+            .collect();
+        roots.sort_unstable();
+        roots.dedup();
+        let mut mounted = Vec::new();
+        for root in roots {
+            let proc_dir = root.join("proc");
+            if !proc_dir.is_dir() {
+                continue;
+            }
+            // Already mounted from an earlier run, or by the operator: leave it,
+            // and do not unmount something this run did not create.
+            if proc_dir.join("self").exists() {
+                continue;
+            }
+            let ok = ProcCommand::new("mount")
+                .args(["-t", "proc", "proc"])
+                .arg(&proc_dir)
+                .status()
+                .is_ok_and(|st| st.success());
+            if ok {
+                mounted.push(proc_dir);
+            }
+        }
+        Self { mounted }
     }
-    ProcCommand::new(binary)
+}
+
+impl Drop for RootfsMounts {
+    fn drop(&mut self) {
+        for m in &self.mounted {
+            let _ = ProcCommand::new("umount").arg(m).status();
+        }
+    }
+}
+
+/// What each image filesystem says about itself, for the run record.
+///
+/// A published number should be reproducible, not merely trusted: the image id
+/// identifies the exact filesystem the measurement came from, so someone else
+/// can pull it and re-run rather than take the versions on faith.
+fn image_provenance(cfg: &RunConfig) -> serde_json::Value {
+    let mut roots: Vec<&std::path::Path> = cfg
+        .entries
+        .iter()
+        .filter_map(|e| e.target.rootfs.as_deref())
+        .collect();
+    roots.sort_unstable();
+    roots.dedup();
+    let mut out = serde_json::Map::new();
+    for root in roots {
+        let Ok(txt) = std::fs::read_to_string(root.join(".arena-image.json")) else {
+            continue;
+        };
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt)
+            && let Some(name) = v.get("target").and_then(|t| t.as_str())
+        {
+            out.insert(name.to_string(), v.clone());
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
+/// Fail before the first cell if a target's image filesystem is missing or
+/// cannot be entered.
+///
+/// Checked up front because the alternative is finding out 570 times, once per
+/// cell, in a run that takes hours. chroot needs `CAP_SYS_CHROOT`, so an
+/// unprivileged run against image-built targets cannot work at all; saying so
+/// here is kinder than failing every cell with a launch error.
+fn preflight_rootfs(cfg: &RunConfig) -> anyhow::Result<()> {
+    // Check the (rootfs, binary) pairs the matrix actually uses: one image can
+    // carry several binaries, one per runtime variant, so probing a fixed path
+    // would miss the ones that matter.
+    let mut pairs: Vec<(&std::path::Path, &std::path::Path)> = cfg
+        .entries
+        .iter()
+        .filter_map(|e| {
+            e.target
+                .rootfs
+                .as_deref()
+                .map(|r| (r, e.target.binary.as_path()))
+        })
+        .collect();
+    pairs.sort_unstable();
+    pairs.dedup();
+    for (root, binary) in pairs {
+        if !root.is_dir() {
+            anyhow::bail!(
+                "target rootfs {} does not exist. Build it with: \
+                 scripts/build-image.sh <target-dir> <name>",
+                root.display()
+            );
+        }
+        let probe = ProcCommand::new("chroot")
+            .arg(root)
+            .arg(binary)
+            .arg("describe")
+            .output();
+        match probe {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => anyhow::bail!(
+                "cannot run {} from {}: chroot exited with {} ({}). \
+                 Image-built targets need root; use `make run-root`.",
+                binary.display(),
+                root.display(),
+                o.status,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => anyhow::bail!("cannot exec chroot for {}: {e}", root.display()),
+        }
+    }
+    Ok(())
+}
+
+fn target_command(binary: &std::path::Path, entry: &MatrixEntry) -> ProcCommand {
+    let netns = matches!(entry.transport, Transport::TcpNetns)
+        .then(|| NETNS.get().and_then(Option::as_ref))
+        .flatten();
+    match (netns, entry.target.rootfs.as_deref()) {
+        (Some(ns), Some(root)) => {
+            let mut cmd = ns.command(std::path::Path::new("chroot"));
+            cmd.arg(root).arg(binary);
+            cmd
+        }
+        (Some(ns), None) => ns.command(binary),
+        (None, Some(root)) => {
+            let mut cmd = ProcCommand::new("chroot");
+            cmd.arg(root).arg(binary);
+            cmd
+        }
+        (None, None) => ProcCommand::new(binary),
+    }
 }
 
 static CGROUP_WARNED: AtomicBool = AtomicBool::new(false);
@@ -1014,20 +1205,38 @@ fn run_throughput(
     if !consumer_ok {
         anyhow::bail!("cell timed out after {budget:?} (consumer did not finish)");
     }
+    // A target that could not start exits at once, which by timing alone looks
+    // like an extremely fast one: the throughput fallback below divides the
+    // message count by the elapsed wall clock, and a process that died in a
+    // millisecond yields a headline number in the hundreds of millions. Refuse
+    // the cell instead of publishing an artifact of a failed launch.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!(
+            "measured process exited with {st}; it never ran, so there is nothing to measure"
+        );
+    }
 
-    // Prefer the target's own steady-state window: it discards warmup and times
-    // only the measured block, so process spawn, the connection handshake, and
-    // the warmup transfer are excluded. Targets that do not yet report a
-    // THROUGHPUT line fall back to the wall-clock over the whole block, which
-    // folds in that ramp-up (the legacy, noisier path).
-    let (msgs_per_s, mbps) = if let Some((count, secs)) = parse_throughput_line(&out) {
-        let r = count as f64 / secs.max(1e-9);
-        (r, r * f64::from(entry.payload_bytes) / 1e6)
-    } else {
-        let secs = elapsed.as_secs_f64().max(1e-9);
-        let r = total as f64 / secs;
-        (r, r * f64::from(entry.payload_bytes) / 1e6)
+    // The target's own steady-state window is the only accepted source: it
+    // discards warmup and times just the measured block, so process spawn, the
+    // connection handshake and the warmup transfer stay out of the number.
+    //
+    // There used to be a fallback here that divided the message count by the
+    // orchestrator's wall clock when a target reported no THROUGHPUT line. It
+    // could not tell a target that does not report from one that never ran, and
+    // a process that died on launch produced 516M msgs/s -- a headline figure
+    // invented from a failure. Every target the harness schedules reports the
+    // line, because the contract requires it, so a missing line is a broken
+    // target or a broken launch. Both deserve a failed cell, not a guess.
+    let Some((count, secs)) = parse_throughput_line(&out) else {
+        anyhow::bail!(
+            "no THROUGHPUT line from the consumer after {elapsed:?}: {out:?}. A target \
+             must report `THROUGHPUT <messages> <seconds>` for its measured window."
+        )
     };
+    let msgs_per_s = count as f64 / secs.max(1e-9);
+    let mbps = msgs_per_s * f64::from(entry.payload_bytes) / 1e6;
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
     let sched = SchedCounters {
@@ -1131,6 +1340,14 @@ fn run_latency(
     }
     if !ok {
         anyhow::bail!("latency cell timed out after {budget:?}");
+    }
+    // Same reason as the throughput path: a launch failure exits immediately and
+    // would otherwise be reported as a missing output line, which reads like a
+    // target-contract bug rather than the environment problem it is.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!("measured process exited with {st}; it never ran");
     }
 
     let Some(latency) = parse_latency(&out) else {
@@ -1288,6 +1505,14 @@ fn run_multipeer(
     }
     if !ok {
         anyhow::bail!("{:?} measured consumer timed out", entry.kind);
+    }
+    // Same reason as the throughput path: a launch failure exits immediately and
+    // would otherwise be reported as a missing output line, which reads like a
+    // target-contract bug rather than the environment problem it is.
+    if let Some(st) = usage.status
+        && !st.success()
+    {
+        anyhow::bail!("measured process exited with {st}; it never ran");
     }
 
     let (count, elapsed) = parse_throughput_line(&out)

@@ -1,6 +1,6 @@
 # Standalone project. NOT a member of the orchestrator workspace.
 #
-# Engine: monocoque (monocoque-rs 0.4.0), a Rust-native ZMTP 3.1 runtime. Its
+# Engine: monocoque (monocoque-rs 0.4.1), a Rust-native ZMTP 3.1 runtime. Its
 # runtime is a compile-time choice, so this one wrapper builds two binaries:
 #   compio (io_uring, default):  cd targets/monocoque_target && cargo build --release
 #   tokio  (epoll):              cargo build --release --no-default-features \
@@ -33,9 +33,9 @@ smol = ["monocoque-rs/runtime-smol"]
 anyhow = "1"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
-# Verified on crates.io: monocoque-rs 0.4.0 (lib name `monocoque`), MIT. The
+# Verified on crates.io: monocoque-rs 0.4.1 (lib name `monocoque`), MIT. The
 # runtime feature is selected by this crate's compio/tokio feature above.
-monocoque-rs = { version = "0.4.0", default-features = false, features = ["zmq"] }
+monocoque-rs = { version = "0.4.1", default-features = false, features = ["zmq"] }
 # monocoque's IO trait abstraction, used for the generic PushSocket<S> bounds. It
 # is a non-optional dependency of monocoque-core for both backends.
 compio-io = "0.10"

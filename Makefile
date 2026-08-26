@@ -21,10 +21,8 @@ ORCH    ?= ./target/release/zmq-arena
 GEN_MATRIX ?= matrix.linode.json
 regen = @if [ "$(MATRIX)" = "$(GEN_MATRIX)" ]; then python3 scripts/gen_matrix.py; fi
 
-.PHONY: all build orchestrator libzmq monocoque monocoque-tokio monocoque-smol \
-        zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
-        rzmq celerity \
-        targets-all matrix bench render variants run run-root dry dashboard clean help
+.PHONY: all build orchestrator images image \
+        matrix bench render variants run run-root dry dashboard clean help
 
 all: build run            ## build everything, then run + render
 
@@ -32,60 +30,32 @@ all: build run            ## build everything, then run + render
 # each into its own target dir, because every shipped runtime is its own measured
 # variant. omq selects its third model (blocking) at run time, so one build
 # covers all three of its variants.
-build: orchestrator libzmq monocoque monocoque-tokio monocoque-smol \
-       zeromq-rs zeromq-rs-async-std zeromq-rs-async-dispatcher rust-zmq tmq omq-tokio \
-       rzmq celerity  ## build the control plane and every runnable variant
+build: orchestrator images  ## build the control plane and every target image
+
+# Targets are built inside pinned images and run from the exported filesystem,
+# so the bench host needs no compiler, no Rust toolchain and no libzmq headers.
+# The image is a build artifact, not a runtime: nothing runs under a container
+# at measurement time. See docs/CONTAINERS.md.
+IMAGES = libzmq:libzmq_cpp_target monocoque:monocoque_target \
+         zeromq_rs:zeromq_rs_target omq_tokio:omq_tokio_target \
+         rzmq:rzmq_target celerity:celerity_target \
+         rust_zmq:rust_zmq_target tmq:tmq_target \
+         pyzmq:pyzmq_target omq_rb:omq_rb_target netmq:netmq_target jeromq:jeromq_target
+
+images:                   ## build and export every target image
+	@for pair in $(IMAGES); do \
+	  name=$${pair%%:*}; dir=$${pair##*:}; \
+	  bash scripts/build-image.sh targets/$$dir $$name || exit 1; \
+	done
+
+image:                    ## build one target image, e.g. make image T=celerity_target N=celerity
+	bash scripts/build-image.sh targets/$(T) $(N)
 
 matrix:                   ## regenerate matrix.linode.json (payload sweep, all kinds)
 	python3 scripts/gen_matrix.py
 
 orchestrator:             ## build the Rust control plane
 	cargo build --release -p zmq-arena-orchestrator
-
-libzmq:                   ## configure (idempotent) and build the libzmq C++ target
-	cmake -S targets/libzmq_cpp_target -B targets/libzmq_cpp_target/build -DCMAKE_BUILD_TYPE=Release
-	cmake --build targets/libzmq_cpp_target/build -j
-
-monocoque:                ## build the monocoque target (compio io_uring)
-	cd targets/monocoque_target && cargo build --release
-
-monocoque-tokio:          ## build the monocoque tokio (epoll) variant into target-tokio/
-	cd targets/monocoque_target && cargo build --release --no-default-features \
-		--features tokio --target-dir target-tokio
-
-monocoque-smol:           ## build the monocoque smol (epoll) variant into target-smol/
-	cd targets/monocoque_target && cargo build --release --no-default-features \
-		--features smol --target-dir target-smol
-
-zeromq-rs:                ## build the zmq.rs target (tokio runtime)
-	cd targets/zeromq_rs_target && cargo build --release
-
-zeromq-rs-async-std:      ## build the zmq.rs async-std variant into target-async-std/
-	cd targets/zeromq_rs_target && cargo build --release --no-default-features \
-		--features async-std-rt --target-dir target-async-std
-
-zeromq-rs-async-dispatcher: ## build the zmq.rs async-dispatcher variant
-	cd targets/zeromq_rs_target && cargo build --release --no-default-features \
-		--features async-dispatcher-rt --target-dir target-async-dispatcher
-
-rust-zmq:                 ## build the rust-zmq target (links system libzmq)
-	cd targets/rust_zmq_target && cargo build --release
-
-tmq:                      ## build the tmq target (Tokio bindings over libzmq)
-	cd targets/tmq_target && cargo build --release
-
-rzmq:                     ## build the rzmq target (one binary; epoll and io_uring variants)
-	cd targets/rzmq_target && cargo build --release
-
-celerity:                 ## build the celerity target (latency and pub/sub only)
-	cd targets/celerity_target && cargo build --release
-
-omq-tokio:                ## build the omq target (one binary; its three variants
-                          ## current-thread, multi-thread and blocking are selected by --variant)
-	cd targets/omq_tokio_target && cargo build --release
-
-targets-all:              ## build every target, including the stubbed engines
-	./scripts/build-targets.sh
 
 bench:                    ## regenerate the matrix (if default) and run it into scratch/<run-id>
 	$(regen)

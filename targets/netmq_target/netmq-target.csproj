@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>netmq-target</AssemblyName>
+    <RootNamespace>NetMqTarget</RootNamespace>
+    <!-- Release codegen, and tiered compilation left on: it is the default a
+         real deployment runs, and the matrix's warmup messages get the hot
+         paths promoted before the measured window starts. -->
+    <Optimize>true</Optimize>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NetMQ" Version="4.0.4.3" />
+  </ItemGroup>
+</Project>

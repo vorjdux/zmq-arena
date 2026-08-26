@@ -75,6 +75,30 @@ and `latency` only and runs in a single process, so it is the one kind/transport
 combination that does not honor the arena's process-isolation rule; it is
 included for parity with omq and flagged as such in the records.
 
+## Reporting the result
+
+The measured process writes exactly one result line to stdout and exits 0. The
+harness parses that line and nothing else; anything else on stdout is ignored.
+
+| kind | who reports | line |
+|------|-------------|------|
+| `throughput`, `pubsub`, `fanout`, `fanin` | the consumer (`--role sub`) | `THROUGHPUT <messages> <seconds>` |
+| `latency` | the REQ client (`--role pub`) | `LATENCY <count> <min> <p50> <p90> <p99> <p999> <max>` |
+
+`<seconds>` is the wrapper's own steady-state window: warmup excluded, timed
+around the measured block only. Latency figures are nanoseconds.
+
+The wrapper times itself rather than letting the harness time the process,
+because the harness's clock spans process spawn, the connection handshake and
+the warmup transfer. For a compiled binary that overhead is a millisecond; for a
+runtime that boots a VM or imports an interpreter it is hundreds, and charging
+that to the benchmark would read as the language being slow at messaging.
+
+A missing line fails the cell. The harness does not fall back to timing the
+process itself: it cannot distinguish a target that does not report from one
+that never started, and a process that dies on launch would otherwise be
+recorded as a spectacular throughput result rather than as the failure it is.
+
 ## Variants
 
 A single target binary may expose more than one runtime. Each runtime is a
@@ -139,6 +163,34 @@ Recommended keys where the underlying library supports them:
 Environment-variable form is also accepted: `ARENA_KNOB_SNDHWM=1000`. CLI flags
 win over environment on conflict.
 
+## When measurement starts
+
+Every wrapper starts its clock at the same point, and this is the part most
+worth getting right, because a target that begins timing a moment earlier than
+another is not being compared with it.
+
+| kind | untimed prologue | clock starts |
+|------|------------------|--------------|
+| `throughput` | drain exactly `--warmup` messages | after the warmup-th message |
+| `latency` | `--warmup` full round trips | before each timed round trip |
+| duration kinds | none | after the first message arrives, counted as 1 |
+
+A duration cell reports the window it observed, so a subscriber that joins late
+measures from its own first message rather than from when the publisher started.
+
+Two things are deliberately not uniform yet, and both belong to the publisher
+rather than the clock:
+
+- **How a PUB knows a subscriber has joined.** monocoque and celerity block
+  until every expected subscriber has joined; libzmq publishes immediately and
+  lets the consumer's first message define the start; the Python, Ruby, C# and
+  Java wrappers settle for a fixed `ARENA_PUB_SETTLE` (2s), because none of
+  those libraries exposes a join signal on a plain PUB. Waiting is the better
+  behaviour and where a library offers it, the wrapper should use it.
+- **Whether a receive is bounded.** libzmq sets `ZMQ_RCVTIMEO` so its window
+  loop can end at the deadline; the others block until a message arrives, so a
+  stalled cell can run past the window and understate its own rate.
+
 ## Protocol rules
 
 A submission is valid only if it respects these. PRs that violate them are
@@ -170,8 +222,19 @@ a loopback address.
    features, and the release profile across implementations and skew the
    comparison.
 2. Implement the unified CLI and the two roles.
-3. Add a build command to `scripts/build-targets.sh` (a per-directory `cargo
-   build --release` for Rust, or the native build for another toolchain). The
-   contract with the harness is the spawned-process CLI, not a shared crate, so
-   any language is admissible.
-4. Reference the compiled binary path from the matrix entry.
+3. Add a `Dockerfile` beside it that builds the target and leaves an executable
+   at `/app/target`. It ends with `RUN /app/target describe`, so an image that
+   cannot answer the contract fails at build time rather than mid-run. Anything
+   the target needs from the environment goes in a launcher script rather than
+   an `ENV` line: `docker export` flattens the filesystem and drops image
+   metadata, so `ENV` does not survive it.
+4. Add the target to `IMAGES` in the `Makefile`, and add its matrix entry with
+   `rootfs` pointing at `targets/<name>_target/rootfs` and `binary` at the path
+   inside that tree.
+5. Register it in `variants.json`, which is what the dashboard colours, groups
+   and filters by. `render_variants.py` refuses a matrix variant with no entry.
+
+The toolchain lives in the image and never on the bench host, which is what
+makes any language admissible: the contract with the harness is the
+spawned-process CLI, not a shared crate. See `docs/CONTAINERS.md` for why the
+image is a build artifact rather than a runtime.

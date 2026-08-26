@@ -69,6 +69,16 @@ def mark(v: str) -> str:
     return MARK.get(v, v)
 
 
+def check(impls: list) -> None:
+    """A binding has to say what it binds, or the matrix will guess."""
+    for i in impls:
+        if i["impl"] == "ffi" and not i.get("binds"):
+            raise SystemExit(
+                f"error: {i['id']} is a binding but declares no `binds`; "
+                "the implementation row cannot name its engine without it"
+            )
+
+
 def table(impls: list) -> str:
     rows = [
         "| capability | " + " | ".join(i["label"] for i in impls) + " |",
@@ -80,7 +90,11 @@ def table(impls: list) -> str:
 
     row("version", lambda i: i["version"])
     row("language", lambda i: i["language"])
-    row("implementation", lambda i: "native" if i["impl"] == "native" else "FFI to libzmq")
+    # Name the engine a binding calls into rather than assuming libzmq: pyomq
+    # binds the omq Rust core, and calling that "FFI to libzmq" would claim the
+    # two Python rows share an engine when the pair exists to show they do not.
+    row("implementation", lambda i: "native" if i["impl"] == "native"
+        else f"FFI to {i['binds']}")
     row("socket types", lambda i: str(len(i["socket_types"])) if not str(i["socket_types"][0]).startswith("declared") else "declared")
     row("transports", lambda i: ", ".join(i["transports"]))
     row("NULL", lambda i: mark(i["security"]["null"]))
@@ -103,6 +117,7 @@ def main():
 
     data = json.loads(args.features.read_text())
     impls = data["implementations"]
+    check(impls)
 
     # Overwrite whatever the file claims: the matrix is the authority on what
     # this repo measures.

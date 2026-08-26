@@ -52,6 +52,14 @@
   .preset { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
     border-radius:999px; padding:3px 11px; font-size:12px; cursor:pointer; }
   .preset:hover { color:var(--fg); }
+  /* Partly selected: the group is on the chart but not all of it. */
+  .fbtn.some { color:var(--fg); border-color:var(--accent); }
+  .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
+  .variants > summary { list-style:none; cursor:pointer; user-select:none; }
+  .variants > summary::-webkit-details-marker { display:none; }
+  .variants > summary .ttl::after { content:" ▸"; opacity:.6; }
+  .variants[open] > summary .ttl::after { content:" ▾"; }
+  .vcount { font-size:11.5px; color:var(--muted); margin-left:8px; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
     border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
@@ -131,6 +139,24 @@
     #panels{ grid-template-columns:1fr; }
     .card{ overflow-x:auto; }
   }
+  /* Run header: one line of facts, with the provenance caveats behind a
+     disclosure. Laid out this way because spelling them inline wrapped the
+     header over three rows and buried the reasons between badges. */
+  .sub { display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:flex-end; align-items:center; }
+  .hline { color:var(--muted); }
+  .hdet { position:relative; }
+  .hdet > summary { list-style:none; cursor:pointer; }
+  .hdet > summary::-webkit-details-marker { display:none; }
+  .hdet > summary::after { content:" ▾"; color:var(--warn); font-size:10px; }
+  .hdet-body { position:absolute; right:0; top:calc(100% + 5px); z-index:60;
+    width:max-content; max-width:min(560px, 90vw); text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    padding:9px 11px; box-shadow:0 8px 26px rgba(0,0,0,.45); }
+  .hrow { display:flex; align-items:baseline; gap:8px; padding:3px 0; }
+  .hrow + .hrow { border-top:1px solid var(--line); }
+  .hwhy { font-size:11.5px; color:var(--muted); }
+  .ok-tag { color:var(--ok,#4ade80); border:1px solid currentColor; border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
     padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
     white-space:nowrap; }
@@ -169,16 +195,14 @@
   <div class="ctl"><label>&nbsp;</label><label class="toggle"><input type="checkbox" id="logscale"> log y-axis</label></div>
 </div>
 
-<div class="variants" id="variantsBox" hidden>
-  <div class="head">
-    <span class="ttl">Libraries (click to toggle across all charts)</span>
-    <span class="preset" data-preset="all">all</span>
-    <span class="preset" data-preset="none">none</span>
-    <span class="preset" data-preset="io_uring">io_uring</span>
-    <span class="preset" data-preset="epoll">epoll</span>
-  </div>
+<div class="facets" id="facets" hidden></div>
+<details class="variants" id="variantsBox" hidden>
+  <summary class="head">
+    <span class="ttl">Individual libraries</span>
+    <span class="vcount" id="vcount"></span>
+  </summary>
   <div class="chips" id="chips"></div>
-</div>
+</details>
 
 <main id="main" hidden>
   <section class="card">
@@ -200,6 +224,8 @@
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<link rel="stylesheet" href="arena-filter.css">
+<script src="arena-filter.js"></script>
 <script>
 "use strict";
 
@@ -209,6 +235,11 @@
 // Series carry their label as their ECharts name, so the tooltip needs the way
 // back to the key to look up a variant's dash pattern.
 let KEY_OF_LABEL = {};
+// Facets come from the registry rather than from the run, so "show me the Java
+// ones" works the same on every page and does not change shape with whichever
+// archive is loaded. Per-run details (versions) are layered on top where the
+// data has them.
+let REGMETA = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, VARIANT_DASH = {}, ENGINE_COLOR = {}, VORDER = [];
 
 // ── registries ────────────────────────────────────────────────────
@@ -278,6 +309,11 @@ async function loadVariants(){
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label;
     VARIANT_COLOR[v.key] = themedColor(v);
     VARIANT_DASH[v.key] = v.dash || null; KEY_OF_LABEL[v.label] = v.key; }
+  REGMETA = {};
+  for(const v of d.variants) REGMETA[v.key] =
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl, concurrency:v.concurrency,
+     derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -305,73 +341,110 @@ function denormalize(data){
 // it measured on (governor, turbo, virtualisation, root), not typed by whoever
 // rendered the run, so a run that cannot support a verdict says so in its own
 // data. Flag it visibly: a reader who misses it will quote the numbers.
-function hwLine(hw, run){
-  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
-  // The note already opens with "not admissible: " when it is one; the badge
-  // says that, so show only the reasons after it rather than saying it twice.
-  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
-  const tail = note ? " \u00b7 " + note : "";
-  // Three states, not two. `false` means the run measured its host and the host
-  // did not qualify. `undefined` means nothing was recorded, which is not the
-  // same as fine: it is an archive whose conditions nobody can check. Rendering
-  // that as an unbadged host would let the oldest, least verifiable runs look
-  // like the most trustworthy ones.
-  let badge = "";
-  if(hw.admissible === false) badge = ` <span class="warn-tag">not admissible</span>`;
-  else if(hw.admissible !== true) badge = ` <span class="warn-tag">provenance not recorded</span>`;
-  return cpu + badge + tail + isoLine(run);
+// Per-run provenance, keyed by date. The header describes whichever run is
+// selected, not whichever is newest: the two differ the moment an archive is
+// added, and attaching one run's warnings to another's numbers is exactly the
+// kind of quiet mislabelling this dashboard exists to avoid.
+let RUNMETA = {};
+
+function refreshHeader(){
+  const date = el("run") && el("run").value;
+  const m = RUNMETA[date];
+  if(!m) return;
+  const cells = RECORDS.filter(r => r.date === date).length;
+  const libs = new Set(RECORDS.filter(r => r.date === date).map(r => r.variant)).size;
+  el("dataSource").innerHTML =
+    runHeader(m.hardware || {}, m.run, cells, libs, Object.keys(RUNMETA).length, date);
 }
 
-// What the run actually restricted, which is not the same as what the matrix
-// asked for: without root the cpuset and memory cap are skipped and the cells
-// ran on the whole machine. A reader comparing two runs has to be able to see
-// that difference, so an unapplied restriction is called out, not hidden.
-function isoLine(run){
-  if(!run || !run.isolation) return "";
-  const iso = run.isolation, req = iso.requested || {};
-  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB cap` : "";
-  const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
-  const sysc = run.syscall_counting && run.syscall_counting.captured === false
-    ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
-  // Only worth saying when the run asked for a namespace and did not get one:
-  // those cells shared host loopback with everything else on the machine.
-  const ns = run.netns && run.netns.requested && run.netns.applied === false
-    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
-  const rep = run.replication
-    ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
-  if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
-  }
-  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
+// The run header, as three labelled groups rather than one sentence.
+//
+// It used to be a single run-on line: scale, hardware, replication and every
+// provenance warning strung together with middots, wrapping over three lines
+// with "not admissible" buried in the middle of it. Those are different kinds
+// of claim and a reader weighs them differently -- how much was measured, on
+// what, and whether any of it can be trusted -- so they are now separated and
+// the warnings come last, where they read as a verdict rather than an aside.
+function runHeader(hw, run, cells, libs, runs, span){
+  const rep = run && run.replication
+    ? `${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
+  const iso = run && run.isolation ? run.isolation : null;
+  const req = (iso && iso.requested) || {};
+  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB` : "";
+  const asked = req.cpuset_cpus ? `cpuset ${req.cpuset_cpus}${cap}` : "";
+  const applied = iso && iso.applied !== false;
+
+  // Three states, not two. `false` means the run measured its host and the host
+  // did not qualify; `undefined` means nothing was recorded, which is not the
+  // same as fine -- it is an archive whose conditions nobody can check.
+  const warn = [];
+  if(hw.admissible === false)
+    warn.push(["not admissible", (hw.note||"").replace(/^not admissible:\s*/,"")]);
+  else if(hw.admissible !== true) warn.push(["provenance not recorded", ""]);
+  if(iso && iso.applied === false)
+    warn.push(["isolation not applied", asked ? `asked for ${asked}` : ""]);
+  if(run && run.syscall_counting && run.syscall_counting.captured === false)
+    warn.push(["no syscall counters", "cells record 0, which is not measured rather than none"]);
+  if(run && run.netns && run.netns.requested && run.netns.applied === false)
+    warn.push(["host loopback", "cells shared loopback with everything else on the machine"]);
+
+  // One line, with the rest behind a disclosure. Spelling every warning out
+  // inline wrapped the header over three ragged rows and pushed the reasons
+  // into the gaps between badges, which is how a provenance note stops being
+  // read at all. The count is the part that has to be seen; the reasons are
+  // what you open when you care why.
+  const facts = [
+    `${cells.toLocaleString()} cells`,
+    `${libs} librar${libs === 1 ? "y" : "ies"}`,
+    span || "",
+    hw.cpu ? `<code>${hw.cpu}</code>` : "unknown host",
+    rep,
+    applied && asked ? asked : "",
+  ].filter(Boolean).join(" \u00b7 ");
+
+  if(!warn.length)
+    return `<span class="hline">${facts} \u00b7 <span class="ok-tag">admissible</span></span>`;
+
+  const rows = warn.map(([tag, why]) =>
+    `<div class="hrow"><span class="warn-tag">${tag}</span>` +
+    `${why ? `<span class="hwhy">${why}</span>` : ""}</div>`).join("");
+  return `<span class="hline">${facts}</span>` +
+    `<details class="hdet"><summary><span class="warn-tag">` +
+    `${warn.length} caveat${warn.length>1?"s":""}</span></summary>` +
+    `<div class="hdet-body">${rows}</div></details>`;
 }
+
 
 async function load(){
   await loadVariants();
   let runs, isSample=false;
   try { runs=await loadFrom("history/"); } catch(e){ runs=await loadFrom("sample/"); isSample=true; }
   runs.sort((a,b)=>a.date.localeCompare(b.date));
-  RECORDS=[];
+  RECORDS=[]; RUNMETA={};
+  for(const {date,data} of runs) RUNMETA[date]={hardware:data.hardware, run:data.run};
   for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   DATES=[...new Set(RECORDS.map(r=>r.date))].sort();
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]=
-    {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version};
+  for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
+  for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
+    {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version,
+     language:r.language,impl:r.impl, family:(REGMETA[r.variant]||{}).family||r.engine});
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort(varSort);
-  selected=new Set(VARIANTS);
+  // Restored from the last visit and shared with every other page, rather than
+  // defaulting to all twenty every time.
+  selected=ArenaFilter.load(VARIANTS, VARMETA);
 
-  const latest=runs[runs.length-1].data, hw=latest.hardware||{};
-  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} libraries · ${DATES.length} run${DATES.length>1?"s":""} · `+
-    hwLine(hw, latest.run);
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Real weekly-grid results replace them once <code>history/</code> is populated."; }
 
   el("run").innerHTML="";
   for(const d of DATES){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
   el("run").value=DATES[DATES.length-1];
+  refreshHeader();
   if(DATES.length<2) el("run").closest(".ctl").style.display="none";
 
-  initControls(); applyReadout(); buildChips(); buildPanels(); render();
-  el("controls").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
+  initControls(); applyReadout(); buildFacets(); buildChips(); updateCount(); buildPanels(); render();
+  el("controls").hidden=false; el("facets").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
 }
 
 // ── controls ──────────────────────────────────────────────────────
@@ -380,7 +453,7 @@ function seg(id, cb){ el(id).querySelectorAll("button").forEach(b=>b.addEventLis
 function segVal(id){ return el(id).querySelector("button.on").dataset.v; }
 
 function initControls(){
-  el("run").addEventListener("change", ()=>{ buildPanels(); render(); });
+  el("run").addEventListener("change", ()=>{ refreshHeader(); buildPanels(); render(); });
   seg("latpctSeg", ()=>render());
   seg("tputSeg", ()=>render());
   el("logscale").addEventListener("change", render);
@@ -424,16 +497,41 @@ function swatch(v){
     + `<line x1="0" y1="5" x2="22" y2="5" stroke="${colorOf(v)}" stroke-width="2.5"${da}/></svg>`;
 }
 
+function buildFacets(){
+  ArenaFilter.renderFilters(el("facets"), VARMETA, VARIANTS, selected, next=>{
+    selected=next; buildChips(); buildFacets(); updateCount(); render();
+  });
+}
+
+// Chips grouped by engine. Twenty flat chips is a wall; seven labelled families
+// is a legend you can scan.
 function buildChips(){
   const box=el("chips"); box.innerHTML="";
+  const byEngine=new Map();
   for(const v of VARIANTS){
+    const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine||"other";
+    if(!byEngine.has(e)) byEngine.set(e,[]);
+    byEngine.get(e).push(v);
+  }
+  for(const [engine,vars] of byEngine){
+    const g=document.createElement("div"); g.className="chipgroup";
+    g.innerHTML=`<span class="gname">${engine}</span>`;
+    box.appendChild(g);
+    buildChipsInto(g, vars);
+  }
+}
+
+function buildChipsInto(box, list){
+  for(const v of list){
     const m=VARMETA[v]||{};
     const c=document.createElement("span");
-    c.className="chip"+(selected.has(v)?" on":""); c.dataset.v=v;
+    const pinned=ArenaFilter.isBaseline(v);
+    c.className="chip"+(selected.has(v)?" on":"")+(pinned?" pinned":""); c.dataset.v=v;
     c.innerHTML=`${swatch(v)}${VARIANT_LABEL[v]||v}`+
-      `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`;
-    c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
-      c.classList.toggle("on"); render(); });
+      `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`+
+      (pinned?`<span class="pin" title="every ranking is a ratio to libzmq, so it is always shown">baseline</span>`:"");
+    if(!pinned) c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
+      c.classList.toggle("on"); updateCount(); render(); });
     // The chips are a shared legend, so hovering one picks that library out of
     // every open panel at once. With twelve series across small multiples this
     // is the fastest way to follow one library across scenarios.
@@ -584,12 +682,16 @@ function focusSeries(name){
   });
 }
 
-function setSelected(vs){ selected=new Set(vs);
-  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v))); render(); }
+function updateCount(){
+  const el2=el("vcount");
+  if(el2) el2.textContent=`${selected.size} of ${VARIANTS.length} shown`;
+}
+function setSelected(vs){ selected=ArenaFilter.withBaseline(new Set(vs), VARIANTS);
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v)));
+  updateCount(); render(); }
 function applyPreset(p){
   if(p==="all")  return setSelected(VARIANTS);
   if(p==="none") return setSelected([]);
-  if(p==="io_uring"||p==="epoll") return setSelected(VARIANTS.filter(v=>(VARMETA[v]||{}).io===p));
 }
 
 // ── metric per kind ───────────────────────────────────────────────

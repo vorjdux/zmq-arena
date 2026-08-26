@@ -99,14 +99,20 @@ ALL_FIVE = ["throughput", "latency", "pubsub", "fanout", "fanin"]
 TARGETS = [
     {
         "id": "libzmq",
-        "binary": "targets/libzmq_cpp_target/build/libzmq_target",
+        # Built and shipped as an image: `binary` is a path inside `rootfs`, not
+        # on the host. The orchestrator chroots into the tree and execs, so the
+        # target is still its own direct child under the harness's cgroup and
+        # netns. Build it with: scripts/build-image.sh targets/libzmq_cpp_target libzmq
+        "rootfs": "targets/libzmq_cpp_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
         "mp_knobs": {"io_threads": "1"},
         "kinds": ALL_FIVE,
     },
     {
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         # PUB fans out from a worker pool that defaults to the host CPU count
         # clamped to [2, 16]. Pinning it to 1 keeps the cell's process count a
@@ -119,7 +125,8 @@ TARGETS = [
         # picks the runtime at compile time; the (id, variant) pair keys the
         # dashboard series monocoque_tokio.
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target-tokio/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target-tokio",
         "variant": "tokio",
         "count_knobs": {},
         "mp_knobs": {"pub_workers": "1"},
@@ -128,7 +135,8 @@ TARGETS = [
     {
         # Third runtime the engine ships (smol, epoll via polling).
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target-smol/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target-smol",
         "variant": "smol",
         "count_knobs": {},
         "mp_knobs": {"pub_workers": "1"},
@@ -136,7 +144,8 @@ TARGETS = [
     },
     {
         "id": "rust_zmq",
-        "binary": "targets/rust_zmq_target/target/release/rust-zmq-target",
+        "rootfs": "targets/rust_zmq_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
         "mp_knobs": {"io_threads": "1"},
         "kinds": ALL_FIVE,
@@ -145,7 +154,8 @@ TARGETS = [
         # rzmq, epoll backend. The engine ships two IO backends and both are
         # measured; the io_uring one is the entry below.
         "id": "rzmq",
-        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "rootfs": "targets/rzmq_target/rootfs",
+        "binary": "/app/target",
         "variant": "default",
         "count_knobs": {},
         "mp_knobs": {},
@@ -155,18 +165,74 @@ TARGETS = [
         # Same binary, io_uring session with zero-copy send and multishot recv,
         # matching the rzmq peer in the omq.rs comparison harness.
         "id": "rzmq",
-        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "rootfs": "targets/rzmq_target/rootfs",
+        "binary": "/app/target",
         "variant": "io_uring",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
-        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # Python, binding to libzmq. Not a competing implementation: it answers
+        # what ZeroMQ costs from Python, against the same C++ engine libzmq runs.
+        "id": "pyzmq",
+        "rootfs": "targets/pyzmq_target/rootfs",
+        "binary": "/app/target",
+        "variant": "pyzmq",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Same wrapper, same Python API, omq's Rust core underneath instead of
+        # libzmq. The pair isolates the engine from the language, which is the
+        # comparison a Python user actually faces.
+        "id": "pyzmq",
+        "rootfs": "targets/pyzmq_target/rootfs",
+        "binary": "/app/target",
+        "variant": "pyomq",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Pure Ruby: omq.rb speaks ZMTP itself, no libzmq and no C extension, so
+        # it is measured as an implementation rather than as a language binding.
+        "id": "omq_rb",
+        "rootfs": "targets/omq_rb_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Pure C#: NetMQ implements ZMTP in managed code with no libzmq beneath
+        # it, so it is an implementation rather than a language binding.
+        "id": "netmq",
+        "rootfs": "targets/netmq_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # Pure Java: JeroMQ reimplements ZMTP on the JVM, no libzmq and no JNI.
+        # 0.6.0 is from early 2024 and the project has been quiet since; the
+        # version travels with every record so a reader can weigh that.
+        "id": "jeromq",
+        "rootfs": "targets/jeromq_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
+        "mp_knobs": {"io_threads": "1"},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.
         "id": "celerity",
-        "binary": "targets/celerity_target/target/release/celerity-target",
+        "rootfs": "targets/celerity_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ["latency", "pubsub"],
@@ -177,14 +243,16 @@ TARGETS = [
         # async-wrapper overhead against `libzmq` and `rust_zmq`, which reach the
         # same engine differently.
         "id": "tmq",
-        "binary": "targets/tmq_target/target/release/tmq-target",
+        "rootfs": "targets/tmq_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ["throughput", "latency", "pubsub"],
@@ -193,7 +261,8 @@ TARGETS = [
         # zmq.rs also picks its runtime by feature, so its other two shipped
         # runtimes are separate builds and separate series.
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target-async-std/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target-async-std",
         "variant": "async_std",
         "count_knobs": {},
         "mp_knobs": {},
@@ -201,7 +270,8 @@ TARGETS = [
     },
     {
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target-async-dispatcher/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target-async-dispatcher",
         "variant": "async_dispatcher",
         "count_knobs": {},
         "mp_knobs": {},
@@ -209,7 +279,8 @@ TARGETS = [
     },
     {
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "default",
         "count_knobs": {},
         "mp_knobs": {},
@@ -219,7 +290,8 @@ TARGETS = [
         # Same binary, multi-thread tokio runtime. The (id, variant) pair keys the
         # dashboard series omq_tokio_mt.
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "multi_thread",
         "count_knobs": {},
         "mp_knobs": {},
@@ -231,7 +303,8 @@ TARGETS = [
         # the model libzmq uses, so the pair is a direct comparison of two
         # implementations of the same idea.
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "blocking",
         "count_knobs": {},
         "mp_knobs": {},
@@ -312,6 +385,8 @@ def target_spec(target, knobs_key):
     if (target["id"], target.get("variant")) not in MULTI_LANE_VARIANTS:
         knobs.setdefault("io_threads", IO_THREADS)
     spec = {"id": target["id"], "binary": target["binary"], "knobs": knobs}
+    if target.get("rootfs"):
+        spec["rootfs"] = target["rootfs"]
     if target.get("variant"):
         spec["variant"] = target["variant"]
     return spec

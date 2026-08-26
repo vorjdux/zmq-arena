@@ -1,0 +1,55 @@
+/* The shared filter bar built by arena-filter.js.
+ *
+ * One row, not five: the facet menus, then the state in words, then a reset.
+ * The state line is the important part -- the filter that caused trouble was
+ * the one a reader could not see was on. */
+
+/* Matches the .controls rhythm above it: that row is 12px/24px, and the filter
+   bar had no top padding at all, so it sat flush against the rule under the
+   controls and read as cramped against everything else on the page. */
+.facets { padding:12px 24px 4px; }
+.fbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.fbar-label { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+  color:var(--muted); }
+
+/* A facet menu. <details> so it works without a click handler for open/close. */
+.fmenu { position:relative; }
+.fmenu > summary { list-style:none; cursor:pointer; user-select:none;
+  background:var(--panel); border:1px solid var(--line); border-radius:7px;
+  padding:5px 11px; font-size:12.5px; color:var(--muted); white-space:nowrap; }
+.fmenu > summary::-webkit-details-marker { display:none; }
+.fmenu > summary::after { content:" ▾"; opacity:.55; }
+.fmenu > summary:hover { color:var(--fg); }
+/* A facet that is narrowing something says so, so an active filter is visible
+   before you open anything. */
+.fmenu.active > summary { color:var(--fg); border-color:var(--accent); }
+.fmenu.active > summary b { color:var(--accent); font-weight:600; }
+
+.fmenu-body { position:absolute; z-index:60; top:calc(100% + 4px); left:0;
+  min-width:210px; max-height:340px; overflow-y:auto;
+  background:var(--panel); border:1px solid var(--line); border-radius:9px;
+  padding:5px; box-shadow:0 8px 26px rgba(0,0,0,.45); }
+.fitem { display:flex; align-items:center; gap:8px; padding:4px 7px;
+  border-radius:6px; font-size:12.5px; cursor:pointer; }
+.fitem:hover { background:var(--panel2); }
+.fitem input { accent-color:var(--accent); }
+.fitem .fv { flex:1 1 auto; }
+.fitem .fn { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.fitem .fonly { visibility:hidden; background:none; border:0; cursor:pointer;
+  color:var(--accent); font-size:11px; padding:0 2px; }
+.fitem:hover .fonly { visibility:visible; }
+
+.fstatus { font-size:12px; color:var(--muted); }
+.fstatus.on { color:var(--fg); }
+.freset { background:none; border:1px solid var(--line); border-radius:999px;
+  color:var(--muted); font-size:11.5px; padding:3px 10px; cursor:pointer; }
+.freset:hover { color:var(--fg); border-color:var(--accent); }
+
+/* Chips: the per-library escape hatch, collapsed by default so twenty entries
+   are not the first thing on the page. */
+.chipgroup { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; }
+.chipgroup .gname { font-size:10px; text-transform:uppercase; letter-spacing:.7px;
+  color:var(--muted); min-width:74px; text-align:right; opacity:.75; }
+.chip.pinned { cursor:default; opacity:1; }
+.chip.pinned .pin { font-size:9px; text-transform:uppercase; letter-spacing:.6px;
+  color:var(--accent); margin-left:6px; }

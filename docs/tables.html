@@ -74,6 +74,24 @@
   .best { color:var(--accent); font-weight:700; }
   .lowconf { color:var(--warn); cursor:help; font-weight:700; margin-left:3px; }
   .inverted { color:#ef4444; cursor:help; font-weight:800; margin-left:3px; }
+  /* Run header: one line of facts, with the provenance caveats behind a
+     disclosure. Laid out this way because spelling them inline wrapped the
+     header over three rows and buried the reasons between badges. */
+  .sub { display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:flex-end; align-items:center; }
+  .hline { color:var(--muted); }
+  .hdet { position:relative; }
+  .hdet > summary { list-style:none; cursor:pointer; }
+  .hdet > summary::-webkit-details-marker { display:none; }
+  .hdet > summary::after { content:" ▾"; color:var(--warn); font-size:10px; }
+  .hdet-body { position:absolute; right:0; top:calc(100% + 5px); z-index:60;
+    width:max-content; max-width:min(560px, 90vw); text-align:left;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    padding:9px 11px; box-shadow:0 8px 26px rgba(0,0,0,.45); }
+  .hrow { display:flex; align-items:baseline; gap:8px; padding:3px 0; }
+  .hrow + .hrow { border-top:1px solid var(--line); }
+  .hwhy { font-size:11.5px; color:var(--muted); }
+  .ok-tag { color:var(--ok,#4ade80); border:1px solid currentColor; border-radius:4px;
+    padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
     padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .hint { color:var(--muted); font-size:13px; }
@@ -107,17 +125,40 @@
   <div class="ctl"><label for="run">Run</label><select id="run"></select></div>
 </div>
 
+<div class="facets" id="facets" hidden></div>
 <main id="main" hidden></main>
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<link rel="stylesheet" href="arena-filter.css">
+<script src="arena-filter.js"></script>
 <script>
 "use strict";
 
 // Series identity, filled from variants.json by loadVariants() before anything
 // renders. Declared up here because the sort and colour helpers below close
 // over them.
+// Facets come from the registry rather than from the run, so "show me the Java
+// ones" works the same on every page and does not change shape with whichever
+// archive is loaded. Per-run details (versions) are layered on top where the
+// data has them.
+let REGMETA = {};
 let VARIANT_LABEL = {}, VARIANT_COLOR = {}, ENGINE_COLOR = {}, VORDER = [];
+// The selection made on any page applies here too, so "just the Java ones"
+// survives navigating between Overview, Explore, Rankings and Tables.
+let selected = new Set();
+
+function buildFacets(){
+  ArenaFilter.renderFilters(el("facets"), VARMETA, VORDER, selected, next=>{
+    // Re-render the bar as well as the page: it shows the current filter in
+    // words and owns the reset button, so leaving it stale is how a filter
+    // becomes invisible again.
+    selected = next; buildFacets(); render();
+  });
+}
+
+/// Records for the libraries currently selected.
+const inSelection = r => !selected.size || selected.has(r.variant);
 
 const KIND_LABEL = { throughput:"Throughput (PUSH/PULL)", latency:"Latency (REQ/REP)",
   pubsub:"Pub/Sub", fanout:"Fan-out", fanin:"Fan-in" };
@@ -150,7 +191,7 @@ function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+" G"; if(v>=1e6)return (v/1e6).toFixed(2)+" M";
   if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
 function fmtUs(ns){ const u=ns/1000; return u>=100?u.toFixed(0):u>=10?u.toFixed(1):u.toFixed(2); }
-function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+function swatch(v){ const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
 // Two markers. An inverted cell (msgs/s beaten by a larger payload, physically
 // impossible on one path) gets a bold "!", because reproducible does not mean
 // correct. A merely noisy cell (replicates did not converge) gets a "?". Inverted
@@ -197,6 +238,11 @@ async function loadVariants(){
   for(const k in (d.engines || {}))
     ENGINE_COLOR[k] = themedColor({color: d.engines[k], color_light: (d.engines_light||{})[k]});
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
+  REGMETA = {};
+  for(const v of d.variants) REGMETA[v.key] =
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl, concurrency:v.concurrency,
+     derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -224,45 +270,79 @@ function denormalize(data){
 // it measured on (governor, turbo, virtualisation, root), not typed by whoever
 // rendered the run, so a run that cannot support a verdict says so in its own
 // data. Flag it visibly: a reader who misses it will quote the numbers.
-function hwLine(hw, run){
-  const cpu = `<code>${hw.cpu||"unknown host"}</code>`;
-  // The note already opens with "not admissible: " when it is one; the badge
-  // says that, so show only the reasons after it rather than saying it twice.
-  const note = (hw.note||"").replace(/^not admissible:\s*/, "");
-  const tail = note ? " \u00b7 " + note : "";
-  // Three states, not two. `false` means the run measured its host and the host
-  // did not qualify. `undefined` means nothing was recorded, which is not the
-  // same as fine: it is an archive whose conditions nobody can check. Rendering
-  // that as an unbadged host would let the oldest, least verifiable runs look
-  // like the most trustworthy ones.
-  let badge = "";
-  if(hw.admissible === false) badge = ` <span class="warn-tag">not admissible</span>`;
-  else if(hw.admissible !== true) badge = ` <span class="warn-tag">provenance not recorded</span>`;
-  return cpu + badge + tail + isoLine(run);
+// Per-run provenance, keyed by date. The header describes whichever run is
+// selected, not whichever is newest: the two differ the moment an archive is
+// added, and attaching one run's warnings to another's numbers is exactly the
+// kind of quiet mislabelling this dashboard exists to avoid.
+let RUNMETA = {};
+
+function refreshHeader(){
+  const date = el("run") && el("run").value;
+  const m = RUNMETA[date];
+  if(!m) return;
+  const cells = RECORDS.filter(r => r.date === date).length;
+  const libs = new Set(RECORDS.filter(r => r.date === date).map(r => r.variant)).size;
+  el("dataSource").innerHTML =
+    runHeader(m.hardware || {}, m.run, cells, libs, Object.keys(RUNMETA).length, date);
 }
 
-// What the run actually restricted, which is not the same as what the matrix
-// asked for: without root the cpuset and memory cap are skipped and the cells
-// ran on the whole machine. A reader comparing two runs has to be able to see
-// that difference, so an unapplied restriction is called out, not hidden.
-function isoLine(run){
-  if(!run || !run.isolation) return "";
-  const iso = run.isolation, req = iso.requested || {};
-  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB cap` : "";
-  const asked = `cpuset ${req.cpuset_cpus||"?"}${cap}`;
-  const sysc = run.syscall_counting && run.syscall_counting.captured === false
-    ? ` \u00b7 <span class="warn-tag">no syscall counters</span>` : "";
-  // Only worth saying when the run asked for a namespace and did not get one:
-  // those cells shared host loopback with everything else on the machine.
-  const ns = run.netns && run.netns.requested && run.netns.applied === false
-    ? ` \u00b7 <span class="warn-tag">host loopback</span>` : "";
-  const rep = run.replication
-    ? ` \u00b7 ${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
-  if(iso.applied === false){
-    return ` \u00b7 <span class="warn-tag">isolation not applied</span> (asked for ${asked})${rep}${sysc}${ns}`;
-  }
-  return ` \u00b7 ${asked}${rep}${sysc}${ns}`;
+// The run header, as three labelled groups rather than one sentence.
+//
+// It used to be a single run-on line: scale, hardware, replication and every
+// provenance warning strung together with middots, wrapping over three lines
+// with "not admissible" buried in the middle of it. Those are different kinds
+// of claim and a reader weighs them differently -- how much was measured, on
+// what, and whether any of it can be trusted -- so they are now separated and
+// the warnings come last, where they read as a verdict rather than an aside.
+function runHeader(hw, run, cells, libs, runs, span){
+  const rep = run && run.replication
+    ? `${run.replication.min_replicates}-${run.replication.max_replicates} replicates` : "";
+  const iso = run && run.isolation ? run.isolation : null;
+  const req = (iso && iso.requested) || {};
+  const cap = req.memory_max_bytes ? `, ${Math.round(req.memory_max_bytes/1048576)} MiB` : "";
+  const asked = req.cpuset_cpus ? `cpuset ${req.cpuset_cpus}${cap}` : "";
+  const applied = iso && iso.applied !== false;
+
+  // Three states, not two. `false` means the run measured its host and the host
+  // did not qualify; `undefined` means nothing was recorded, which is not the
+  // same as fine -- it is an archive whose conditions nobody can check.
+  const warn = [];
+  if(hw.admissible === false)
+    warn.push(["not admissible", (hw.note||"").replace(/^not admissible:\s*/,"")]);
+  else if(hw.admissible !== true) warn.push(["provenance not recorded", ""]);
+  if(iso && iso.applied === false)
+    warn.push(["isolation not applied", asked ? `asked for ${asked}` : ""]);
+  if(run && run.syscall_counting && run.syscall_counting.captured === false)
+    warn.push(["no syscall counters", "cells record 0, which is not measured rather than none"]);
+  if(run && run.netns && run.netns.requested && run.netns.applied === false)
+    warn.push(["host loopback", "cells shared loopback with everything else on the machine"]);
+
+  // One line, with the rest behind a disclosure. Spelling every warning out
+  // inline wrapped the header over three ragged rows and pushed the reasons
+  // into the gaps between badges, which is how a provenance note stops being
+  // read at all. The count is the part that has to be seen; the reasons are
+  // what you open when you care why.
+  const facts = [
+    `${cells.toLocaleString()} cells`,
+    `${libs} librar${libs === 1 ? "y" : "ies"}`,
+    span || "",
+    hw.cpu ? `<code>${hw.cpu}</code>` : "unknown host",
+    rep,
+    applied && asked ? asked : "",
+  ].filter(Boolean).join(" \u00b7 ");
+
+  if(!warn.length)
+    return `<span class="hline">${facts} \u00b7 <span class="ok-tag">admissible</span></span>`;
+
+  const rows = warn.map(([tag, why]) =>
+    `<div class="hrow"><span class="warn-tag">${tag}</span>` +
+    `${why ? `<span class="hwhy">${why}</span>` : ""}</div>`).join("");
+  return `<span class="hline">${facts}</span>` +
+    `<details class="hdet"><summary><span class="warn-tag">` +
+    `${warn.length} caveat${warn.length>1?"s":""}</span></summary>` +
+    `<div class="hdet-body">${rows}</div></details>`;
 }
+
 
 async function load(){
   await loadVariants();
@@ -270,29 +350,32 @@ async function load(){
   try { runs=await loadFrom("history/"); }
   catch(e){ runs=await loadFrom("sample/"); isSample=true; }
   runs.sort((a,b)=>a.date.localeCompare(b.date));
-  RECORDS=[];
+  RECORDS=[]; RUNMETA={};
+  for(const {date,data} of runs) RUNMETA[date]={hardware:data.hardware, run:data.run};
   for(const {date,data} of runs) for(const rec of denormalize(data)) RECORDS.push({...rec,date});
   VARMETA={};
-  for(const r of RECORDS) if(!VARMETA[r.variant]) VARMETA[r.variant]={engine:r.engine,io:r.io,threading:r.threading};
+  for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
+  for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
+    {engine:r.engine,io:r.io,threading:r.threading,language:r.language,impl:r.impl, family:(REGMETA[r.variant]||{}).family||r.engine});
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
 
-  const latest=runs[runs.length-1].data, hw=latest.hardware||{};
-  el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+
-    hwLine(hw, latest.run);
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements."; }
 
   el("run").innerHTML="";
   for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
   el("run").value=dates[dates.length-1];
-  el("run").addEventListener("change", render);
-  el("controls").hidden=false; el("main").hidden=false;
+  refreshHeader();
+  el("run").addEventListener("change", ()=>{ refreshHeader(); render(); });
+  selected = ArenaFilter.load(VORDER, VARMETA);
+  buildFacets();
+  el("controls").hidden=false; el("facets").hidden=false; el("main").hidden=false;
   render();
 }
 
 function render(){
   const run=val("run");
-  const recs=RECORDS.filter(r=>r.date===run);
+  const recs=RECORDS.filter(r=>r.date===run && inSelection(r));
   const kinds=KIND_ORDER.filter(k=>recs.some(r=>r.kind===k));
   let html="";
   for(const kind of kinds){
