@@ -96,8 +96,22 @@ def print_latency(rtts)
               rtts.size, rtts.first, q[0.50], q[0.90], q[0.99], q[0.999], rtts.last)
 end
 
+# Wait a bounded time for the first message, matching the compiled targets:
+# they give up after ten seconds and report a zero window rather than blocking.
+# Without this a starved cell would be a missing data point here and a zero
+# everywhere else, which is not a comparison.
+def first_or_bail(sock, seconds = 10)
+  sock.read_timeout = seconds if sock.respond_to?(:read_timeout=)
+  sock.receive
+  sock.read_timeout = nil if sock.respond_to?(:read_timeout=)
+  true
+rescue StandardError
+  puts 'THROUGHPUT 0 0.000001'
+  false
+end
+
 def timed_drain(sock, seconds)
-  sock.receive # first message: the connection is live, start the clock after it
+  return unless first_or_bail(sock)
   count = 1
   t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   deadline = t0 + seconds
@@ -119,7 +133,7 @@ end
 # convenience path would have published omq.rb as forty times slower than a
 # Python binding, which says nothing about the library and everything about how
 # the harness drove it.
-Async do
+Async do |task|
 case KIND
 when 'throughput'
   if ROLE == 'sub'
@@ -158,10 +172,21 @@ when 'latency'
 when 'pubsub'
   if ROLE == 'pub'
     pub = open_socket(OMQ::PUB, ENDPOINT, true)
-    # PUB drops what it publishes before a subscriber has finished subscribing,
-    # so settle before the flood rather than measuring the drop path.
-    sleep 0.5
-    loop { pub << PAYLOAD }
+    # PUB drops what it publishes before a subscriber has finished subscribing.
+    # Worse here than elsewhere: omq.rb is fibre-based, and a tight publish loop
+    # never reaches an await point, so a subscriber arriving after the loop
+    # starts can never complete its handshake and receives nothing at all. That
+    # is why this cell reported zero before. The settle has to cover the arrival
+    # of every subscriber, not just the first.
+    sleep(ENV.fetch('ARENA_PUB_SETTLE', '2.0').to_f)
+    n = 0
+    loop do
+      pub << PAYLOAD
+      n += 1
+      # Hand the reactor back regularly so it can service subscribers and
+      # actually write the socket, rather than spinning in this fibre.
+      task.yield if (n % 256).zero?
+    end
   else
     sub = open_socket(OMQ::SUB, ENDPOINT, false)
     sub.subscribe('')

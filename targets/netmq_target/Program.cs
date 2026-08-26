@@ -64,6 +64,12 @@ static class Target
         if (int.TryParse(Knob(a, "rcvhwm"), out var rh)) s.Options.ReceiveHighWatermark = rh;
     }
 
+    static int SettleMs()
+    {
+        var v = Environment.GetEnvironmentVariable("ARENA_PUB_SETTLE");
+        return (int)((v != null && double.TryParse(v, out var s) ? s : 2.0) * 1000);
+    }
+
     static void PrintLatency(List<long> rtts)
     {
         if (rtts.Count == 0) { Console.WriteLine("LATENCY 0 0 0 0 0 0 0"); return; }
@@ -72,9 +78,20 @@ static class Target
         Console.WriteLine($"LATENCY {rtts.Count} {rtts[0]} {Q(0.50)} {Q(0.90)} {Q(0.99)} {Q(0.999)} {rtts[^1]}");
     }
 
+    // Wait a bounded time for the first message, matching the compiled targets:
+    // they give up after ten seconds and report a zero window rather than
+    // blocking. Otherwise a starved cell is a missing data point here and a zero
+    // everywhere else, which is not a comparison.
+    static bool FirstOrBail(NetMQSocket s, int seconds = 10)
+    {
+        if (s.TryReceiveFrameBytes(TimeSpan.FromSeconds(seconds), out _)) return true;
+        Console.WriteLine("THROUGHPUT 0 0.000001");
+        return false;
+    }
+
     static void TimedDrain(NetMQSocket s, double seconds)
     {
-        s.ReceiveFrameBytes(); // first message: the link is live, clock starts after it
+        if (!FirstOrBail(s)) return;
         long count = 1;
         var sw = Stopwatch.StartNew();
         var deadline = TimeSpan.FromSeconds(seconds);
@@ -169,8 +186,10 @@ static class Target
                     Tune(pub, args);
                     pub.Bind(endpoint);
                     // PUB drops what it sends before a subscriber has finished
-                    // subscribing, so settle before flooding.
-                    Thread.Sleep(500);
+                    // subscribing. NetMQ exposes no join signal on a plain PUB,
+                    // so this settles for a fixed time, sized for the slowest of
+                    // 32 subscribers rather than the fastest.
+                    Thread.Sleep(SettleMs());
                     while (true) pub.SendFrame(payload);
                 }
                 else

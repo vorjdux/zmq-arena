@@ -163,6 +163,34 @@ Recommended keys where the underlying library supports them:
 Environment-variable form is also accepted: `ARENA_KNOB_SNDHWM=1000`. CLI flags
 win over environment on conflict.
 
+## When measurement starts
+
+Every wrapper starts its clock at the same point, and this is the part most
+worth getting right, because a target that begins timing a moment earlier than
+another is not being compared with it.
+
+| kind | untimed prologue | clock starts |
+|------|------------------|--------------|
+| `throughput` | drain exactly `--warmup` messages | after the warmup-th message |
+| `latency` | `--warmup` full round trips | before each timed round trip |
+| duration kinds | none | after the first message arrives, counted as 1 |
+
+A duration cell reports the window it observed, so a subscriber that joins late
+measures from its own first message rather than from when the publisher started.
+
+Two things are deliberately not uniform yet, and both belong to the publisher
+rather than the clock:
+
+- **How a PUB knows a subscriber has joined.** monocoque and celerity block
+  until every expected subscriber has joined; libzmq publishes immediately and
+  lets the consumer's first message define the start; the Python, Ruby, C# and
+  Java wrappers settle for a fixed `ARENA_PUB_SETTLE` (2s), because none of
+  those libraries exposes a join signal on a plain PUB. Waiting is the better
+  behaviour and where a library offers it, the wrapper should use it.
+- **Whether a receive is bounded.** libzmq sets `ZMQ_RCVTIMEO` so its window
+  loop can end at the deadline; the others block until a message arrives, so a
+  stalled cell can run past the window and understate its own rate.
+
 ## Protocol rules
 
 A submission is valid only if it respects these. PRs that violate them are

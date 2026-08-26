@@ -55,6 +55,13 @@ public final class Target {
         if ((v = knob(a, "rcvhwm")) != null) s.setRcvHWM(Integer.parseInt(v));
     }
 
+    static long settleMs() {
+        String v = System.getenv("ARENA_PUB_SETTLE");
+        double s = 2.0;
+        if (v != null) { try { s = Double.parseDouble(v); } catch (NumberFormatException e) { } }
+        return (long)(s * 1000);
+    }
+
     static void printLatency(List<Long> rtts) {
         if (rtts.isEmpty()) {
             System.out.println("LATENCY 0 0 0 0 0 0 0");
@@ -70,8 +77,21 @@ public final class Target {
             + rtts.get(n - 1));
     }
 
+    // Wait a bounded time for the first message, matching the compiled targets:
+    // they give up after ten seconds and report a zero window rather than
+    // blocking. Otherwise a starved cell is a missing data point here and a zero
+    // everywhere else, which is not a comparison.
+    static boolean firstOrBail(ZMQ.Socket s, int seconds) {
+        s.setReceiveTimeOut(seconds * 1000);
+        byte[] first = s.recv(0);
+        s.setReceiveTimeOut(-1);
+        if (first != null) return true;
+        System.out.println("THROUGHPUT 0 0.000001");
+        return false;
+    }
+
     static void timedDrain(ZMQ.Socket s, double seconds) {
-        s.recv(0); // first message: the link is live, clock starts after it
+        if (!firstOrBail(s, 10)) return;
         long count = 1;
         long t0 = System.nanoTime();
         long deadline = t0 + (long) (seconds * 1e9);
@@ -161,8 +181,10 @@ public final class Target {
                         tune(pub, args);
                         pub.bind(endpoint);
                         // PUB drops what it sends before a subscriber has
-                        // finished subscribing, so settle before flooding.
-                        Thread.sleep(500);
+                        // finished subscribing. JeroMQ exposes no join signal on
+                        // a plain PUB, so this settles for a fixed time, sized
+                        // for the slowest of 32 subscribers.
+                        Thread.sleep(settleMs());
                         while (true) pub.send(payload, 0);
                     } else {
                         ZMQ.Socket sub = ctx.createSocket(SocketType.SUB);

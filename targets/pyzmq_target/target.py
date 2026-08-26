@@ -51,6 +51,12 @@ def describe(variant):
     }, separators=(",", ":")))
 
 
+# How long a PUB settles before publishing, when the library gives no signal
+# that subscribers have joined. Shared by every wrapper here so the four of them
+# at least agree with each other.
+SETTLE = float(os.environ.get("ARENA_PUB_SETTLE", "2.0"))
+
+
 def knob(knobs, key, default=None):
     for kv in knobs:
         k, _, v = kv.partition("=")
@@ -145,15 +151,47 @@ def run_latency(z, ctx, a, payload):
         print(percentiles(rtts))
 
 
+def first_or_bail(z, sock, seconds=10):
+    """Wait a bounded time for the first message.
+
+    Every compiled target in the arena gives up after ten seconds and reports a
+    zero window rather than blocking. Without this the Python, Ruby, C# and Java
+    wrappers would hang until the orchestrator killed the cell, so a starved cell
+    would be a missing data point for them and a zero for everyone else. Same
+    condition, two different outcomes, is not a comparison.
+    """
+    if hasattr(z, "RCVTIMEO"):
+        sock.setsockopt(z.RCVTIMEO, int(seconds * 1000))
+    try:
+        sock.recv()
+        return True
+    except Exception:
+        print("THROUGHPUT 0 0.000001")
+        return False
+    finally:
+        if hasattr(z, "RCVTIMEO"):
+            sock.setsockopt(z.RCVTIMEO, -1)
+
+
 def run_pubsub(z, ctx, a, payload):
     if a.role == "pub":
         s = ctx.socket(z.PUB)
         apply_hwm(z, s, a.knob)
         s.bind(a.endpoint)
-        # PUB drops what it sends before a subscriber has finished subscribing,
-        # so an unconditional warm-up would measure the drop path. There is no
-        # portable readiness signal here, so settle briefly and then publish.
-        time.sleep(0.5)
+        # PUB drops what it publishes before a subscriber has finished
+        # subscribing, so the send loop must not start until they have joined.
+        #
+        # The targets in this arena do not agree on how to establish that, which
+        # is a real inequality in when measurement can begin: monocoque and
+        # celerity block until every expected subscriber has joined, libzmq
+        # publishes immediately and relies on the consumer starting its clock at
+        # the first message it sees, and this wrapper settles for a fixed time
+        # because pyzmq exposes no join signal on a PUB socket.
+        #
+        # 500ms was too short: with 32 subscribers each starting its own process
+        # and interpreter, later ones can still be connecting. The settle is
+        # sized for the slowest of them rather than the fastest.
+        time.sleep(SETTLE)
         while True:
             s.send(payload)
     else:
@@ -161,7 +199,8 @@ def run_pubsub(z, ctx, a, payload):
         apply_hwm(z, s, a.knob)
         s.setsockopt(z.SUBSCRIBE, b"")
         s.connect(a.endpoint)
-        s.recv()  # first message: subscription is live, start the clock after it
+        # first message: subscription is live, start the clock after it
+        if not first_or_bail(z, s): return
         count, t0 = 1, time.perf_counter()
         deadline = t0 + a.duration_secs
         while time.perf_counter() < deadline:
@@ -183,7 +222,7 @@ def run_pipeline(z, ctx, a, payload):
         while True:
             s.send(payload)
     else:
-        s.recv()
+        if not first_or_bail(z, s): return
         count, t0 = 1, time.perf_counter()
         deadline = t0 + a.duration_secs
         while time.perf_counter() < deadline:
