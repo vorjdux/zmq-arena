@@ -1208,19 +1208,25 @@ fn run_throughput(
         );
     }
 
-    // Prefer the target's own steady-state window: it discards warmup and times
-    // only the measured block, so process spawn, the connection handshake, and
-    // the warmup transfer are excluded. Targets that do not yet report a
-    // THROUGHPUT line fall back to the wall-clock over the whole block, which
-    // folds in that ramp-up (the legacy, noisier path).
-    let (msgs_per_s, mbps) = if let Some((count, secs)) = parse_throughput_line(&out) {
-        let r = count as f64 / secs.max(1e-9);
-        (r, r * f64::from(entry.payload_bytes) / 1e6)
-    } else {
-        let secs = elapsed.as_secs_f64().max(1e-9);
-        let r = total as f64 / secs;
-        (r, r * f64::from(entry.payload_bytes) / 1e6)
+    // The target's own steady-state window is the only accepted source: it
+    // discards warmup and times just the measured block, so process spawn, the
+    // connection handshake and the warmup transfer stay out of the number.
+    //
+    // There used to be a fallback here that divided the message count by the
+    // orchestrator's wall clock when a target reported no THROUGHPUT line. It
+    // could not tell a target that does not report from one that never ran, and
+    // a process that died on launch produced 516M msgs/s -- a headline figure
+    // invented from a failure. Every target the harness schedules reports the
+    // line, because the contract requires it, so a missing line is a broken
+    // target or a broken launch. Both deserve a failed cell, not a guess.
+    let Some((count, secs)) = parse_throughput_line(&out) else {
+        anyhow::bail!(
+            "no THROUGHPUT line from the consumer after {elapsed:?}: {out:?}. A target \
+             must report `THROUGHPUT <messages> <seconds>` for its measured window."
+        )
     };
+    let msgs_per_s = count as f64 / secs.max(1e-9);
+    let mbps = msgs_per_s * f64::from(entry.payload_bytes) / 1e6;
 
     let (cpu1, sched1) = crate::telemetry::rusage_children();
     let sched = SchedCounters {

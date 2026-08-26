@@ -75,6 +75,30 @@ and `latency` only and runs in a single process, so it is the one kind/transport
 combination that does not honor the arena's process-isolation rule; it is
 included for parity with omq and flagged as such in the records.
 
+## Reporting the result
+
+The measured process writes exactly one result line to stdout and exits 0. The
+harness parses that line and nothing else; anything else on stdout is ignored.
+
+| kind | who reports | line |
+|------|-------------|------|
+| `throughput`, `pubsub`, `fanout`, `fanin` | the consumer (`--role sub`) | `THROUGHPUT <messages> <seconds>` |
+| `latency` | the REQ client (`--role pub`) | `LATENCY <count> <min> <p50> <p90> <p99> <p999> <max>` |
+
+`<seconds>` is the wrapper's own steady-state window: warmup excluded, timed
+around the measured block only. Latency figures are nanoseconds.
+
+The wrapper times itself rather than letting the harness time the process,
+because the harness's clock spans process spawn, the connection handshake and
+the warmup transfer. For a compiled binary that overhead is a millisecond; for a
+runtime that boots a VM or imports an interpreter it is hundreds, and charging
+that to the benchmark would read as the language being slow at messaging.
+
+A missing line fails the cell. The harness does not fall back to timing the
+process itself: it cannot distinguish a target that does not report from one
+that never started, and a process that dies on launch would otherwise be
+recorded as a spectacular throughput result rather than as the failure it is.
+
 ## Variants
 
 A single target binary may expose more than one runtime. Each runtime is a
