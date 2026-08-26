@@ -388,7 +388,8 @@ async function loadVariants(){
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
-    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -606,7 +607,7 @@ function buildChips(){
   const box=el("chips"); box.innerHTML="";
   const byEngine=new Map();
   for(const v of VARIANTS){
-    const e=(VARMETA[v]||{}).engine||"other";
+    const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine||"other";
     if(!byEngine.has(e)) byEngine.set(e,[]);
     byEngine.get(e).push(v);
   }
@@ -624,7 +625,7 @@ function buildChipsInto(box, list){
     const pinned=ArenaFilter.isBaseline(v);
     c.className="chip"+(selected.has(v)?" on":"")+(pinned?" pinned":""); c.dataset.v=v;
     const mv=VARMETA[v], ver=libVerLatest(v);
-    c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[mv.engine]||"#888"}"></span>`+
+    c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[mv.family||mv.engine]||"#888"}"></span>`+
       `${VARIANT_LABEL[v]||v}${ver?` <code>${ver}</code>`:""} <small>${mv.impl||mv.language}·${mv.concurrency||"-"}·${mv.io}·${mv.threading}</small>`;
     if(pinned) c.innerHTML+=`<span class="pin" title="every ranking is a ratio to libzmq, so it is always shown">baseline</span>`;
     else c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
@@ -966,7 +967,7 @@ function renderRanking(){
     const meta=VARMETA[r.v];
     const cpu=r.rec?r.rec.cpu_seconds:null, mem=r.rec?r.rec.peak_memory_bytes/1e6:null;
     html+=`<tr><td>${i+1}</td>`+
-      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.family||meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
       `<td><small>${verTag(r.v,run)||"-"}</small></td>`+
       `<td>${fmtVal(r.x,m.unit)}</td><td class="${i===0?"best":""}">${rel}</td>`+
       `<td>${cpu==null?"-":cpu.toFixed(3)}</td><td>${mem==null?"-":mem.toFixed(1)}</td></tr>`;
@@ -1015,7 +1016,7 @@ function renderGlobalRanking(){
   let html=`<div class="tw"><table><thead><tr><th>#</th><th>Variant</th><th>lib</th><th>mean rank</th><th>benchmarks</th><th>CPU (s)</th><th>Mem (MB)</th></tr></thead><tbody>`;
   rows.forEach((r,i)=>{ const meta=VARMETA[r.v];
     html+=`<tr><td>${i+1}</td>`+
-      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
+      `<td><span class="sw2" style="background:${ENGINE_COLOR[meta.family||meta.engine]||"#888"}"></span>${VARIANT_LABEL[r.v]||r.v} <small>${meta.impl||meta.language}·${meta.concurrency||"-"}·${meta.io}·${meta.threading}</small></td>`+
       `<td><small>${verTag(r.v,run)||"-"}</small></td>`+
       `<td>${r.mean.toFixed(2)}</td><td>${r.n}</td>`+
       `<td>${r.cpu==null?"-":r.cpu.toFixed(3)}</td><td>${r.mem==null?"-":r.mem.toFixed(1)}</td></tr>`;

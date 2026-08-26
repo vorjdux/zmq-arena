@@ -31,7 +31,11 @@
   // ZMTP implementation it is.
   const FACETS = [
     { key: "language", label: "Language" },
-    { key: "engine", label: "Engine" },
+    // Family, not engine: a project can ship more than one implementation.
+    // omq.rb speaks ZMTP in Ruby rather than binding the Rust core, so its
+    // engine is itself while its family is omq, and it is the family a reader
+    // wants when they ask to see "the omq ones".
+    { key: "family", label: "Family" },
     { key: "impl", label: "Kind", rename: { native: "implementation", ffi: "binding" } },
   ];
 

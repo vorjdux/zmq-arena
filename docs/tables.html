@@ -179,7 +179,7 @@ function fmtMsgs(v){ if(v==null||Number.isNaN(v))return"-";
   if(v>=1e9)return (v/1e9).toFixed(2)+" G"; if(v>=1e6)return (v/1e6).toFixed(2)+" M";
   if(v>=1e3)return (v/1e3).toFixed(0)+" K"; return v.toFixed(0); }
 function fmtUs(ns){ const u=ns/1000; return u>=100?u.toFixed(0):u>=10?u.toFixed(1):u.toFixed(2); }
-function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+function swatch(v){ const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
 // Two markers. An inverted cell (msgs/s beaten by a larger payload, physically
 // impossible on one path) gets a bold "!", because reproducible does not mean
 // correct. A merely noisy cell (replicates did not converge) gets a "?". Inverted
@@ -228,7 +228,8 @@ async function loadVariants(){
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
-    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -307,7 +308,7 @@ async function load(){
   VARMETA={};
   for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
   for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
-    {engine:r.engine,io:r.io,threading:r.threading,language:r.language,impl:r.impl});
+    {engine:r.engine,io:r.io,threading:r.threading,language:r.language,impl:r.impl, family:(REGMETA[r.variant]||{}).family||r.engine});
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};

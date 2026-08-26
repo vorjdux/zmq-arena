@@ -153,7 +153,7 @@ const el = id => document.getElementById(id);
 const val = id => el(id).value;
 let RECORDS = [], VARMETA = {};
 
-function swatch(v){ const e=(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
+function swatch(v){ const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine; return `<span class="sw" style="background:${ENGINE_COLOR[e]||"#888"}"></span>`; }
 const relSpread = r => (r.stability && r.stability.rel_iqr) || 0;
 const kindOk = k => (r => r.kind === k && !!r.throughput);
 const ctxTotal = r => ((r.sched && (r.sched.voluntary||0) + (r.sched.involuntary||0)) || 0);
@@ -281,7 +281,8 @@ async function loadVariants(){
   for(const v of d.variants){ VARIANT_LABEL[v.key] = v.label; VARIANT_COLOR[v.key] = themedColor(v); }
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
-    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -360,7 +361,7 @@ async function load(){
   VARMETA={};
   for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
   for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
-    {engine:r.engine, io:r.io, threading:r.threading, language:r.language, impl:r.impl});
+    {engine:r.engine, io:r.io, threading:r.threading, language:r.language, impl:r.impl, family:(REGMETA[r.variant]||{}).family||r.engine});
   const dates=[...new Set(RECORDS.map(r=>r.date))].sort();
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${dates.length} runs · `+

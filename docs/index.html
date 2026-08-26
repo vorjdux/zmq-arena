@@ -309,7 +309,8 @@ async function loadVariants(){
     VARIANT_DASH[v.key] = v.dash || null; KEY_OF_LABEL[v.label] = v.key; }
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
-    {engine:v.engine, io:v.io, threading:v.threading, language:v.language, impl:v.impl};
+    {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
+     language:v.language, impl:v.impl};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -389,7 +390,7 @@ async function load(){
   for(const k in REGMETA) VARMETA[k]={...REGMETA[k]};
   for(const r of RECORDS) VARMETA[r.variant]=Object.assign({}, REGMETA[r.variant],
     {engine:r.engine,io:r.io,threading:r.threading,lib:r.lib_version,binding:r.binding_version,
-     language:r.language,impl:r.impl});
+     language:r.language,impl:r.impl, family:(REGMETA[r.variant]||{}).family||r.engine});
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort(varSort);
   // Restored from the last visit and shared with every other page, rather than
   // defaulting to all twenty every time.
@@ -472,7 +473,7 @@ function buildChips(){
   const box=el("chips"); box.innerHTML="";
   const byEngine=new Map();
   for(const v of VARIANTS){
-    const e=(VARMETA[v]||{}).engine||"other";
+    const e=(VARMETA[v]||{}).family||(VARMETA[v]||{}).engine||"other";
     if(!byEngine.has(e)) byEngine.set(e,[]);
     byEngine.get(e).push(v);
   }

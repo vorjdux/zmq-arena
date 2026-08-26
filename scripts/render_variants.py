@@ -94,13 +94,16 @@ def main():
         # language and impl drive the dashboard's filters, so a variant without
         # them silently disappears from "show me only the Java ones" rather than
         # showing up unfiltered.
-        for field in ("label", "color", "engine", "language", "impl"):
+        for field in ("label", "color", "engine", "family", "language", "impl"):
             if not v.get(field):
                 print(f"error: variant {v['key']} has no {field}", file=sys.stderr)
                 return 1
-        if v["engine"] not in engines:
-            print(f"error: variant {v['key']} names engine {v['engine']}, "
-                  f"which has no hue in `engines`", file=sys.stderr)
+        # The hue belongs to the family: a project can ship more than one
+        # implementation (omq.rb speaks ZMTP in Ruby rather than binding the
+        # Rust core) and they should still read as one family on a chart.
+        if v["family"] not in engines:
+            print(f"error: variant {v['key']} is in family {v['family']}, "
+                  f"whose family has no hue in `engines`", file=sys.stderr)
             return 1
 
     # A colour too close to the panel background is not a colour anyone can
