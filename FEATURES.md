@@ -96,8 +96,8 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 ### omq.rb 0.28.10
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
-- Runtime: Fiber-based and async-native, but works outside a reactor: a shared IO thread serves callers that are not inside Async.
-- Pure Ruby: no libzmq, no FFI, no C extension for the protocol itself, which makes it the arena's first look at what an interpreted implementation costs. Requires Ruby >= 3.3 and is measured with YJIT enabled, which its README names as the intended fast path. inproc is `ruby://` and aliased.
+- Runtime: Fibre-based and async-native. It also works outside a reactor, on a shared IO thread, which its README offers so simple scripts need no boilerplate -- but that path is roughly twenty-five times slower, so the arena drives it inside an Async reactor.
+- Pure Ruby: no libzmq, no FFI, no C extension for the protocol itself, which makes it the arena's first look at what an interpreted implementation costs. Requires Ruby >= 3.3. Measured with YJIT enabled and inside an Async reactor, which are the two configurations its README names as the fast path; the wrapper originally used neither, and read as forty times slower than a Python binding as a result. inproc is `ruby://` and aliased.
 - Source: zeromq/omq.rb README
 
 ### NetMQ 4.0.4.3

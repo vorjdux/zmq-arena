@@ -13,6 +13,7 @@
 # that to the measurement.
 
 require 'json'
+require 'async'
 
 VARIANT = (i = ARGV.index('--variant')) ? ARGV[i + 1] : 'default'
 
@@ -108,6 +109,17 @@ def timed_drain(sock, seconds)
   puts format('THROUGHPUT %d %.6f', count, [secs, 1e-9].max)
 end
 
+# Everything runs inside an Async reactor.
+#
+# omq.rb is fibre-based and async-native. Outside a reactor it still works, on a
+# shared IO thread, and its README offers that so simple scripts do not need
+# boilerplate -- but it is not the path the library is built for. Measured on
+# this wrapper, one process, 64B over TCP: 25k msgs/s on the shared IO thread
+# against 628k inside a reactor, a factor of twenty-five. Benchmarking the
+# convenience path would have published omq.rb as forty times slower than a
+# Python binding, which says nothing about the library and everything about how
+# the harness drove it.
+Async do
 case KIND
 when 'throughput'
   if ROLE == 'sub'
@@ -168,4 +180,5 @@ when 'fanout', 'fanin'
 else
   warn "omq-rb-target: unsupported kind #{KIND}"
   exit 1
+end
 end
