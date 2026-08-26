@@ -18,8 +18,12 @@ VARIANT = (i = ARGV.index('--variant')) ? ARGV[i + 1] : 'default'
 
 if ARGV[0] == 'describe'
   require 'omq'
+  # engine is the omq project, lib_language is what it is written in. omq.rb is
+  # not a binding -- it implements ZMTP in Ruby -- but it is the omq family's
+  # Ruby implementation, so it groups with omq on a chart while lib_language
+  # keeps the two codebases distinguishable.
   puts JSON.generate(
-    engine: 'omq.rb',
+    engine: 'omq',
     lib_version: OMQ::VERSION,
     binding_version: nil,
     lib_language: 'Ruby',

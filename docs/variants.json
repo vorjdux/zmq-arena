@@ -8,8 +8,6 @@
     "monocoque": "#14b8a6",
     "rzmq": "#22c55e",
     "celerity": "#ec4899",
-    "python": "#f97316",
-    "omq.rb": "#c084fc",
     "netmq": "#38bdf8",
     "jeromq": "#fb923c"
   },
@@ -240,28 +238,35 @@
     {
       "key": "pyzmq_pyzmq",
       "label": "pyzmq (Python)",
-      "note": "binding to libzmq",
-      "color": "#fdba74",
-      "color_light": "#a85c07",
-      "engine": "python",
+      "note": "Python binding to libzmq",
+      "color": "#fde047",
+      "color_light": "#8a6d00",
+      "engine": "libzmq",
       "io": "epoll",
       "threading": "native",
-      "dash": null,
+      "dash": [
+        9,
+        3,
+        2,
+        3
+      ],
       "language": "Python",
       "impl": "ffi"
     },
     {
       "key": "pyzmq_pyomq",
       "label": "pyomq (Python)",
-      "note": "binding to the omq Rust core",
-      "color": "#f97316",
-      "color_light": "#7c3d05",
-      "engine": "python",
+      "note": "Python binding to the omq Rust core",
+      "color": "#f43f5e",
+      "color_light": "#9f1239",
+      "engine": "omq",
       "io": "epoll",
       "threading": "native",
       "dash": [
-        7,
-        4
+        9,
+        3,
+        2,
+        3
       ],
       "language": "Python",
       "impl": "ffi"
@@ -269,13 +274,16 @@
     {
       "key": "omq_rb",
       "label": "omq.rb (Ruby)",
-      "note": "pure Ruby, YJIT",
-      "color": "#c084fc",
-      "color_light": "#6b21a8",
-      "engine": "omq.rb",
+      "note": "pure Ruby, YJIT; the omq project's Ruby implementation",
+      "color": "#f9a8d4",
+      "color_light": "#a3175f",
+      "engine": "omq",
       "io": "epoll",
       "threading": "single",
-      "dash": null,
+      "dash": [
+        12,
+        4
+      ],
       "language": "Ruby",
       "impl": "native"
     },
@@ -315,8 +323,6 @@
     "monocoque": "#0e8478",
     "rzmq": "#178640",
     "celerity": "#e0177a",
-    "python": "#b8560a",
-    "omq.rb": "#6b21a8",
     "netmq": "#075985",
     "jeromq": "#9a3412"
   }
