@@ -19,19 +19,51 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 tag="zmq-arena/${name}:latest"
 rootfs="${repo}/${dir}/rootfs"
 
+# Reaching the docker socket without sudo is a group membership, and a bench
+# host is exactly the kind of machine where that has not been granted. Detect it
+# rather than failing with a bare "permission denied" from the daemon, and note
+# that root here builds images -- it is not the root the measurement needs,
+# which is a separate thing the orchestrator asks for at run time.
+#
+# Override with DOCKER=... for podman or a rootless socket.
+if [ -n "${DOCKER:-}" ]; then
+  :
+elif docker info >/dev/null 2>&1; then
+  DOCKER="docker"
+elif sudo -n docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then
+  DOCKER="sudo docker"
+  echo "note: the docker socket needs sudo on this host, so the build uses it."
+  echo "      \`sudo usermod -aG docker $USER\` (then re-login) avoids the prompts."
+else
+  echo "error: cannot reach the docker daemon, with or without sudo." >&2
+  echo "       zmq-arena needs docker to BUILD target images. It does not need" >&2
+  echo "       docker to run them: see 'Running a measured cell without Docker'" >&2
+  echo "       in the README if the images were built elsewhere." >&2
+  exit 1
+fi
+
 echo "== building ${tag} (ISA ${isa})"
-docker build --build-arg "ISA=${isa}" -t "${tag}" "${repo}/${dir}"
+${DOCKER} build --build-arg "ISA=${isa}" -t "${tag}" "${repo}/${dir}"
 
 # The digest identifies the exact filesystem a number was produced from. Recorded
 # next to the run so a published result can be reproduced rather than trusted.
-digest=$(docker image inspect --format '{{.Id}}' "${tag}")
+digest=$(${DOCKER} image inspect --format '{{.Id}}' "${tag}")
 
 echo "== exporting filesystem to ${rootfs}"
 rm -rf "${rootfs}"
 mkdir -p "${rootfs}"
-cid=$(docker create "${tag}")
-trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
-docker export "${cid}" | tar -x -C "${rootfs}"
+cid=$(${DOCKER} create "${tag}")
+trap '${DOCKER} rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+# Extract as root when docker itself needed root: an image filesystem carries
+# ownership and modes a normal user cannot reproduce, so a user-mode tar would
+# quietly drop them. The tree is handed back afterwards, because everything that
+# follows -- the verification, and reading it from the repo -- is unprivileged.
+if [ "${DOCKER}" = "docker" ]; then
+  ${DOCKER} export "${cid}" | tar -x -C "${rootfs}"
+else
+  ${DOCKER} export "${cid}" | sudo tar -x -C "${rootfs}"
+  sudo chown -R "$(id -u):$(id -g)" "${rootfs}"
+fi
 
 # chroot needs these to exist as mount points; the harness bind-mounts /proc for
 # runtimes that read /proc/self. They are empty directories in the image.

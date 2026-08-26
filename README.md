@@ -151,6 +151,12 @@ numbers and the reasoning.
 plane, python to render, and root to run. No target toolchain, no libzmq
 headers, no JVM.
 
+Reaching the docker socket is a group membership, and a bench host is exactly
+the kind of machine where it has not been granted. `setup-ubuntu.sh` adds you to
+the `docker` group; until you log back in, `make build` falls back to `sudo
+docker` and says so. Root here builds images, and is not the root the
+measurement needs, which the orchestrator asks for separately at run time.
+
 ## What gets measured
 
 Five patterns, over ipc and loopback tcp, across a payload sweep of 16, 64, 256,
