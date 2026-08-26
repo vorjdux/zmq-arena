@@ -110,7 +110,8 @@
         "transports": null,
         "security": "https://docs.rs/zmq/0.10.0/zmq/enum.Mechanism.html"
       },
-      "binds": "libzmq"
+      "binds": "libzmq",
+      "notes": "zmq-sys 0.12 builds libzmq from source through zeromq-src and links it statically, so this target runs libzmq 4.3.4 even on a host with 4.3.5 installed, and LIBZMQ_PREFIX does not override it. That is what `cargo add zmq` gives you, so it is what is measured, and it means the libzmq family is not all on one engine version."
     },
     {
       "id": "tmq",
@@ -154,7 +155,7 @@
       ],
       "bindings": "Is itself an async Rust binding, layered on rust-zmq.",
       "arena_tier": "headline + extended",
-      "notes": "Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself.",
+      "notes": "Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself. Layered on rust-zmq, so it inherits the vendored libzmq 4.3.4 rather than the system library.",
       "source": "cetra3/tmq README and crates.io; capability is the linked libzmq's",
       "source_urls": {
         "socket_types": "https://github.com/cetra3/tmq#currently-implemented-sockets",

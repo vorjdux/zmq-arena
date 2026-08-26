@@ -35,13 +35,14 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
 - Runtime: Inherits libzmq's synchronous API and IO threads; it is a binding, so capability follows the linked libzmq.
+- zmq-sys 0.12 builds libzmq from source through zeromq-src and links it statically, so this target runs libzmq 4.3.4 even on a host with 4.3.5 installed, and LIBZMQ_PREFIX does not override it. That is what `cargo add zmq` gives you, so it is what is measured, and it means the libzmq family is not all on one engine version.
 - Source: erickt/rust-zmq README; capability is the linked libzmq's
 
 ### tmq 0.5.0 (libzmq 4.3.4)
 
 - Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
 - Runtime: Requires Tokio: its sockets are futures Sinks and Streams. The libzmq underneath still runs its own IO threads, so the Tokio runtime drives only the wrapper.
-- Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself.
+- Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself. Layered on rust-zmq, so it inherits the vendored libzmq 4.3.4 rather than the system library.
 - Source: cetra3/tmq README and crates.io; capability is the linked libzmq's
 
 ### zmq.rs 0.6.0
