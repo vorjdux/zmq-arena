@@ -27,7 +27,7 @@ bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
 # Verified on crates.io: omq-tokio 0.21.3 (ISC), the tokio backend for omq,
 # built on the omq-proto sans-IO core.
-omq-tokio = "0.21.3"
+omq-tokio = "0.21.4"
 # The wrapper builds the runtime itself (current-thread for the default variant,
 # multi-thread for the multi_thread variant), so it needs both flavors plus the
 # time and io drivers enable_all turns on.
