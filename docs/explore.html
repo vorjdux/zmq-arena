@@ -57,6 +57,11 @@
   /* Partly selected: the group is on the chart but not all of it. */
   .fbtn.some { color:var(--fg); border-color:var(--accent); }
   .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
+  .variants > summary { list-style:none; cursor:pointer; user-select:none; }
+  .variants > summary::-webkit-details-marker { display:none; }
+  .variants > summary .ttl::after { content:" ▸"; opacity:.6; }
+  .variants[open] > summary .ttl::after { content:" ▾"; }
+  .vcount { font-size:11.5px; color:var(--muted); margin-left:8px; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
     border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
@@ -180,20 +185,13 @@
 </div>
 
 <div class="facets" id="facets" hidden></div>
-<div class="variants" id="variantsBox" hidden>
-  <div class="head">
-    <span class="ttl">Variants (engine · runtime)</span>
-    <span class="preset" data-preset="all">all</span>
-    <span class="preset" data-preset="none">none</span>
-    <span class="preset" data-preset="io_uring">io_uring</span>
-    <span class="preset" data-preset="epoll">epoll</span>
-    <span class="preset" data-preset="single">single-thread</span>
-    <span class="preset" data-preset="multi">multi-thread</span>
-    <span class="preset" data-preset="sync">sync</span>
-    <span class="preset" data-preset="async">async</span>
-  </div>
+<details class="variants" id="variantsBox" hidden>
+  <summary class="head">
+    <span class="ttl">Individual libraries</span>
+    <span class="vcount" id="vcount"></span>
+  </summary>
   <div class="chips" id="chips"></div>
-</div>
+</details>
 
 <aside id="inspector" hidden>
   <div class="ihead">
@@ -371,7 +369,8 @@ async function loadVariants(){
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
     {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
-     language:v.language, impl:v.impl, derived_from:v.derived_from||null};
+     language:v.language, impl:v.impl, concurrency:v.concurrency,
+     derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -461,7 +460,7 @@ async function load(){
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort((a,b)=>{
     const ia=order.indexOf(a),ib=order.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b); });
   // Restored from the last visit and shared with the other pages.
-  selected=ArenaFilter.load(VARIANTS);
+  selected=ArenaFilter.load(VARIANTS, VARMETA);
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} variants · ${DATES.length} runs · `+
@@ -470,7 +469,7 @@ async function load(){
   if(isSample){ const b=el("sampleBanner"); b.classList.remove("hidden");
     b.innerHTML="<strong>Sample data.</strong> Synthetic numbers for preview only, not measurements. Replaced by real weekly-grid results once <code>history/</code> is populated."; }
 
-  initControls(); applyReadout(); buildFacets(); buildChips(); buildCharts(); refreshKindDependent(); render();
+  initControls(); applyReadout(); buildFacets(); buildChips(); updateCount(); buildCharts(); refreshKindDependent(); render();
 }
 
 // ── controls ──────────────────────────────────────────────────────
@@ -579,7 +578,7 @@ function metricDef(){ return metricsForKind(val("kind")).find(m=>m.key===val("me
 // ── variant chips & presets ───────────────────────────────────────
 function buildFacets(){
   ArenaFilter.renderFilters(el("facets"), VARMETA, VARIANTS, selected, next=>{
-    selected=next; buildChips(); buildFacets(); render();
+    selected=next; buildChips(); buildFacets(); updateCount(); render();
   });
 }
 
@@ -611,13 +610,17 @@ function buildChipsInto(box, list){
       `${VARIANT_LABEL[v]||v}${ver?` <code>${ver}</code>`:""} <small>${mv.impl||mv.language}·${mv.concurrency||"-"}·${mv.io}·${mv.threading}</small>`;
     if(pinned) c.innerHTML+=`<span class="pin" title="every ranking is a ratio to libzmq, so it is always shown">baseline</span>`;
     else c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
-      c.classList.toggle("on"); ArenaFilter.save(selected); buildFacets(); render(); });
+      c.classList.toggle("on"); updateCount(); render(); });
     box.appendChild(c);
   }
 }
+function updateCount(){
+  const el2=el("vcount");
+  if(el2) el2.textContent=`${selected.size} of ${VARIANTS.length} shown`;
+}
 function setSelected(vs){ selected=ArenaFilter.withBaseline(new Set(vs), VARIANTS);
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v)));
-  ArenaFilter.save(selected); buildFacets(); render(); }
+  updateCount(); render(); }
 // What is left after the facet bar took over the rest. Engine and kind moved
 // there, where they are generated from the data: a hand-written "omq family"
 // button implied omq was special when every engine has a family, and adding one
@@ -626,10 +629,6 @@ function setSelected(vs){ selected=ArenaFilter.withBaseline(new Set(vs), VARIANT
 function applyPreset(p){
   if(p==="all")   return setSelected(VARIANTS);
   if(p==="none")  return setSelected([]);
-  if(p==="io_uring"||p==="epoll") return setSelected(VARIANTS.filter(v=>VARMETA[v].io===p));
-  if(p==="single") return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="single"));
-  if(p==="multi")  return setSelected(VARIANTS.filter(v=>VARMETA[v].threading==="multi"||VARMETA[v].threading==="native"));
-  if(p==="sync"||p==="async") return setSelected(VARIANTS.filter(v=>VARMETA[v].concurrency===p));
 
 }
 

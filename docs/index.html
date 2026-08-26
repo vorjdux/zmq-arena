@@ -55,6 +55,11 @@
   /* Partly selected: the group is on the chart but not all of it. */
   .fbtn.some { color:var(--fg); border-color:var(--accent); }
   .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
+  .variants > summary { list-style:none; cursor:pointer; user-select:none; }
+  .variants > summary::-webkit-details-marker { display:none; }
+  .variants > summary .ttl::after { content:" ▸"; opacity:.6; }
+  .variants[open] > summary .ttl::after { content:" ▾"; }
+  .vcount { font-size:11.5px; color:var(--muted); margin-left:8px; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
     border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
@@ -173,16 +178,13 @@
 </div>
 
 <div class="facets" id="facets" hidden></div>
-<div class="variants" id="variantsBox" hidden>
-  <div class="head">
-    <span class="ttl">Libraries (click to toggle across all charts)</span>
-    <span class="preset" data-preset="all">all</span>
-    <span class="preset" data-preset="none">none</span>
-    <span class="preset" data-preset="io_uring">io_uring</span>
-    <span class="preset" data-preset="epoll">epoll</span>
-  </div>
+<details class="variants" id="variantsBox" hidden>
+  <summary class="head">
+    <span class="ttl">Individual libraries</span>
+    <span class="vcount" id="vcount"></span>
+  </summary>
   <div class="chips" id="chips"></div>
-</div>
+</details>
 
 <main id="main" hidden>
   <section class="card">
@@ -292,7 +294,8 @@ async function loadVariants(){
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
     {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
-     language:v.language, impl:v.impl, derived_from:v.derived_from||null};
+     language:v.language, impl:v.impl, concurrency:v.concurrency,
+     derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -376,7 +379,7 @@ async function load(){
   VARIANTS=[...new Set(RECORDS.map(r=>r.variant))].sort(varSort);
   // Restored from the last visit and shared with every other page, rather than
   // defaulting to all twenty every time.
-  selected=ArenaFilter.load(VARIANTS);
+  selected=ArenaFilter.load(VARIANTS, VARMETA);
 
   const latest=runs[runs.length-1].data, hw=latest.hardware||{};
   el("dataSource").innerHTML=`${RECORDS.length.toLocaleString()} cells · ${VARIANTS.length} libraries · ${DATES.length} run${DATES.length>1?"s":""} · `+
@@ -389,7 +392,7 @@ async function load(){
   el("run").value=DATES[DATES.length-1];
   if(DATES.length<2) el("run").closest(".ctl").style.display="none";
 
-  initControls(); applyReadout(); buildFacets(); buildChips(); buildPanels(); render();
+  initControls(); applyReadout(); buildFacets(); buildChips(); updateCount(); buildPanels(); render();
   el("controls").hidden=false; el("facets").hidden=false; el("variantsBox").hidden=false; el("main").hidden=false; el("panels").hidden=false;
 }
 
@@ -445,7 +448,7 @@ function swatch(v){
 
 function buildFacets(){
   ArenaFilter.renderFilters(el("facets"), VARMETA, VARIANTS, selected, next=>{
-    selected=next; buildChips(); buildFacets(); render();
+    selected=next; buildChips(); buildFacets(); updateCount(); render();
   });
 }
 
@@ -477,7 +480,7 @@ function buildChipsInto(box, list){
       `${verLabel(m)?` <small>${verLabel(m)}</small>`:""} <small>${m.io}</small>`+
       (pinned?`<span class="pin" title="every ranking is a ratio to libzmq, so it is always shown">baseline</span>`:"");
     if(!pinned) c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
-      c.classList.toggle("on"); ArenaFilter.save(selected); buildFacets(); render(); });
+      c.classList.toggle("on"); updateCount(); render(); });
     // The chips are a shared legend, so hovering one picks that library out of
     // every open panel at once. With twelve series across small multiples this
     // is the fastest way to follow one library across scenarios.
@@ -628,13 +631,16 @@ function focusSeries(name){
   });
 }
 
+function updateCount(){
+  const el2=el("vcount");
+  if(el2) el2.textContent=`${selected.size} of ${VARIANTS.length} shown`;
+}
 function setSelected(vs){ selected=ArenaFilter.withBaseline(new Set(vs), VARIANTS);
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v)));
-  ArenaFilter.save(selected); buildFacets(); render(); }
+  updateCount(); render(); }
 function applyPreset(p){
   if(p==="all")  return setSelected(VARIANTS);
   if(p==="none") return setSelected([]);
-  if(p==="io_uring"||p==="epoll") return setSelected(VARIANTS.filter(v=>(VARMETA[v]||{}).io===p));
 }
 
 // ── metric per kind ───────────────────────────────────────────────

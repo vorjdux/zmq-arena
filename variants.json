@@ -25,7 +25,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "native",
-      "dash": null
+      "dash": null,
+      "concurrency": "sync"
     },
     {
       "key": "rust_zmq",
@@ -42,7 +43,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "concurrency": "sync"
     },
     {
       "key": "tmq",
@@ -59,7 +61,8 @@
       "dash": [
         2,
         3
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "zeromq_rs",
@@ -73,7 +76,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "concurrency": "async"
     },
     {
       "key": "zeromq_rs_async_std",
@@ -90,7 +94,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "zeromq_rs_async_dispatcher",
@@ -107,7 +112,8 @@
       "dash": [
         2,
         3
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "omq_tokio",
@@ -121,7 +127,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "single",
-      "dash": null
+      "dash": null,
+      "concurrency": "async"
     },
     {
       "key": "omq_tokio_mt",
@@ -138,7 +145,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "omq_blocking",
@@ -155,7 +163,8 @@
       "dash": [
         2,
         3
-      ]
+      ],
+      "concurrency": "sync"
     },
     {
       "key": "monocoque",
@@ -169,7 +178,8 @@
       "impl": "native",
       "io": "io_uring",
       "threading": "single",
-      "dash": null
+      "dash": null,
+      "concurrency": "async"
     },
     {
       "key": "monocoque_tokio",
@@ -186,7 +196,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "monocoque_smol",
@@ -203,7 +214,8 @@
       "dash": [
         2,
         3
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "rzmq",
@@ -217,7 +229,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "concurrency": "async"
     },
     {
       "key": "rzmq_io_uring",
@@ -234,7 +247,8 @@
       "dash": [
         7,
         4
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "celerity",
@@ -248,7 +262,8 @@
       "impl": "native",
       "io": "epoll",
       "threading": "multi",
-      "dash": null
+      "dash": null,
+      "concurrency": "async"
     },
     {
       "key": "pyzmq_pyzmq",
@@ -267,7 +282,8 @@
         3,
         2,
         3
-      ]
+      ],
+      "concurrency": "sync"
     },
     {
       "key": "pyzmq_pyomq",
@@ -286,7 +302,8 @@
         3,
         2,
         3
-      ]
+      ],
+      "concurrency": "sync"
     },
     {
       "key": "omq_rb",
@@ -303,7 +320,8 @@
       "dash": [
         12,
         4
-      ]
+      ],
+      "concurrency": "async"
     },
     {
       "key": "netmq",
@@ -318,7 +336,8 @@
       "io": "epoll",
       "threading": "native",
       "dash": null,
-      "derived_from": "libzmq"
+      "derived_from": "libzmq",
+      "concurrency": "sync"
     },
     {
       "key": "jeromq",
@@ -333,7 +352,8 @@
       "io": "epoll",
       "threading": "native",
       "dash": null,
-      "derived_from": "libzmq"
+      "derived_from": "libzmq",
+      "concurrency": "sync"
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",

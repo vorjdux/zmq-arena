@@ -132,7 +132,10 @@ let selected = new Set();
 
 function buildFacets(){
   ArenaFilter.renderFilters(el("facets"), VARMETA, VORDER, selected, next=>{
-    selected = next; render();
+    // Re-render the bar as well as the page: it shows the current filter in
+    // words and owns the reset button, so leaving it stale is how a filter
+    // becomes invisible again.
+    selected = next; buildFacets(); render();
   });
 }
 
@@ -273,7 +276,8 @@ async function loadVariants(){
   REGMETA = {};
   for(const v of d.variants) REGMETA[v.key] =
     {engine:v.engine, family:v.family||v.engine, io:v.io, threading:v.threading,
-     language:v.language, impl:v.impl, derived_from:v.derived_from||null};
+     language:v.language, impl:v.impl, concurrency:v.concurrency,
+     derived_from:v.derived_from||null};
   VORDER = d.variants.map(v => v.key);
 }
 
@@ -369,7 +373,7 @@ async function load(){
   for(const d of dates){ const o=document.createElement("option"); o.value=d; o.textContent=d; el("run").appendChild(o); }
   el("run").value=dates[dates.length-1];
   el("run").addEventListener("change", render);
-  selected = ArenaFilter.load(VORDER);
+  selected = ArenaFilter.load(VORDER, VARMETA);
   buildFacets();
   el("controls").hidden=false; el("facets").hidden=false; el("main").hidden=false;
   render();

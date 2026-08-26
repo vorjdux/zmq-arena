@@ -1,138 +1,192 @@
-// Shared library selection and filtering, used by every page that charts or
-// tables variants.
+// Shared library filter, used by every page that charts or tables variants.
 //
-// Two things live here. First, the selection is persisted and shared: with
-// twenty series across seven languages, re-picking the same handful on each page
-// was most of the work of using the dashboard. Pick once, and Overview,
-// Rankings, Explore and Tables all show that set. Second, the filters answer
-// "which of these are even comparable" -- only the Java ones, or Python and
-// Ruby, or every variant of monocoque and omq side by side.
+// There are twenty series across seven languages, and the job of this bar is to
+// get a reader down to the handful they can actually compare. It replaced three
+// overlapping mechanisms -- facet pills, preset buttons and per-library chips --
+// that each edited the same selection from a different direction, filled five
+// rows before any data, and never showed what was active. A filter left on from
+// an earlier visit was invisible, so libraries looked missing when they were
+// only hidden.
+//
+// One mechanism now. Each facet is a menu of values, a value is either included
+// or not, and the selection is the intersection across facets. The state is
+// always spelled out in words next to the menus, and one click resets it.
 (function (global) {
   "use strict";
 
-  const KEY = "zmq-arena.selection.v1";
+  const KEY = "zmq-arena.filter.v2";
 
-  // libzmq is the reference the whole dashboard is built around: every ranking
-  // score is a ratio to it, and on a chart it is the line the others are read
-  // against. So it is pinned rather than pickable. Filtering to "just the Java
-  // ones" then means Java beside libzmq, which is the comparison someone
-  // actually wants, instead of a chart with no baseline on it.
+  // libzmq is the reference every ranking is a ratio to, so it is pinned rather
+  // than pickable: filtering to "just the Java ones" means Java beside libzmq,
+  // not a chart with no baseline on it.
   const BASELINE = "libzmq";
 
-  /// Keep the baseline in a selection, when the data has it at all.
+  const FACETS = [
+    { key: "language", label: "Language" },
+    { key: "family", label: "Family",
+      hint: "the project, so a binding sits with the engine it binds" },
+    { key: "impl", label: "Kind", rename: { native: "implementation", ffi: "binding" },
+      hint: "an implementation of the protocol, or a binding to someone else's" },
+    { key: "io", label: "IO" },
+    { key: "threading", label: "Threading" },
+    { key: "concurrency", label: "API" },
+  ];
+
+  const isBaseline = (key) => key === BASELINE;
+
   function withBaseline(set, all) {
     if (all.includes(BASELINE)) set.add(BASELINE);
     return set;
   }
 
-  // Facets a reader actually groups by. `impl` is the one that keeps a language
-  // binding from being mistaken for a competing implementation: pyzmq is
-  // libzmq underneath, so it answers what Python costs rather than how good a
-  // ZMTP implementation it is.
-  const FACETS = [
-    { key: "language", label: "Language" },
-    // Family, not engine: a project can ship more than one implementation.
-    // omq.rb speaks ZMTP in Ruby rather than binding the Rust core, so its
-    // engine is itself while its family is omq, and it is the family a reader
-    // wants when they ask to see "the omq ones".
-    { key: "family", label: "Family" },
-    { key: "impl", label: "Kind", rename: { native: "implementation", ffi: "binding" } },
-  ];
-
-  function load(all) {
+  // State is the set of excluded facet values, not the resulting library list.
+  // Storing the intent rather than its result means a stored filter still means
+  // the same thing after a run adds libraries, instead of silently hiding them.
+  function loadState() {
     try {
       const raw = JSON.parse(localStorage.getItem(KEY));
-      if (Array.isArray(raw) && raw.length) {
-        // Drop keys that no longer exist, so a stored selection from an older
-        // run does not silently hide variants added since.
-        const kept = raw.filter((k) => all.includes(k));
-        if (kept.length) return withBaseline(new Set(kept), all);
-      }
-    } catch (e) { /* corrupt or unavailable storage: fall back to everything */ }
-    return new Set(all);
+      if (raw && typeof raw === "object") return raw;
+    } catch (e) { /* unavailable or corrupt storage: start unfiltered */ }
+    return {};
   }
 
-  /// Whether a variant is the pinned baseline, so pages can mark its chip and
-  /// leave it out of the toggling.
-  const isBaseline = (key) => key === BASELINE;
+  function saveState(state) {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* private mode */ }
+  }
 
-  function save(selected) {
-    try {
-      localStorage.setItem(KEY, JSON.stringify([...selected]));
-    } catch (e) { /* private mode, quota: selection just does not persist */ }
+  const excluded = (state, facet, value) => !!(state[facet] && state[facet][value]);
+
+  /// The libraries a state admits: every facet must accept them.
+  function resolve(state, meta, all) {
+    const keep = all.filter((k) => {
+      const m = meta[k] || {};
+      return FACETS.every((f) => !excluded(state, f.key, m[f.key]));
+    });
+    return withBaseline(new Set(keep), all);
   }
 
   function values(meta, all, facet) {
     const seen = new Map();
     for (const k of all) {
       const v = (meta[k] || {})[facet];
-      if (!v) continue;
+      if (v == null) continue;
       seen.set(v, (seen.get(v) || 0) + 1);
     }
     return [...seen.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(b[0]));
   }
 
-  /// Render the facet bar into `host`. `onChange` receives the new selection.
-  function renderFilters(host, meta, all, selected, onChange) {
+  function label(f, v) { return (f.rename && f.rename[v]) || v; }
+
+  function renderFilters(host, meta, all, _selected, onChange) {
     if (!host) return;
-    const apply = (next) => { save(next); onChange(next); };
+    const state = loadState();
+    const commit = () => { saveState(state); onChange(resolve(state, meta, all)); };
+
     host.innerHTML = "";
+    const bar = document.createElement("div");
+    bar.className = "fbar";
+    host.appendChild(bar);
+
+    const tag = document.createElement("span");
+    tag.className = "fbar-label";
+    tag.textContent = "Filter";
+    bar.appendChild(tag);
 
     for (const f of FACETS) {
       const vals = values(meta, all, f.key);
-      // A facet with one value tells the reader nothing and costs a row.
+      // A facet with one value cannot narrow anything.
       if (vals.length < 2) continue;
-      const row = document.createElement("div");
-      row.className = "facet";
-      row.innerHTML = `<span class="fname">${f.label}</span>`;
-      for (const [val, n] of vals) {
-        const members = all.filter((k) => (meta[k] || {})[f.key] === val);
-        // The baseline is always on, so a group made only of it is not a toggle.
-        const pinned = members.length === 1 && isBaseline(members[0]);
-        const on = members.every((k) => selected.has(k));
-        const some = !on && members.some((k) => selected.has(k));
-        const b = document.createElement("button");
-        b.className = "fbtn" + (on ? " on" : some ? " some" : "");
-        b.textContent = `${(f.rename && f.rename[val]) || val} ${n}`;
-        b.title = pinned
-          ? `${val} is the baseline and is always shown`
-          : on ? `hide the ${n} ${val} series` : `show the ${n} ${val} series`;
-        if (pinned) b.classList.add("pinned");
-        b.addEventListener("click", (ev) => {
-          const next = new Set(selected);
-          // Plain click isolates the group, which is what "just the Java ones"
-          // means. Shift-click adds it, for "Python and Ruby" or "monocoque and
-          // omq" without starting over.
-          if (!ev.shiftKey) next.clear();
-          if (on && ev.shiftKey) members.forEach((k) => next.delete(k));
-          else members.forEach((k) => next.add(k));
-          if (!next.size) all.forEach((k) => next.add(k));
-          apply(withBaseline(next, all));
+      const off = vals.filter(([v]) => excluded(state, f.key, v)).length;
+
+      const menu = document.createElement("details");
+      menu.className = "fmenu" + (off ? " active" : "");
+      const sum = document.createElement("summary");
+      sum.innerHTML = `${f.label}${off ? ` <b>${vals.length - off}/${vals.length}</b>` : ""}`;
+      if (f.hint) sum.title = f.hint;
+      menu.appendChild(sum);
+
+      const body = document.createElement("div");
+      body.className = "fmenu-body";
+      for (const [v, n] of vals) {
+        const on = !excluded(state, f.key, v);
+        const row = document.createElement("label");
+        row.className = "fitem";
+        row.innerHTML = `<input type="checkbox"${on ? " checked" : ""}>` +
+          `<span class="fv">${label(f, v)}</span><span class="fn">${n}</span>`;
+        row.querySelector("input").addEventListener("change", (ev) => {
+          state[f.key] = state[f.key] || {};
+          if (ev.target.checked) delete state[f.key][v];
+          else state[f.key][v] = true;
+          if (!Object.keys(state[f.key]).length) delete state[f.key];
+          commit();
         });
-        row.appendChild(b);
+        // "only" is the common case -- show me just the Java ones -- and doing
+        // it by unchecking five boxes is the kind of friction that makes a
+        // filter feel broken.
+        const only = document.createElement("button");
+        only.className = "fonly";
+        only.textContent = "only";
+        only.title = `show only ${label(f, v)}`;
+        only.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          state[f.key] = {};
+          vals.forEach(([other]) => { if (other !== v) state[f.key][other] = true; });
+          commit();
+        });
+        row.appendChild(only);
+        body.appendChild(row);
       }
-      host.appendChild(row);
+      menu.appendChild(body);
+      bar.appendChild(menu);
     }
 
-    const row = document.createElement("div");
-    row.className = "facet";
-    row.innerHTML = `<span class="fname">All</span>`;
-    for (const [label, fn] of [["show all", () => new Set(all)],
-                               ["clear", () => withBaseline(new Set(), all)]]) {
-      const b = document.createElement("button");
-      b.className = "fbtn";
-      b.textContent = label;
-      b.addEventListener("click", () => apply(fn()));
-      row.appendChild(b);
+    // What is actually showing, in words. The filter that caused trouble was the
+    // one nobody could see.
+    const sel = resolve(state, meta, all);
+    const active = FACETS.filter((f) => state[f.key]).map((f) => {
+      const kept = values(meta, all, f.key)
+        .filter(([v]) => !excluded(state, f.key, v)).map(([v]) => label(f, v));
+      return `${f.label}: ${kept.join(", ") || "none"}`;
+    });
+    const status = document.createElement("span");
+    status.className = "fstatus" + (active.length ? " on" : "");
+    status.textContent = active.length
+      ? `${sel.size} of ${all.length} libraries · ${active.join(" · ")}`
+      : `all ${all.length} libraries`;
+    bar.appendChild(status);
+
+    if (active.length) {
+      const reset = document.createElement("button");
+      reset.className = "freset";
+      reset.textContent = "reset";
+      reset.addEventListener("click", () => {
+        for (const k of Object.keys(state)) delete state[k];
+        commit();
+      });
+      bar.appendChild(reset);
     }
-    const hint = document.createElement("span");
-    hint.className = "fhint";
-    hint.textContent = all.includes(BASELINE)
-      ? "click a group to show only it, shift-click to add · libzmq stays as the baseline · shared across pages"
-      : "click a group to show only it, shift-click to add · shared across pages";
-    row.appendChild(hint);
-    host.appendChild(row);
+
+    // One menu open at a time, and clicking away closes it.
+    bar.querySelectorAll("details").forEach((d) => {
+      d.addEventListener("toggle", () => {
+        if (d.open) bar.querySelectorAll("details").forEach((o) => { if (o !== d) o.open = false; });
+      });
+    });
+    if (!host.__outside) {
+      host.__outside = true;
+      document.addEventListener("click", (ev) => {
+        if (!host.contains(ev.target)) host.querySelectorAll("details[open]").forEach((d) => { d.open = false; });
+      });
+    }
   }
+
+  /// The selection a stored filter implies, for a page that is just loading.
+  function load(all, meta) {
+    return meta ? resolve(loadState(), meta, all) : withBaseline(new Set(all), all);
+  }
+
+  // Kept so a page can still toggle one library without going through a facet.
+  function save() { /* selection is derived from the filter; nothing to store */ }
 
   global.ArenaFilter = { load, save, renderFilters, withBaseline, isBaseline, BASELINE, FACETS };
 })(window);

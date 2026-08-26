@@ -94,7 +94,8 @@ def main():
         # language and impl drive the dashboard's filters, so a variant without
         # them silently disappears from "show me only the Java ones" rather than
         # showing up unfiltered.
-        for field in ("label", "color", "engine", "family", "language", "impl"):
+        for field in ("label", "color", "engine", "family", "language", "impl",
+                      "io", "threading", "concurrency"):
             if not v.get(field):
                 print(f"error: variant {v['key']} has no {field}", file=sys.stderr)
                 return 1
