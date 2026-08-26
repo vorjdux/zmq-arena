@@ -206,7 +206,17 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
-        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # Pure C#: NetMQ implements ZMTP in managed code with no libzmq beneath
+        # it, so it is an implementation rather than a language binding.
+        "id": "netmq",
+        "rootfs": "targets/netmq_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.
         "id": "celerity",

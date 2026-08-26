@@ -9,7 +9,8 @@
     "rzmq": "#22c55e",
     "celerity": "#ec4899",
     "python": "#f97316",
-    "omq.rb": "#c084fc"
+    "omq.rb": "#c084fc",
+    "netmq": "#38bdf8"
   },
   "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
   "variants": [
@@ -240,6 +241,17 @@
       "io": "epoll",
       "threading": "single",
       "dash": null
+    },
+    {
+      "key": "netmq",
+      "label": "NetMQ (C#)",
+      "note": "pure C#",
+      "color": "#38bdf8",
+      "color_light": "#075985",
+      "engine": "netmq",
+      "io": "epoll",
+      "threading": "native",
+      "dash": null
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
@@ -252,6 +264,7 @@
     "rzmq": "#178640",
     "celerity": "#e0177a",
     "python": "#b8560a",
-    "omq.rb": "#6b21a8"
+    "omq.rb": "#6b21a8",
+    "netmq": "#075985"
   }
 }

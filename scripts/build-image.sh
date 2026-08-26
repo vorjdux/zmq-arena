@@ -51,7 +51,12 @@ JSON
 # without root on a normal dev box.
 echo "== verifying the exported tree can run outside the image"
 for bin in $(find "${rootfs}/app" -maxdepth 1 -type f -name 'target*' -perm -u+x -printf '/app/%f\n' 2>/dev/null); do
-  if out=$(unshare -r chroot "${rootfs}" "${bin}" describe 2>&1); then
+  # --pid --fork so procfs can be mounted, and /proc mounted because that is what
+  # the orchestrator does for every run: a managed runtime reads /proc/self and
+  # the cgroup memory limits at startup and will not boot without it. Checking
+  # under weaker conditions than the real run produces false failures.
+  if out=$(unshare -r --mount --pid --fork sh -c \
+        "mount -t proc proc '${rootfs}/proc' 2>/dev/null; exec chroot '${rootfs}' '${bin}' describe" 2>&1); then
     echo "   ${bin}: $(echo "${out}" | head -c 90)..."
   else
     echo "ERROR: ${bin} cannot run from the exported filesystem:" >&2
