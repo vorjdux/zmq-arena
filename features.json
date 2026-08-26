@@ -6,7 +6,8 @@
     "declared": "the project documents it; zmq-arena does not exercise it",
     "no": "documented as absent, or absent from the API",
     "partial": "present with caveats, see the note",
-    "unknown": "the project does not document it either way; not asserted here"
+    "unknown": "the project does not document it either way; not asserted here",
+    "binds": "for a binding, the engine it calls into"
   },
   "implementations": [
     {
@@ -108,7 +109,8 @@
         "socket_types": "https://docs.rs/zmq/0.10.0/zmq/enum.SocketType.html",
         "transports": null,
         "security": "https://docs.rs/zmq/0.10.0/zmq/enum.Mechanism.html"
-      }
+      },
+      "binds": "libzmq"
     },
     {
       "id": "tmq",
@@ -158,7 +160,8 @@
         "socket_types": "https://github.com/cetra3/tmq#currently-implemented-sockets",
         "transports": null,
         "security": null
-      }
+      },
+      "binds": "libzmq"
     },
     {
       "id": "zeromq_rs",
@@ -426,7 +429,8 @@
         "socket_types": "https://pyzmq.readthedocs.io/en/latest/api/zmq.html",
         "transports": "https://github.com/zeromq/libzmq/blob/v4.3.5/doc/zmq_tcp.txt",
         "security": "https://pyzmq.readthedocs.io/en/latest/api/zmq.auth.html"
-      }
+      },
+      "binds": "libzmq"
     },
     {
       "id": "pyomq",
@@ -473,7 +477,8 @@
         "socket_types": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#highlights",
         "transports": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#highlights",
         "security": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#curve-authentication"
-      }
+      },
+      "binds": "omq"
     },
     {
       "id": "omq_rb",

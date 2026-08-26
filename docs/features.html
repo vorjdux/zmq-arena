@@ -177,7 +177,12 @@ function socketCount(i){
 const ROWS = [
   ["version",                          i => esc(i.version)],
   ["language",                         i => esc(i.language)],
-  ["implementation",                   i => i.impl === "native" ? "native" : "FFI to libzmq"],
+  // Name the engine a binding calls into rather than assuming libzmq: pyomq
+  // binds the omq Rust core, and "FFI to libzmq" would claim the two Python
+  // rows share an engine when the pair exists to show that they do not.
+  ["implementation",                   i => i.impl === "native"
+                                            ? "native"
+                                            : `FFI to ${esc(i.binds || "?")}`],
   ["socket types",                     socketCount],
   ["transports",                       i => i.transports.map(esc).join(", ")],
   ["NULL",                             i => cap(i.security.null)],

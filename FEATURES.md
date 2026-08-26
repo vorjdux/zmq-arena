@@ -12,7 +12,7 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 4.0.4.3 | 0.6.0 |
 | language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | C# | Java |
-| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to libzmq | native | native | native |
+| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native |
 | socket types | 12 | 12 | 12 | 9 | 11 | 12 | 8 | 4 | 12 | 11 | 11 | 12 | 11 |
 | transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc |
 | NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
