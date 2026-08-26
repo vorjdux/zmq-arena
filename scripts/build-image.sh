@@ -79,15 +79,39 @@ JSON
 # under `docker run` and fails under chroot. The Dockerfile's own describe check
 # cannot catch that, because it runs with the environment still applied.
 #
-# unshare -r gives an unprivileged user namespace to chroot from, so this works
-# without root on a normal dev box.
+# chroot needs privilege from somewhere. An unprivileged user namespace is the
+# cheapest source and needs no sudo, but it is not always available: Ubuntu 24.04
+# and later restrict unprivileged userns through AppArmor by default, so `unshare
+# -r` fails there with "write failed /proc/self/uid_map". Fall back to real root,
+# which a bench host has anyway -- the orchestrator asks for it at run time, and
+# on a host where docker itself needed sudo it has already been granted here.
+if [ "$(id -u)" = 0 ]; then
+  verify="unshare --mount --pid --fork"
+elif unshare -r --mount --pid --fork true 2>/dev/null; then
+  verify="unshare -r --mount --pid --fork"
+elif sudo -n true 2>/dev/null || [ "${DOCKER}" = "sudo docker" ]; then
+  verify="sudo unshare --mount --pid --fork"
+else
+  verify=""
+fi
+
 echo "== verifying the exported tree can run outside the image"
-for bin in $(find "${rootfs}/app" -maxdepth 1 -type f -name 'target*' -perm -u+x -printf '/app/%f\n' 2>/dev/null); do
+if [ -z "${verify}" ]; then
+  # Skipping is a real loss -- this check is what catches a target whose
+  # interpreter found its packages through an ENV that docker export dropped --
+  # so say so rather than printing nothing and looking like a pass.
+  echo "   SKIPPED: no way to chroot here (unprivileged userns is blocked and" >&2
+  echo "   sudo is unavailable). The export is unverified: a target that needs" >&2
+  echo "   GEM_HOME, PYTHONPATH or JAVA_HOME will fail at run time instead." >&2
+  echo "   On Ubuntu 24.04+: sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" >&2
+fi
+for bin in $([ -n "${verify}" ] && find "${rootfs}/app" -maxdepth 1 -type f -name 'target*' -perm -u+x -printf '/app/%f\n' 2>/dev/null); do
   # --pid --fork so procfs can be mounted, and /proc mounted because that is what
   # the orchestrator does for every run: a managed runtime reads /proc/self and
   # the cgroup memory limits at startup and will not boot without it. Checking
-  # under weaker conditions than the real run produces false failures.
-  if out=$(unshare -r --mount --pid --fork sh -c \
+  # under weaker conditions than the real run produces false failures. The mount
+  # namespace is why nothing has to be unmounted afterwards.
+  if out=$(${verify} sh -c \
         "mount -t proc proc '${rootfs}/proc' 2>/dev/null; exec chroot '${rootfs}' '${bin}' describe" 2>&1); then
     echo "   ${bin}: $(echo "${out}" | head -c 90)..."
   else
