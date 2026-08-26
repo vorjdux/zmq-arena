@@ -4,7 +4,10 @@
  * The state line is the important part -- the filter that caused trouble was
  * the one a reader could not see was on. */
 
-.facets { padding:0 24px 8px; }
+/* Matches the .controls rhythm above it: that row is 12px/24px, and the filter
+   bar had no top padding at all, so it sat flush against the rule under the
+   controls and read as cramped against everything else on the page. */
+.facets { padding:12px 24px 4px; }
 .fbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .fbar-label { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
   color:var(--muted); }
