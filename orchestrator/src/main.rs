@@ -239,6 +239,9 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     let cfg = RunConfig::load(&args.matrix)
         .with_context(|| format!("loading matrix {}", args.matrix.display()))?;
 
+    // Mount before the preflight, so the probe runs against the same filesystem
+    // the cells will. Held for the whole run; unmounted when it drops.
+    let _rootfs_mounts = RootfsMounts::mount_all(&cfg);
     preflight_rootfs(&cfg)?;
 
     // A CLI --replicates N forces a fixed count (min=max=N, no warmup) for quick
@@ -469,6 +472,10 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     let isolation_applied = CGROUP_APPLIED.load(Ordering::Relaxed);
     let run_meta = serde_json::json!({
         "matrix": args.matrix.display().to_string(),
+        // The exact filesystem behind each target. Versions say what a target
+        // claims to be; the image id says what it actually was, and lets someone
+        // else reproduce the run rather than trust it.
+        "images": image_provenance(&cfg),
         "cells": cells.len(),
         "cells_written": written,
         "isolation": {
@@ -899,6 +906,86 @@ fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
 /// stay honest: `getrusage(RUSAGE_CHILDREN)` sees it as a direct child, the
 /// peak-RSS and per-process CPU polling find it at `/proc/<pid>`, and the
 /// cgroup attach that scopes the perf counters lands on the right task.
+/// `/proc` bind-mounted into each image filesystem for the life of the run.
+///
+/// A chrooted process still sees the host kernel, but not the host's `/proc`
+/// unless one is mounted at the new root. Native binaries mostly do not care;
+/// managed runtimes do, because they read `/proc/self` and the cpu count at
+/// startup and fail or misconfigure themselves without it. Mounted once per
+/// rootfs rather than once per cell, and unmounted on drop so a run does not
+/// leave mounts behind on the bench host.
+struct RootfsMounts {
+    mounted: Vec<PathBuf>,
+}
+
+impl RootfsMounts {
+    fn mount_all(cfg: &RunConfig) -> Self {
+        let mut roots: Vec<&std::path::Path> = cfg
+            .entries
+            .iter()
+            .filter_map(|e| e.target.rootfs.as_deref())
+            .collect();
+        roots.sort_unstable();
+        roots.dedup();
+        let mut mounted = Vec::new();
+        for root in roots {
+            let proc_dir = root.join("proc");
+            if !proc_dir.is_dir() {
+                continue;
+            }
+            // Already mounted from an earlier run, or by the operator: leave it,
+            // and do not unmount something this run did not create.
+            if proc_dir.join("self").exists() {
+                continue;
+            }
+            let ok = ProcCommand::new("mount")
+                .args(["-t", "proc", "proc"])
+                .arg(&proc_dir)
+                .status()
+                .is_ok_and(|st| st.success());
+            if ok {
+                mounted.push(proc_dir);
+            }
+        }
+        Self { mounted }
+    }
+}
+
+impl Drop for RootfsMounts {
+    fn drop(&mut self) {
+        for m in &self.mounted {
+            let _ = ProcCommand::new("umount").arg(m).status();
+        }
+    }
+}
+
+/// What each image filesystem says about itself, for the run record.
+///
+/// A published number should be reproducible, not merely trusted: the image id
+/// identifies the exact filesystem the measurement came from, so someone else
+/// can pull it and re-run rather than take the versions on faith.
+fn image_provenance(cfg: &RunConfig) -> serde_json::Value {
+    let mut roots: Vec<&std::path::Path> = cfg
+        .entries
+        .iter()
+        .filter_map(|e| e.target.rootfs.as_deref())
+        .collect();
+    roots.sort_unstable();
+    roots.dedup();
+    let mut out = serde_json::Map::new();
+    for root in roots {
+        let Ok(txt) = std::fs::read_to_string(root.join(".arena-image.json")) else {
+            continue;
+        };
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt)
+            && let Some(name) = v.get("target").and_then(|t| t.as_str())
+        {
+            out.insert(name.to_string(), v.clone());
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
 /// Fail before the first cell if a target's image filesystem is missing or
 /// cannot be entered.
 ///
@@ -907,14 +994,22 @@ fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
 /// unprivileged run against image-built targets cannot work at all; saying so
 /// here is kinder than failing every cell with a launch error.
 fn preflight_rootfs(cfg: &RunConfig) -> anyhow::Result<()> {
-    let mut roots: Vec<&std::path::Path> = cfg
+    // Check the (rootfs, binary) pairs the matrix actually uses: one image can
+    // carry several binaries, one per runtime variant, so probing a fixed path
+    // would miss the ones that matter.
+    let mut pairs: Vec<(&std::path::Path, &std::path::Path)> = cfg
         .entries
         .iter()
-        .filter_map(|e| e.target.rootfs.as_deref())
+        .filter_map(|e| {
+            e.target
+                .rootfs
+                .as_deref()
+                .map(|r| (r, e.target.binary.as_path()))
+        })
         .collect();
-    roots.sort_unstable();
-    roots.dedup();
-    for root in roots {
+    pairs.sort_unstable();
+    pairs.dedup();
+    for (root, binary) in pairs {
         if !root.is_dir() {
             anyhow::bail!(
                 "target rootfs {} does not exist. Build it with: \
@@ -924,14 +1019,15 @@ fn preflight_rootfs(cfg: &RunConfig) -> anyhow::Result<()> {
         }
         let probe = ProcCommand::new("chroot")
             .arg(root)
-            .arg("/app/target")
+            .arg(binary)
             .arg("describe")
             .output();
         match probe {
             Ok(o) if o.status.success() => {}
             Ok(o) => anyhow::bail!(
-                "cannot run targets from {}: chroot exited with {} ({}). \
+                "cannot run {} from {}: chroot exited with {} ({}). \
                  Image-built targets need root; use `make run-root`.",
+                binary.display(),
                 root.display(),
                 o.status,
                 String::from_utf8_lossy(&o.stderr).trim()

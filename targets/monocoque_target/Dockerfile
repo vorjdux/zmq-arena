@@ -1,0 +1,38 @@
+# Build environment for the monocoque (io_uring, tokio and smol runtimes) target.
+#
+# The image pins the toolchain; it is not a runtime. `scripts/build-image.sh`
+# flattens it to a directory and the orchestrator chroots in and execs, so the
+# target runs as its own direct child on the host kernel. See docs/CONTAINERS.md.
+#
+# Ubuntu 24.04 on both stages so every target in the arena is built against and
+# runs on the same libc, rather than each picking up whatever its base image
+# happened to ship.
+FROM ubuntu:24.04 AS build
+
+ARG RUST_VERSION=1.96.0
+# The instruction-set baseline, identical for every target. See the note in
+# targets/libzmq_cpp_target/CMakeLists.txt for why this is pinned rather than
+# native.
+ARG ISA=x86-64-v3
+ENV RUSTFLAGS="-C target-cpu=${ISA}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /src
+COPY . /src
+RUN cargo build --release
+RUN cargo build --release --no-default-features --features tokio --target-dir target-tokio
+RUN cargo build --release --no-default-features --features smol --target-dir target-smol
+
+FROM ubuntu:24.04
+COPY --from=build /src/target/release/monocoque-target /app/target
+COPY --from=build /src/target-tokio/release/monocoque-target /app/target-tokio
+COPY --from=build /src/target-smol/release/monocoque-target /app/target-smol
+# Fail at build time if the wrapper cannot answer `describe`, rather than
+# mid-run when it is scheduled.
+RUN /app/target describe > /app/describe.json && cat /app/describe.json

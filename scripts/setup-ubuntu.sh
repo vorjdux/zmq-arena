@@ -21,11 +21,16 @@ echo "virt:    ${VIRT}"
 
 say "packages (sudo apt)"
 # build-essential + clang for the C++ target; cmake/pkg-config to find libzmq;
-# libzmq3-dev is the libzmq target's link dependency; python3 runs the render
-# and sample scripts; curl/git for rustup and sources.
+# python3 runs the render scripts; curl/git for rustup; docker builds the target
+# images. build-essential remains for the orchestrator's own native deps.
 sudo apt-get update -y
+# Targets are built inside pinned images and run from the exported filesystem,
+# so none of their toolchains belong on this machine: no C++ compiler, no Rust,
+# no libzmq headers, and none of the runtimes the language targets need. What is
+# left is the control plane (Rust), docker to build the images, and python for
+# the render step.
 sudo apt-get install -y --no-install-recommends \
-  build-essential clang cmake pkg-config libzmq3-dev python3 git curl ca-certificates
+  build-essential pkg-config python3 git curl ca-certificates docker.io
 
 say "rust toolchain"
 if ! command -v cargo >/dev/null 2>&1; then

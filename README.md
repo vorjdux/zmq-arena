@@ -26,12 +26,16 @@ difference between those lines is the IO model, not the protocol code.
 
 ## Quick start
 
-Ubuntu, from a clean checkout. `setup-ubuntu.sh` installs the toolchains and
-`libzmq3-dev`, which the libzmq and rust-zmq targets link against.
+Ubuntu, from a clean checkout. Targets are built inside pinned images and run
+from the exported filesystem, so `setup-ubuntu.sh` installs only the control
+plane's toolchain, docker and python. No C++ compiler, no libzmq headers, and
+none of the target runtimes go on this machine. See
+[docs/CONTAINERS.md](docs/CONTAINERS.md) for why the images are a build artifact
+rather than a runtime.
 
 ```bash
-bash scripts/setup-ubuntu.sh     # toolchains + system libzmq (once)
-make build                       # control plane + all 15 runnable variants
+bash scripts/setup-ubuntu.sh     # control plane toolchain + docker (once)
+make build                       # control plane + every target image
 make dry                         # expand the plan, spawn nothing
 make run                         # measure, then render into docs/
 make dashboard                   # serve docs/ at http://localhost:8000
@@ -174,11 +178,13 @@ workspace resolves one dependency graph and one toolchain across every member,
 so each implementation would be measured against whatever the resolver settled
 on rather than what it ships. Standalone builds let `zeromq` pin its own tokio,
 `monocoque` set its own LTO, and a future Go or C target use its native
-toolchain. `scripts/build-targets.sh` builds them one invocation at a time for
-the same reason.
+toolchain. Each is built inside its own image and run from the exported
+filesystem, which is also what keeps those toolchains off the machine that
+produces the numbers.
 
 Adding a target means implementing the command-line contract in
-[targets/README.md](targets/README.md); it can be written in any language.
+[targets/README.md](targets/README.md) and adding a `Dockerfile` beside it; it
+can be written in any language, and its toolchain never touches the bench host.
 
 ## Isolation and telemetry
 

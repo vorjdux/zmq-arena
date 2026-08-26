@@ -111,7 +111,8 @@ TARGETS = [
     },
     {
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         # PUB fans out from a worker pool that defaults to the host CPU count
         # clamped to [2, 16]. Pinning it to 1 keeps the cell's process count a
@@ -124,7 +125,8 @@ TARGETS = [
         # picks the runtime at compile time; the (id, variant) pair keys the
         # dashboard series monocoque_tokio.
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target-tokio/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target-tokio",
         "variant": "tokio",
         "count_knobs": {},
         "mp_knobs": {"pub_workers": "1"},
@@ -133,7 +135,8 @@ TARGETS = [
     {
         # Third runtime the engine ships (smol, epoll via polling).
         "id": "monocoque",
-        "binary": "targets/monocoque_target/target-smol/release/monocoque-target",
+        "rootfs": "targets/monocoque_target/rootfs",
+        "binary": "/app/target-smol",
         "variant": "smol",
         "count_knobs": {},
         "mp_knobs": {"pub_workers": "1"},
@@ -141,7 +144,8 @@ TARGETS = [
     },
     {
         "id": "rust_zmq",
-        "binary": "targets/rust_zmq_target/target/release/rust-zmq-target",
+        "rootfs": "targets/rust_zmq_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
         "mp_knobs": {"io_threads": "1"},
         "kinds": ALL_FIVE,
@@ -150,7 +154,8 @@ TARGETS = [
         # rzmq, epoll backend. The engine ships two IO backends and both are
         # measured; the io_uring one is the entry below.
         "id": "rzmq",
-        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "rootfs": "targets/rzmq_target/rootfs",
+        "binary": "/app/target",
         "variant": "default",
         "count_knobs": {},
         "mp_knobs": {},
@@ -160,7 +165,8 @@ TARGETS = [
         # Same binary, io_uring session with zero-copy send and multishot recv,
         # matching the rzmq peer in the omq.rs comparison harness.
         "id": "rzmq",
-        "binary": "targets/rzmq_target/target/release/rzmq-target",
+        "rootfs": "targets/rzmq_target/rootfs",
+        "binary": "/app/target",
         "variant": "io_uring",
         "count_knobs": {},
         "mp_knobs": {},
@@ -171,7 +177,8 @@ TARGETS = [
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.
         "id": "celerity",
-        "binary": "targets/celerity_target/target/release/celerity-target",
+        "rootfs": "targets/celerity_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ["latency", "pubsub"],
@@ -182,14 +189,16 @@ TARGETS = [
         # async-wrapper overhead against `libzmq` and `rust_zmq`, which reach the
         # same engine differently.
         "id": "tmq",
-        "binary": "targets/tmq_target/target/release/tmq-target",
+        "rootfs": "targets/tmq_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target",
         "count_knobs": {},
         "mp_knobs": {},
         "kinds": ["throughput", "latency", "pubsub"],
@@ -198,7 +207,8 @@ TARGETS = [
         # zmq.rs also picks its runtime by feature, so its other two shipped
         # runtimes are separate builds and separate series.
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target-async-std/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target-async-std",
         "variant": "async_std",
         "count_knobs": {},
         "mp_knobs": {},
@@ -206,7 +216,8 @@ TARGETS = [
     },
     {
         "id": "zeromq_rs",
-        "binary": "targets/zeromq_rs_target/target-async-dispatcher/release/zeromq-rs-target",
+        "rootfs": "targets/zeromq_rs_target/rootfs",
+        "binary": "/app/target-async-dispatcher",
         "variant": "async_dispatcher",
         "count_knobs": {},
         "mp_knobs": {},
@@ -214,7 +225,8 @@ TARGETS = [
     },
     {
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "default",
         "count_knobs": {},
         "mp_knobs": {},
@@ -224,7 +236,8 @@ TARGETS = [
         # Same binary, multi-thread tokio runtime. The (id, variant) pair keys the
         # dashboard series omq_tokio_mt.
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "multi_thread",
         "count_knobs": {},
         "mp_knobs": {},
@@ -236,7 +249,8 @@ TARGETS = [
         # the model libzmq uses, so the pair is a direct comparison of two
         # implementations of the same idea.
         "id": "omq_tokio",
-        "binary": "targets/omq_tokio_target/target/release/omq-tokio-target",
+        "rootfs": "targets/omq_tokio_target/rootfs",
+        "binary": "/app/target",
         "variant": "blocking",
         "count_knobs": {},
         "mp_knobs": {},
