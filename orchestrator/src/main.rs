@@ -778,9 +778,14 @@ fn make_endpoint(
 ) -> anyhow::Result<(String, Option<PathBuf>)> {
     match entry.transport {
         Transport::Ipc => {
-            let path = ipc_dir(run_id)?.join(format!("{cell_id}.sock"));
-            let _ = std::fs::remove_file(&path);
-            Ok((format!("ipc://{}", path.display()), Some(path)))
+            let (host_dir, guest_dir) = ipc_paths(run_id, entry.target.rootfs.as_deref());
+            prepare_ipc_dir(&host_dir)?;
+            let host = host_dir.join(format!("{cell_id}.sock"));
+            let guest = guest_dir.join(format!("{cell_id}.sock"));
+            // Cleanup is done from the host side; the endpoint is what the
+            // target resolves, which is the guest side.
+            let _ = std::fs::remove_file(&host);
+            Ok((format!("ipc://{}", guest.display()), Some(host)))
         }
         Transport::TcpNetns => {
             let l = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -896,16 +901,36 @@ static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::n
 ///
 /// Kept under the temp dir rather than the scratch dir because a unix socket
 /// path is capped at 108 bytes and the scratch dir can be arbitrarily deep.
-fn ipc_dir(run_id: &str) -> anyhow::Result<std::path::PathBuf> {
-    let dir = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
-    std::fs::create_dir_all(&dir).with_context(|| format!("creating ipc dir {}", dir.display()))?;
+/// Where the socket directory lives on the host, and the path the target will
+/// resolve. They differ for a target with a rootfs: it resolves the endpoint
+/// inside its chroot, so a directory created on the host is simply not there and
+/// bind fails with ENOENT. Create it where the target will look.
+///
+/// The guest path stays under /tmp rather than following TMPDIR, because /tmp is
+/// what exists inside an exported image and the 108-byte sockaddr_un cap leaves
+/// no room to be clever.
+fn ipc_paths(run_id: &str, rootfs: Option<&std::path::Path>) -> (PathBuf, PathBuf) {
+    match rootfs {
+        Some(root) => (
+            root.join(format!("tmp/zmq-arena-{run_id}")),
+            PathBuf::from(format!("/tmp/zmq-arena-{run_id}")),
+        ),
+        None => {
+            let d = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
+            (d.clone(), d)
+        }
+    }
+}
+
+fn prepare_ipc_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("creating ipc dir {}", dir.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("locking down ipc dir {}", dir.display()))?;
     }
-    Ok(dir)
+    Ok(())
 }
 
 /// Build the command that launches a target.
@@ -1499,12 +1524,32 @@ fn run_multipeer(
         let _ = so.read_to_string(&mut out);
     }
     let syscalls = syscall_probe.read();
+    // A peer that died on its own does not show up in the measured process's
+    // status, and it is the one failure this cell cannot survive: the consumer
+    // goes on timing a stream nobody is feeding and reports real arithmetic over
+    // a starved window. Sampled before the kill, because afterwards every status
+    // is the signal we just sent. Peers that finish cleanly are expected -- the
+    // drains are bounded by duration -- so only a failing status is a problem.
+    let mut died: Vec<String> = Vec::new();
+    for (i, c) in others.iter_mut().enumerate() {
+        if let Ok(Some(st)) = c.try_wait()
+            && !st.success()
+        {
+            died.push(format!("peer {i} exited with {st}"));
+        }
+    }
     for mut c in others {
         let _ = c.kill();
         let _ = c.wait();
     }
     if !ok {
         anyhow::bail!("{:?} measured consumer timed out", entry.kind);
+    }
+    if !died.is_empty() {
+        anyhow::bail!(
+            "{}; the measured window was not fully fed",
+            died.join("; ")
+        );
     }
     // Same reason as the throughput path: a launch failure exits immediately and
     // would otherwise be reported as a missing output line, which reads like a
@@ -1559,4 +1604,46 @@ fn run_multipeer(
         // Per-replicate record: the aggregator fills this in on the merged cell.
         stability: None,
     })
+}
+
+#[cfg(test)]
+mod ipc_tests {
+    use super::ipc_paths;
+    use std::path::Path;
+
+    /// A target with a rootfs resolves the endpoint inside its chroot, so the
+    /// directory has to be created there and the endpoint has to name the path
+    /// as the target will see it. Getting this backwards is not a subtle
+    /// failure: every ipc cell dies with ENOENT on bind.
+    #[test]
+    fn rootfs_target_binds_inside_its_chroot() {
+        let (host, guest) = ipc_paths("2026-08-26", Some(Path::new("targets/rust_zmq_target/rootfs")));
+        assert_eq!(
+            host,
+            Path::new("targets/rust_zmq_target/rootfs/tmp/zmq-arena-2026-08-26")
+        );
+        assert_eq!(guest, Path::new("/tmp/zmq-arena-2026-08-26"));
+    }
+
+    /// A host-built target has no chroot, so the two paths are the same one.
+    #[test]
+    fn host_target_uses_one_path() {
+        let (host, guest) = ipc_paths("2026-08-26", None);
+        assert_eq!(host, guest);
+    }
+
+    /// sockaddr_un caps the path at 108 bytes, and the guest path is what gets
+    /// passed to bind. The longest cell id in the shipped matrix is well under
+    /// this, but the margin is worth asserting rather than assuming.
+    #[test]
+    fn guest_socket_path_fits_sockaddr_un() {
+        let (_, guest) = ipc_paths("2026-08-26", Some(Path::new("targets/rust_zmq_target/rootfs")));
+        let sock = guest.join("rust_zmq-ipc-throughput-16384b-p0-470.sock");
+        assert!(
+            sock.as_os_str().len() < 108,
+            "guest socket path is {} bytes: {}",
+            sock.as_os_str().len(),
+            sock.display()
+        );
+    }
 }
