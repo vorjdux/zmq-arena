@@ -32,6 +32,15 @@ sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends \
   build-essential pkg-config python3 git curl ca-certificates docker.io
 
+# Reaching the docker socket is a group membership, and without it every image
+# build needs sudo. Added here rather than left to fail later with a bare
+# "permission denied" from the daemon.
+if ! id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
+  say "adding $USER to the docker group"
+  sudo usermod -aG docker "$USER"
+  echo "log out and back in (or run: newgrp docker) for this to take effect"
+fi
+
 say "rust toolchain"
 if ! command -v cargo >/dev/null 2>&1; then
   echo "installing rustup..."

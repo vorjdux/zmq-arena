@@ -131,6 +131,12 @@
   #inspector .irow .nm { flex:1 1 auto; min-width:0; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
   #inspector .irow .vl { flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  /* Version tag on the evolution readout. Muted by default; when the library
+     changed release at this run it is accented, so a step in the line can be
+     attributed without leaving the readout. */
+  #inspector .irow .ver { flex:0 0 auto; font-size:11px; color:var(--muted);
+    font-variant-numeric:tabular-nums; }
+  #inspector .irow .ver.bump { color:var(--accent); font-weight:650; }
   #inspector .iempty { color:var(--muted); font-size:12px; padding:14px; }
   #inspector .ifoot { border-top:1px solid var(--line); padding:9px 14px;
     color:var(--muted); font-size:11px; }
@@ -223,7 +229,7 @@
 <main id="main" hidden>
   <section class="card">
     <h2 id="evoTitle">Evolution over time</h2>
-    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category. A hollow amber marker flags a low-confidence point whose replicates did not converge; a solid red marker flags a suspect point whose throughput is beaten by a larger payload (a measurement or config artifact, not a real result).</div>
+    <div class="hint">One line per selected variant across weekly runs. Click a legend entry to toggle; drag the slider to zoom the time range. Same-color lines share the chosen category; dash style separates variants within a category. A hollow amber marker flags a low-confidence point whose replicates did not converge; a solid red marker flags a suspect point whose throughput is beaten by a larger payload (a measurement or config artifact, not a real result). A diamond marks the run where that library changed version, so a step in the line reads as a release rather than as noise -- hollow when the point is otherwise trusted, amber or red when it also carries one of the flags above. The version is on every tooltip row either way.</div>
     <div id="evoChart" class="chart"></div>
   </section>
   <div class="row2">
@@ -565,10 +571,21 @@ function drawInspector(which, ch, idx, hoveredName){
   el("iTitle").textContent = head;
   el("iSub").textContent = `${val("transport")}`
     + (currentPeers() ? ` · ${currentPeers()} peers` : "") + ` · ${m.label} (${m.unit})`;
+  // On the evolution chart the release each point ran at is part of reading it:
+  // a step between two runs is either the library or the harness, and only the
+  // version separates the two. An arrow marks the run where it moved.
+  const verTag = r => {
+    if(which !== "evo" || !r.key) return "";
+    const ver = versionAt(r.key, DATES[idx]);
+    if(!ver) return "";
+    const bump = versionChanged(r.key, DATES[idx]);
+    return `<span class="ver${bump ? " bump" : ""}" title="${bump ? "changed at this run" : "version"}">`
+      + `${bump ? "&uarr; " : ""}${ver}</span>`;
+  };
   el("iBody").innerHTML = rows.length
     ? rows.map(r => `<div class="irow${r.name === hoveredName ? " on" : ""}">`
         + `${tipMarker(r.name)}<span class="nm">${r.name}</span>`
-        + `<span class="vl">${r.v} ${m.unit}</span></div>`).join("")
+        + `${verTag(r)}<span class="vl">${r.v} ${m.unit}</span></div>`).join("")
     : `<div class="iempty">No data here.</div>`;
   el("iFoot").textContent = `${rows.length} libraries · `
     + (m.better === "lower" ? "lower is better" : "higher is better");
@@ -895,8 +912,37 @@ const LOWCONF_STYLE = { symbol:"emptyCircle", symbolSize:9,
 const INVERTED_STYLE = { symbol:"circle", symbolSize:11,
   itemStyle:{ color:"#ef4444", borderColor:"#ef4444", borderWidth:2 } };
 function pointStyle(rec){ return inverted(rec) ? INVERTED_STYLE : lowConf(rec) ? LOWCONF_STYLE : null; }
-function evoPoint(rec,v){ if(v==null) return null;
-  const st=pointStyle(rec); return st ? {value:v, ...st} : v; }
+// The version a variant ran at each date, and whether that date is where it
+// changed. Evolution is the one chart where a step matters more than a level: a
+// line that jumps between two runs is either the library improving, or the
+// harness changing underneath it, and the version is what tells them apart.
+function versionAt(v, date){
+  const r = RECORDS.find(x => x.variant===v && x.date===date && x.lib_version);
+  return r ? r.lib_version : null;
+}
+
+function versionChanged(v, date){
+  const i = DATES.indexOf(date);
+  if(i <= 0) return false;
+  const now = versionAt(v, date), before = versionAt(v, DATES[i-1]);
+  return !!(now && before && now !== before);
+}
+
+// A version bump is drawn as a hollow diamond, so a step in the line can be
+// attributed at a glance. The two signals are orthogonal and both survive: shape
+// carries the version bump, colour carries trust. A point that is both suspect
+// and a new version is an amber (or red) diamond, not one signal swallowing the
+// other -- which matters most on a run where every cell is flagged.
+const VERSION_STYLE = { symbol:"diamond", symbolSize:11,
+  itemStyle:{ color:"transparent", borderWidth:2 } };
+
+function evoPoint(rec, v, variant, date){
+  if(v==null) return null;
+  const trust = pointStyle(rec), bumped = versionChanged(variant, date);
+  if(!trust) return bumped ? {value:v, ...VERSION_STYLE} : v;
+  if(!bumped) return {value:v, ...trust};
+  return {value:v, ...trust, symbol:"diamond", symbolSize:12};
+}
 function sweepPoint(rec,p,v){ if(v==null) return [p,null];
   const st=pointStyle(rec); return st ? {value:[p,v], ...st} : [p,v]; }
 
@@ -907,7 +953,7 @@ function renderEvolution(){
     const data=DATES.map(d=>{
       const rec=RECORDS.find(r=>r.date===d&&r.variant===v&&r.kind===kind&&r.transport===tr&&r.payload_bytes===pay&&r.peers===pe);
       const val_=rec?m.get(rec):null;
-      return evoPoint(rec, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3));
+      return evoPoint(rec, val_==null||Number.isNaN(val_)?null:+val_.toFixed(3), v, d);
     });
     return mkSeries(v,data,sm[v]);
   });
@@ -922,9 +968,17 @@ function renderEvolution(){
     showContent:!inspectorOn(),
     formatter:pts=>{
       evoChart.__tipIndex = pts[0].dataIndex;
-      const rows=pts.filter(x=>x.value!=null)
-        .map(x=>tipRow(tipMarker(x.seriesName), x.seriesName, `${x.value} ${m.unit}`));
-      return `<b>${pts[0].axisValue}</b>${rows.join("")}`;
+      const date = pts[0].axisValue;
+      const key = {}; for(const k in VARIANT_LABEL) key[VARIANT_LABEL[k]] = k;
+      const rows=pts.filter(x=>x.value!=null).map(x=>{
+        const v = key[x.seriesName];
+        const ver = v ? versionAt(v, date) : null;
+        // Naming the version on every row, not only where it changed, means a
+        // reader comparing two runs never has to remember which was which.
+        const tag = ver ? ` <code>${ver}</code>${versionChanged(v, date) ? " \u2191" : ""}` : "";
+        return tipRow(tipMarker(x.seriesName), x.seriesName + tag, `${x.value} ${m.unit}`);
+      });
+      return `<b>${date}</b>${rows.join("")}`;
     }});
   opt.series=series;
   evoChart.setOption(opt,true);

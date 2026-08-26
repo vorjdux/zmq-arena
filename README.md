@@ -20,9 +20,13 @@ Every runtime an engine ships is measured separately, because benchmarking a
 subset would mean choosing which of an engine's configurations may represent it.
 So zmq.rs appears three times, once per async runtime it supports, and the gap
 between those lines is the runtime rather than the protocol code. A binding is
-filed with the engine it binds, which makes each family a controlled comparison:
-libzmq, rust-zmq, tmq and pyzmq are one C++ engine reached four ways, so what
-separates them is language and wrapper overhead and nothing else.
+filed with the engine it binds, so libzmq, rust-zmq, tmq and pyzmq are one C++
+engine reached four ways and the distance between them is mostly language and
+wrapper overhead. Mostly, not entirely: rust-zmq vendors its own libzmq 4.3.4
+rather than linking the system one, and tmq inherits that, so those two sit on a
+slightly older engine than the C++ target and pyzmq. Each record carries the
+engine version it ran, because a family is only a controlled comparison to the
+extent the versions actually match.
 
 - **[Results](https://vorjdux.github.io/zmq-arena/)** live only in the dashboard.
   The pages under `docs/` are what gets published; see [Results](#results) for
@@ -150,6 +154,12 @@ numbers and the reasoning.
 **What the bench host needs:** docker to build the images, Rust for the control
 plane, python to render, and root to run. No target toolchain, no libzmq
 headers, no JVM.
+
+Reaching the docker socket is a group membership, and a bench host is exactly
+the kind of machine where it has not been granted. `setup-ubuntu.sh` adds you to
+the `docker` group; until you log back in, `make build` falls back to `sudo
+docker` and says so. Root here builds images, and is not the root the
+measurement needs, which the orchestrator asks for separately at run time.
 
 ## What gets measured
 
