@@ -216,7 +216,18 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
-        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # Pure Java: JeroMQ reimplements ZMTP on the JVM, no libzmq and no JNI.
+        # 0.6.0 is from early 2024 and the project has been quiet since; the
+        # version travels with every record so a reader can weigh that.
+        "id": "jeromq",
+        "rootfs": "targets/jeromq_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
+        "mp_knobs": {"io_threads": "1"},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.
         "id": "celerity",

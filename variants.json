@@ -10,7 +10,8 @@
     "celerity": "#ec4899",
     "python": "#f97316",
     "omq.rb": "#c084fc",
-    "netmq": "#38bdf8"
+    "netmq": "#38bdf8",
+    "jeromq": "#fb923c"
   },
   "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
   "variants": [
@@ -252,6 +253,17 @@
       "io": "epoll",
       "threading": "native",
       "dash": null
+    },
+    {
+      "key": "jeromq",
+      "label": "JeroMQ (Java)",
+      "note": "pure Java",
+      "color": "#fb923c",
+      "color_light": "#9a3412",
+      "engine": "jeromq",
+      "io": "epoll",
+      "threading": "native",
+      "dash": null
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
@@ -265,6 +277,7 @@
     "celerity": "#e0177a",
     "python": "#b8560a",
     "omq.rb": "#6b21a8",
-    "netmq": "#075985"
+    "netmq": "#075985",
+    "jeromq": "#9a3412"
   }
 }

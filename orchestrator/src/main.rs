@@ -150,9 +150,18 @@ fn target_meta(
     variant: Option<&str>,
     fallback_id: &str,
 ) -> TargetMeta {
-    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, String), TargetMeta>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<(PathBuf, PathBuf, String), TargetMeta>>> =
+        OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    // The rootfs is part of the identity. Every image-built target names its
+    // binary `/app/target`, so keying on the path alone made all of them the
+    // same cache entry: whichever was described first supplied the engine name
+    // and version for every target after it, and the records looked complete
+    // while attributing one library's results to another.
     let key = (
+        rootfs
+            .unwrap_or_else(|| std::path::Path::new(""))
+            .to_path_buf(),
         binary.to_path_buf(),
         variant.unwrap_or("default").to_string(),
     );
