@@ -54,28 +54,9 @@
   .preset { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
     border-radius:999px; padding:3px 11px; font-size:12px; cursor:pointer; }
   .preset:hover { color:var(--fg); }
-  /* Facet bar: pick the libraries worth comparing before reading anything. */
-  .facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
-  .facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
-    color:var(--muted); min-width:74px; }
-  .fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
-    border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
-  .fbtn:hover { color:var(--fg); }
-  .fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   /* Partly selected: the group is on the chart but not all of it. */
   .fbtn.some { color:var(--fg); border-color:var(--accent); }
   .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
-  /* Chips grouped by engine, so twenty series read as seven families. */
-  /* The baseline chip: shown always, so it does not offer a toggle it would
-     immediately undo. */
-  .chip.pinned { cursor:default; opacity:1; }
-  .chip.pinned .pin { font-size:9px; text-transform:uppercase; letter-spacing:.6px;
-    color:var(--accent); margin-left:6px; }
-  .fbtn.pinned { cursor:default; }
-  .chipgroup { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; }
-  .chipgroup .gname { font-size:10px; text-transform:uppercase; letter-spacing:.7px;
-    color:var(--muted); min-width:74px; text-align:right; opacity:.75; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line);
     border-radius:999px; padding:4px 11px 4px 9px; font-size:12.5px; cursor:pointer;
@@ -251,6 +232,7 @@
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<link rel="stylesheet" href="arena-filter.css">
 <script src="arena-filter.js"></script>
 <script>
 "use strict";

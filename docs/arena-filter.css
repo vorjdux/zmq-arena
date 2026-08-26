@@ -1,0 +1,28 @@
+/* Styles for the shared selection bar built by arena-filter.js.
+ *
+ * Shared rather than repeated per page: the bar is one component used by four
+ * pages, and four copies of its CSS is how they drift apart. */
+
+/* Facet bar: pick the libraries worth comparing before reading anything. */
+.facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
+.facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
+  color:var(--muted); min-width:74px; }
+.fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
+  border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
+.fbtn:hover { color:var(--fg); }
+.fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+/* Partly selected: the group is on the chart but not all of it. */
+.fbtn.some { color:var(--fg); border-color:var(--accent); }
+.fbtn.pinned { cursor:default; }
+.fhint { font-size:11px; color:var(--muted); margin-left:4px; }
+
+/* Chips grouped by family, so twenty series read as eight families. Only the
+   pages that draw chips use these; harmless where they do not. */
+.chipgroup { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; }
+.chipgroup .gname { font-size:10px; text-transform:uppercase; letter-spacing:.7px;
+  color:var(--muted); min-width:74px; text-align:right; opacity:.75; }
+/* The baseline chip: always shown, so it offers no toggle it would undo. */
+.chip.pinned { cursor:default; opacity:1; }
+.chip.pinned .pin { font-size:9px; text-transform:uppercase; letter-spacing:.6px;
+  color:var(--accent); margin-left:6px; }

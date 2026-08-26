@@ -194,8 +194,19 @@ a loopback address.
    features, and the release profile across implementations and skew the
    comparison.
 2. Implement the unified CLI and the two roles.
-3. Add a build command to `scripts/build-targets.sh` (a per-directory `cargo
-   build --release` for Rust, or the native build for another toolchain). The
-   contract with the harness is the spawned-process CLI, not a shared crate, so
-   any language is admissible.
-4. Reference the compiled binary path from the matrix entry.
+3. Add a `Dockerfile` beside it that builds the target and leaves an executable
+   at `/app/target`. It ends with `RUN /app/target describe`, so an image that
+   cannot answer the contract fails at build time rather than mid-run. Anything
+   the target needs from the environment goes in a launcher script rather than
+   an `ENV` line: `docker export` flattens the filesystem and drops image
+   metadata, so `ENV` does not survive it.
+4. Add the target to `IMAGES` in the `Makefile`, and add its matrix entry with
+   `rootfs` pointing at `targets/<name>_target/rootfs` and `binary` at the path
+   inside that tree.
+5. Register it in `variants.json`, which is what the dashboard colours, groups
+   and filters by. `render_variants.py` refuses a matrix variant with no entry.
+
+The toolchain lives in the image and never on the bench host, which is what
+makes any language admissible: the contract with the harness is the
+spawned-process CLI, not a shared crate. See `docs/CONTAINERS.md` for why the
+image is a build artifact rather than a runtime.

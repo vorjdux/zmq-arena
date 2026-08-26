@@ -62,16 +62,6 @@
     box-shadow:1px 0 0 var(--line); }
   .tw thead th:first-child { z-index:2; }
 
-  .facets { padding:0 24px 8px; display:flex; flex-direction:column; gap:5px; }
-  .facet { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .facet .fname { font-size:11px; text-transform:uppercase; letter-spacing:.6px;
-    color:var(--muted); min-width:74px; }
-  .fbtn { background:var(--panel); color:var(--muted); border:1px solid var(--line);
-    border-radius:999px; padding:3px 10px; font-size:12px; cursor:pointer; }
-  .fbtn:hover { color:var(--fg); }
-  .fbtn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .fbtn.some { color:var(--fg); border-color:var(--accent); }
-  .fhint { font-size:11px; color:var(--muted); margin-left:4px; }
   .board { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
   .board h2 { margin:0 0 2px; font-size:14px; }
   .board .note { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -122,6 +112,7 @@
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
 
+<link rel="stylesheet" href="arena-filter.css">
 <script src="arena-filter.js"></script>
 <script>
 "use strict";
