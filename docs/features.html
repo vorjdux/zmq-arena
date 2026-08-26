@@ -90,13 +90,22 @@
     position:sticky; left:0; z-index:1; background:var(--panel);
     box-shadow:1px 0 0 var(--line); }
   .wrap thead th:first-child { z-index:2; }
-  /* Give every column room to say its value on one or two lines and let the
-     table scroll, rather than fitting the viewport by wrapping "tcp, ipc,
-     inproc, udp, pgm, epgm, tipc, vmci" into a column two words wide. */
-  .wrap table { min-width:max-content; }
-  .wrap th, .wrap td { min-width:112px; }
-  .wrap th:first-child, .wrap td:first-child { min-width:210px; }
-  .wrap th, .wrap td { vertical-align:top; }
+  /* One fixed width for every library column, and text wraps inside it.
+     Sizing columns to their content instead made the table ragged: the
+     transports row stretched omq's column to fit "tcp, ipc, inproc, udp, ws,
+     wss, lz4+tcp, zstd+tcp" on one line while its neighbours stayed narrow, so
+     comparing a row across libraries meant tracking cells of wildly different
+     widths. A uniform grid reads down a row instead. */
+  .wrap table { table-layout:fixed; width:max-content; }
+  .wrap th, .wrap td { width:150px; white-space:normal; overflow-wrap:break-word;
+    vertical-align:top; }
+  .wrap th:first-child, .wrap td:first-child { width:200px; }
+  /* Vertical rules between the library columns. With uniform widths and cells
+     that wrap over several lines, a row of values is easy to lose track of:
+     "declared" under omq and "declared" under monocoque are the same words in
+     the same place, and only the column tells them apart. */
+  .wrap th, .wrap td { border-right:1px solid var(--line); }
+  .wrap th:last-child, .wrap td:last-child { border-right:0; }
   .wrap tbody td:first-child { color:var(--muted); white-space:nowrap; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
     padding:14px 16px; margin:0 0 14px; }
