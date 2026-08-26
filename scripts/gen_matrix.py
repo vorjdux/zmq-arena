@@ -196,7 +196,17 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
-        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
+        # Pure Ruby: omq.rb speaks ZMTP itself, no libzmq and no C extension, so
+        # it is measured as an implementation rather than as a language binding.
+        "id": "omq_rb",
+        "rootfs": "targets/omq_rb_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
+        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.
         "id": "celerity",

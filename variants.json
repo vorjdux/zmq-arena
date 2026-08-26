@@ -8,7 +8,8 @@
     "monocoque": "#14b8a6",
     "rzmq": "#22c55e",
     "celerity": "#ec4899",
-    "python": "#f97316"
+    "python": "#f97316",
+    "omq.rb": "#c084fc"
   },
   "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
   "variants": [
@@ -228,6 +229,17 @@
         7,
         4
       ]
+    },
+    {
+      "key": "omq_rb",
+      "label": "omq.rb (Ruby)",
+      "note": "pure Ruby, YJIT",
+      "color": "#c084fc",
+      "color_light": "#6b21a8",
+      "engine": "omq.rb",
+      "io": "epoll",
+      "threading": "single",
+      "dash": null
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
@@ -239,6 +251,7 @@
     "monocoque": "#0e8478",
     "rzmq": "#178640",
     "celerity": "#e0177a",
-    "python": "#b8560a"
+    "python": "#b8560a",
+    "omq.rb": "#6b21a8"
   }
 }

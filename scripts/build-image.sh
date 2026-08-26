@@ -41,5 +41,26 @@ cat > "${rootfs}/.arena-image.json" <<JSON
 {"target": "${name}", "tag": "${tag}", "image_id": "${digest}", "isa": "${isa}"}
 JSON
 
+# Verify the exported tree, not just the image. `docker export` flattens the
+# filesystem and drops the metadata, and ENV is metadata: a target whose
+# interpreter finds its packages through GEM_HOME, PYTHONPATH or JAVA_HOME works
+# under `docker run` and fails under chroot. The Dockerfile's own describe check
+# cannot catch that, because it runs with the environment still applied.
+#
+# unshare -r gives an unprivileged user namespace to chroot from, so this works
+# without root on a normal dev box.
+echo "== verifying the exported tree can run outside the image"
+for bin in $(find "${rootfs}/app" -maxdepth 1 -type f -name 'target*' -perm -u+x -printf '/app/%f\n' 2>/dev/null); do
+  if out=$(unshare -r chroot "${rootfs}" "${bin}" describe 2>&1); then
+    echo "   ${bin}: $(echo "${out}" | head -c 90)..."
+  else
+    echo "ERROR: ${bin} cannot run from the exported filesystem:" >&2
+    echo "${out}" | head -3 >&2
+    echo "Anything the target needs from the environment must be set inside the" >&2
+    echo "launcher script, because ENV does not survive docker export." >&2
+    exit 1
+  fi
+done
+
 echo "== ${name}: $(du -sh "${rootfs}" | cut -f1) at ${rootfs}"
 echo "   image ${digest}"
