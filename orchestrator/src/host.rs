@@ -38,6 +38,15 @@ pub struct Host {
     pub cpu_count: usize,
     /// Kernel release, which decides `io_uring` behaviour among other things.
     pub kernel: String,
+    /// Distro and release, from /etc/os-release.
+    ///
+    /// This describes the machine and the harness running on it, not what a
+    /// target linked against: every image target brings its own userspace from
+    /// its rootfs, so the libc a measurement actually ran on is the image's, not
+    /// this one. The kernel above is the part they genuinely share.
+    pub os: String,
+    /// Machine architecture as the kernel reports it.
+    pub arch: String,
     /// Total RAM in kibibytes.
     pub memory_total_kb: u64,
     /// cpufreq governor, when every online CPU agrees on one. `None` when the
@@ -97,6 +106,43 @@ fn read_trimmed(path: &str) -> Option<String> {
 
 /// Governor shared by every online CPU, or None if they differ. Reading only
 /// cpu0 would miss a machine where one core was left on `powersave`.
+/// Distro name and release. os-release is the one interface every distro
+/// agrees on; /usr/lib is the vendor copy for images that ship no /etc one.
+fn os_pretty_name() -> Option<String> {
+    for path in ["/etc/os-release", "/usr/lib/os-release"] {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines() {
+            if let Some(v) = line.strip_prefix("PRETTY_NAME=") {
+                let v = v.trim().trim_matches('"').trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Architecture the kernel reports, rather than the one this binary was built
+/// for: they agree on any normal host, and when they do not, the kernel is right.
+fn uname_machine() -> Option<String> {
+    // SAFETY: uname writes into a struct we own and have zeroed; on success the
+    // machine field is a NUL-terminated C string within its fixed-size buffer.
+    let mut u: libc::utsname = unsafe { std::mem::zeroed() };
+    if unsafe { libc::uname(&raw mut u) } != 0 {
+        return None;
+    }
+    let bytes: Vec<u8> = u
+        .machine
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    String::from_utf8(bytes).ok().filter(|s| !s.is_empty())
+}
+
 fn uniform_governor(cpu_count: usize) -> Option<String> {
     let mut seen: Option<String> = None;
     for i in 0..cpu_count {
@@ -139,6 +185,8 @@ impl Host {
             .max(1);
         let kernel =
             read_trimmed("/proc/sys/kernel/osrelease").unwrap_or_else(|| "unknown".to_string());
+        let os = os_pretty_name().unwrap_or_else(|| "unknown OS".to_string());
+        let arch = uname_machine().unwrap_or_else(|| std::env::consts::ARCH.to_string());
         let memory_total_kb = first_line_after("/proc/meminfo", "MemTotal")
             .and_then(|v| v.split_whitespace().next()?.parse().ok())
             .unwrap_or(0);
@@ -178,6 +226,8 @@ impl Host {
             cpu,
             cpu_count,
             kernel,
+            os,
+            arch,
             memory_total_kb,
             governor,
             turbo,
