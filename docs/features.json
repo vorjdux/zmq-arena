@@ -566,6 +566,63 @@
       ]
     },
     {
+      "id": "omq_cr",
+      "label": "omq.cr",
+      "language": "Crystal",
+      "impl": "native",
+      "version": "0.2.0",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR"
+      ],
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL",
+        "STREAM"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc",
+        "udp"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "yes",
+      "runtime_note": "Crystal fibers on one thread, scheduled by the Crystal runtime's own event loop (epoll on Linux). There is no context object: the scheduler is the context.",
+      "platforms": [
+        "Linux",
+        "macOS"
+      ],
+      "bindings": "None; it is the implementation.",
+      "arena_tier": "headline + extended",
+      "notes": "Pure Crystal: no libzmq, no FFI, no shard with a C dependency for the protocol itself. Compiles to a native binary, so unlike the Ruby and Python siblings there is no interpreter inside the measured process. Requires Crystal >= 1.21; built --release --static because the project's own benchmarks are release builds. Two things the wrapper has to set that other targets get for free: linger, because omq.cr defaults it to zero and a PUSH that closes with the default drops the tail it has queued rather than draining it; and a periodic Fiber.yield in the endless publish loops, because Crystal fibers are cooperative and a send loop that never blocks never lets the socket's own IO fibers run.",
+      "source": "paddor/omq.cr README",
+      "source_urls": {
+        "socket_types": "https://github.com/paddor/omq.cr#highlights",
+        "transports": "https://github.com/paddor/omq.cr#highlights",
+        "security": "https://github.com/paddor/omq.cr#highlights"
+      }
+    },
+    {
       "id": "netmq",
       "label": "NetMQ",
       "language": "C#",

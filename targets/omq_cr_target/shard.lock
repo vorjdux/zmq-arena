@@ -1,0 +1,18 @@
+version: 2.0
+shards:
+  flint:
+    git: https://github.com/paddor/flint.git
+    version: 0.1.1
+
+  omq:
+    git: https://github.com/paddor/omq.cr.git
+    version: 0.2.0
+
+  xx_hash:
+    git: https://github.com/anykeyh/xxhash.cr.git
+    version: 0.1.0+git.commit.133aef6a904548d5fd4234116d60da2f7a0e9cd4
+
+  zinc:
+    git: https://github.com/paddor/zinc.cr.git
+    version: 0.2.1
+

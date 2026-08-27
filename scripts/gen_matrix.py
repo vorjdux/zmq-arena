@@ -206,6 +206,17 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # Pure Crystal: omq.cr speaks ZMTP itself, no libzmq and no FFI. Crystal
+        # compiles to a native binary, so unlike the Ruby and Python siblings
+        # there is no interpreter in the measured process.
+        "id": "omq_cr",
+        "rootfs": "targets/omq_cr_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000"},
+        "mp_knobs": {},
+        "kinds": ALL_FIVE,
+    },
+    {
         # Pure C#: NetMQ implements ZMTP in managed code with no libzmq beneath
         # it, so it is an implementation rather than a language binding.
         "id": "netmq",

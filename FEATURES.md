@@ -8,20 +8,20 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 ## Matrix
 
-| capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity | pyzmq | pyomq | omq.rb | NetMQ | JeroMQ |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 4.0.4.3 | 0.6.0 |
-| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | C# | Java |
-| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native |
-| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 11 | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 19 (12+7 draft) | 20 (12+8 draft) |
-| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc |
-| NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| PLAIN | declared | declared | declared | no | declared | declared | declared | unknown | declared | declared | unknown | no | declared |
-| CURVE | declared | declared | declared | no | declared | declared | partial | declared | declared | declared | unknown | declared | declared |
-| usable without an async runtime | yes | yes | no | no | yes | no | no | partial | yes | yes | yes | yes | yes |
-| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows |
-| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. | Is itself the Python binding to libzmq. | Is itself a Python binding, to the omq Rust core rather than to libzmq. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. |
-| benchmarked here | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline: latency, pubsub; extended | headline + extended | not benchmarked | headline + extended | headline + extended | headline + extended |
+| capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity | pyzmq | pyomq | omq.rb | omq.cr | NetMQ | JeroMQ |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 0.2.0 | 4.0.4.3 | 0.6.0 |
+| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | Crystal | C# | Java |
+| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native | native |
+| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 11 | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 20 (11+9 draft) | 19 (12+7 draft) | 20 (12+8 draft) |
+| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, udp | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc |
+| NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| PLAIN | declared | declared | declared | no | declared | declared | declared | unknown | declared | declared | unknown | declared | no | declared |
+| CURVE | declared | declared | declared | no | declared | declared | partial | declared | declared | declared | unknown | declared | declared | declared |
+| usable without an async runtime | yes | yes | no | no | yes | no | no | partial | yes | yes | yes | yes | yes | yes |
+| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS | Linux, macOS, Windows | Linux, macOS, Windows |
+| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. | Is itself the Python binding to libzmq. | Is itself a Python binding, to the omq Rust core rather than to libzmq. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. |
+| benchmarked here | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline: latency, pubsub; extended | headline + extended | not benchmarked | headline + extended | headline + extended | headline + extended | headline + extended |
 
 ## Notes
 
@@ -104,6 +104,14 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 - Runtime: Fibre-based and async-native. It also works outside a reactor, on a shared IO thread, which its README offers so simple scripts need no boilerplate -- but that path is roughly twenty-five times slower, so the arena drives it inside an Async reactor.
 - Pure Ruby: no libzmq, no FFI, no C extension for the protocol itself, which makes it the arena's first look at what an interpreted implementation costs. Requires Ruby >= 3.3. Measured with YJIT enabled and inside an Async reactor, which are the two configurations its README names as the fast path; the wrapper originally used neither, and read as forty times slower than a Python binding as a result. inproc is `ruby://` and aliased. Eleven standard plus eight draft, the draft ones bundled but behind an opt-in require. STREAM is not among them.
 - Source: zeromq/omq.rb README
+
+### omq.cr 0.2.0
+
+- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
+- Draft socket types: SERVER, CLIENT, RADIO, DISH, SCATTER, GATHER, PEER, CHANNEL, STREAM
+- Runtime: Crystal fibers on one thread, scheduled by the Crystal runtime's own event loop (epoll on Linux). There is no context object: the scheduler is the context.
+- Pure Crystal: no libzmq, no FFI, no shard with a C dependency for the protocol itself. Compiles to a native binary, so unlike the Ruby and Python siblings there is no interpreter inside the measured process. Requires Crystal >= 1.21; built --release --static because the project's own benchmarks are release builds. Two things the wrapper has to set that other targets get for free: linger, because omq.cr defaults it to zero and a PUSH that closes with the default drops the tail it has queued rather than draining it; and a periodic Fiber.yield in the endless publish loops, because Crystal fibers are cooperative and a send loop that never blocks never lets the socket's own IO fibers run.
+- Source: paddor/omq.cr README
 
 ### NetMQ 4.0.4.3
 
