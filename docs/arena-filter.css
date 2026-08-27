@@ -50,6 +50,7 @@
 .chipgroup { display:flex; align-items:center; gap:6px; flex-wrap:wrap; width:100%; }
 .chipgroup .gname { font-size:10px; text-transform:uppercase; letter-spacing:.7px;
   color:var(--muted); min-width:74px; text-align:right; opacity:.75; }
-.chip.pinned { cursor:default; opacity:1; }
+/* The baseline chip is now selectable like any other; only its tag is special. */
+.chip.pinned { opacity:1; }
 .chip.pinned .pin { font-size:9px; text-transform:uppercase; letter-spacing:.6px;
   color:var(--accent); margin-left:6px; }

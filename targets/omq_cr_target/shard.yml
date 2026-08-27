@@ -1,0 +1,16 @@
+name: omq-cr-target
+version: 0.0.0
+
+description: |
+  zmq-arena target wrapper for omq.cr, the pure-Crystal ZMTP implementation.
+
+crystal: ">= 1.21.0"
+
+targets:
+  target:
+    main: src/target.cr
+
+dependencies:
+  omq:
+    github: paddor/omq.cr
+    version: "~> 0.2.0"

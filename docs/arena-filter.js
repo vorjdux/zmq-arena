@@ -16,9 +16,12 @@
 
   const KEY = "zmq-arena.filter.v2";
 
-  // libzmq is the reference every ranking is a ratio to, so it is pinned rather
-  // than pickable: filtering to "just the Java ones" means Java beside libzmq,
-  // not a chart with no baseline on it.
+  // libzmq is the reference every ranking is a ratio to. It used to be pinned
+  // into every selection for that reason, but the ratios are computed from the
+  // full record set and only the displayed rows are filtered, so hiding libzmq
+  // costs nothing: someone comparing "just the Java ones" can keep the C++
+  // filter on to see the baseline, or drop it to read the Java rows alone.
+  // It is still tagged, because knowing what the ratios are against matters.
   const BASELINE = "libzmq";
 
   const FACETS = [
@@ -33,11 +36,6 @@
   ];
 
   const isBaseline = (key) => key === BASELINE;
-
-  function withBaseline(set, all) {
-    if (all.includes(BASELINE)) set.add(BASELINE);
-    return set;
-  }
 
   // State is the set of excluded facet values, not the resulting library list.
   // Storing the intent rather than its result means a stored filter still means
@@ -62,7 +60,7 @@
       const m = meta[k] || {};
       return FACETS.every((f) => !excluded(state, f.key, m[f.key]));
     });
-    return withBaseline(new Set(keep), all);
+    return new Set(keep);
   }
 
   function values(meta, all, facet) {
@@ -182,11 +180,11 @@
 
   /// The selection a stored filter implies, for a page that is just loading.
   function load(all, meta) {
-    return meta ? resolve(loadState(), meta, all) : withBaseline(new Set(all), all);
+    return meta ? resolve(loadState(), meta, all) : new Set(all);
   }
 
   // Kept so a page can still toggle one library without going through a facet.
   function save() { /* selection is derived from the filter; nothing to store */ }
 
-  global.ArenaFilter = { load, save, renderFilters, withBaseline, isBaseline, BASELINE, FACETS };
+  global.ArenaFilter = { load, save, renderFilters, isBaseline, BASELINE, FACETS };
 })(window);

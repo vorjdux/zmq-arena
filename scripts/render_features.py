@@ -95,7 +95,13 @@ def table(impls: list) -> str:
     # two Python rows share an engine when the pair exists to show they do not.
     row("implementation", lambda i: "native" if i["impl"] == "native"
         else f"FFI to {i['binds']}")
-    row("socket types", lambda i: str(len(i["socket_types"])) if not str(i["socket_types"][0]).startswith("declared") else "declared")
+    def socket_count(i):
+        if str(i["socket_types"][0]).startswith("declared"):
+            return "declared"
+        st, dr = len(i["socket_types"]), len(i.get("socket_types_draft") or [])
+        return f"{st + dr} ({st}+{dr} draft)" if dr else str(st)
+
+    row("socket types", socket_count)
     row("transports", lambda i: ", ".join(i["transports"]))
     row("NULL", lambda i: mark(i["security"]["null"]))
     row("PLAIN", lambda i: mark(i["security"]["plain"]))
@@ -146,6 +152,8 @@ def main():
     for i in impls:
         parts.append(f"### {i['label']} {i['version']}\n")
         parts.append(f"- Socket types: {', '.join(i['socket_types'])}")
+        if i.get("socket_types_draft"):
+            parts.append(f"- Draft socket types: {', '.join(i['socket_types_draft'])}")
         parts.append(f"- Runtime: {i['runtime_note']}")
         if i.get("notes"):
             parts.append(f"- {i['notes']}")

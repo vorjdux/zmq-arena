@@ -324,6 +324,26 @@
       "concurrency": "async"
     },
     {
+      "key": "omq_cr",
+      "label": "omq.cr (Crystal)",
+      "note": "pure Crystal, release build; the omq project's Crystal implementation",
+      "color": "#fda4af",
+      "color_light": "#86114a",
+      "engine": "omq.cr",
+      "family": "omq",
+      "language": "Crystal",
+      "impl": "native",
+      "io": "epoll",
+      "threading": "single",
+      "dash": [
+        4,
+        2,
+        8,
+        2
+      ],
+      "concurrency": "async"
+    },
+    {
       "key": "netmq",
       "label": "NetMQ (C#)",
       "note": "pure C#",

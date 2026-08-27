@@ -168,6 +168,12 @@
   .hrow { display:flex; align-items:baseline; gap:8px; padding:3px 0; }
   .hrow + .hrow { border-top:1px solid var(--line); }
   .hwhy { font-size:11.5px; color:var(--muted); }
+  /* Label column for the host facts, so the values line up under each other
+     instead of ragging off the end of labels of different lengths. */
+  .hkey { font-size:10px; text-transform:uppercase; letter-spacing:.6px;
+    color:var(--muted); flex:0 0 84px; }
+  .hdet-body .hwhy { color:var(--fg); }
+  .hdet-body .hwhy i { color:var(--muted); font-style:normal; }
   .ok-tag { color:var(--ok,#4ade80); border:1px solid currentColor; border-radius:4px;
     padding:0 5px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
   .warn-tag { color:var(--warn); border:1px solid var(--warn); border-radius:4px;
@@ -462,21 +468,55 @@ function runHeader(hw, run, cells, libs, runs, span){
     `${cells.toLocaleString()} cells`,
     `${libs} librar${libs === 1 ? "y" : "ies"}`,
     span || "",
-    hw.cpu ? `<code>${hw.cpu}</code>` : "unknown host",
+    hw.cpu ? `<code title="${hw.arch || ""}">${hw.cpu}</code>` : "unknown host",
+    // The machine alone does not say what a number was measured on: the same
+    // silicon on a different kernel is a different result, and io_uring and
+    // scheduler behaviour move underneath. The distro is the harness's, not the
+    // targets' -- each image target brings its own userspace -- but the kernel
+    // is shared by everything in the run.
+    hw.os ? `${hw.os}${hw.kernel ? `, kernel <code>${hw.kernel}</code>` : ""}`
+          : (hw.kernel ? `kernel <code>${hw.kernel}</code>` : ""),
     rep,
     applied && asked ? asked : "",
   ].filter(Boolean).join(" \u00b7 ");
 
-  if(!warn.length)
-    return `<span class="hline">${facts} \u00b7 <span class="ok-tag">admissible</span></span>`;
+  // Every host fact the archive carries, not just the two that fit on the line.
+  // A missing field reads "not recorded" rather than being dropped: an archive
+  // written before a field existed is a different thing from a machine that had
+  // nothing to report, and only saying so tells the two apart.
+  const gb = kb => kb ? `${(kb / 1048576).toFixed(1)} GiB` : null;
+  const yn = (v, y, n) => v === true ? y : v === false ? n : null;
+  // A value filled in after the fact is asserted, not sampled.
+  // scripts/backfill-host.py records which ones, and they are labelled below so
+  // nobody reads an asserted distro as something the run measured.
+  const filled = new Set(hw.backfilled || []);
+  const hostFacts = [
+    ["CPU",        "cpu",        hw.cpu, hw.cpu_count ? `${hw.cpu_count} logical` : null],
+    ["Arch",       "arch",       hw.arch],
+    ["OS",         "os",         hw.os],
+    ["Kernel",     "kernel",     hw.kernel],
+    ["Memory",     "memory",     gb(hw.memory_total_kb)],
+    ["Governor",   "governor",   hw.governor],
+    ["Turbo",      "turbo",      yn(hw.turbo, "enabled", "disabled")],
+    ["Bare metal", "virtualized", yn(hw.virtualized, "no, virtualised", "yes")],
+    ["Privileges", "root",       yn(hw.root, "root", "unprivileged")],
+  ].map(([label, key, v, extra]) =>
+    `<div class="hrow"><span class="hkey">${label}</span>` +
+    `<span class="hwhy">${v ? `${v}${extra ? ` &middot; ${extra}` : ""}` +
+                              `${filled.has(key) ? ` <i>(backfilled)</i>` : ""}`
+                            : "<i>not recorded</i>"}</span></div>`).join("");
 
   const rows = warn.map(([tag, why]) =>
     `<div class="hrow"><span class="warn-tag">${tag}</span>` +
     `${why ? `<span class="hwhy">${why}</span>` : ""}</div>`).join("");
+  // The disclosure is always there, so the full host description is one click
+  // away even on a run with nothing wrong with it.
+  const summary = warn.length
+    ? `<span class="warn-tag">${warn.length} caveat${warn.length > 1 ? "s" : ""}</span>`
+    : `<span class="ok-tag">admissible</span>`;
   return `<span class="hline">${facts}</span>` +
-    `<details class="hdet"><summary><span class="warn-tag">` +
-    `${warn.length} caveat${warn.length>1?"s":""}</span></summary>` +
-    `<div class="hdet-body">${rows}</div></details>`;
+    `<details class="hdet"><summary>${summary}</summary>` +
+    `<div class="hdet-body">${rows}${hostFacts}</div></details>`;
 }
 
 
@@ -657,13 +697,15 @@ function buildChips(){
 function buildChipsInto(box, list){
   for(const v of list){
     const c=document.createElement("span");
-    const pinned=ArenaFilter.isBaseline(v);
-    c.className="chip"+(selected.has(v)?" on":"")+(pinned?" pinned":""); c.dataset.v=v;
+    const base=ArenaFilter.isBaseline(v);
+    c.className="chip"+(selected.has(v)?" on":"")+(base?" pinned":""); c.dataset.v=v;
     const mv=VARMETA[v], ver=libVerLatest(v);
     c.innerHTML=`<span class="sw" style="background:${ENGINE_COLOR[mv.family||mv.engine]||"#888"}"></span>`+
       `${VARIANT_LABEL[v]||v}${ver?` <code>${ver}</code>`:""} <small>${mv.impl||mv.language}·${mv.concurrency||"-"}·${mv.io}·${mv.threading}</small>`;
-    if(pinned) c.innerHTML+=`<span class="pin" title="every ranking is a ratio to libzmq, so it is always shown">baseline</span>`;
-    else c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
+    // Tagged, not pinned. The rankings divide by libzmq whether or not it is on
+    // screen, so hiding it changes what you read, never what was computed.
+    if(base) c.innerHTML+=`<span class="pin" title="every ranking is a ratio to libzmq; hiding it changes the chart, not the maths">baseline</span>`;
+    c.addEventListener("click",()=>{ selected.has(v)?selected.delete(v):selected.add(v);
       c.classList.toggle("on"); updateCount(); render(); });
     box.appendChild(c);
   }
@@ -672,7 +714,7 @@ function updateCount(){
   const el2=el("vcount");
   if(el2) el2.textContent=`${selected.size} of ${VARIANTS.length} shown`;
 }
-function setSelected(vs){ selected=ArenaFilter.withBaseline(new Set(vs), VARIANTS);
+function setSelected(vs){ selected=new Set(vs);
   document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("on",selected.has(c.dataset.v)));
   updateCount(); render(); }
 // What is left after the facet bar took over the rest. Engine and kind moved

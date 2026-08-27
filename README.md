@@ -13,8 +13,8 @@ A benchmarking harness for ZMTP, the ZeroMQ wire protocol. It runs several
 implementations through the same isolated, instrumented conditions, so the
 comparison is about the implementations and not about the harness.
 
-Twenty series across eight families, in six languages: C++, Rust, Python,
-Ruby, C# and Java.
+Twenty-one series across eight families, in seven languages: C++, Rust,
+Python, Ruby, Crystal, C# and Java.
 
 Every runtime an engine ships is measured separately, because benchmarking a
 subset would mean choosing which of an engine's configurations may represent it.
@@ -116,9 +116,9 @@ Every target is built inside a pinned image and then executed **outside** any
 container. Those are two separate decisions and both matter.
 
 **Building in an image** is what keeps the machine that produces the numbers
-from drifting. Thirteen implementations across seven languages means a C++
-compiler, a Rust toolchain, a JDK, a .NET SDK, and Python, Ruby and Node
-runtimes. Installing all of that on the bench host is how one library quietly
+from drifting. Fourteen implementations across seven languages means a C++
+compiler, a Rust toolchain, a Crystal compiler, a JDK, a .NET SDK, and Python
+and Ruby runtimes. Installing all of that on the bench host is how one library quietly
 gets a newer compiler than it had last month. Each target directory carries a
 `Dockerfile`, and `make build` builds it.
 
@@ -219,6 +219,7 @@ libraries had been let into the extra cells.
 | `omq_tokio_target` | omq | Rust | implementation | mio/epoll, three execution models |
 | `pyzmq_target` | omq | Python | binding | the same wrapper, `--variant pyomq` |
 | `omq_rb_target` | omq | Ruby | implementation | fibres, pure Ruby |
+| `omq_cr_target` | omq | Crystal | implementation | fibres, pure Crystal, static binary |
 | `monocoque_target` | monocoque | Rust | implementation | io_uring or epoll, three runtimes |
 | `rzmq_target` | rzmq | Rust | implementation | epoll or io_uring |
 | `celerity_target` | celerity | Rust | implementation | tokio; REQ/REP and PUB/SUB only |

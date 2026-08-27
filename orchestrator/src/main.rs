@@ -344,9 +344,11 @@ fn run(args: &RunArgs) -> anyhow::Result<()> {
     std::fs::write(&host_path, serde_json::to_vec_pretty(&host)?)
         .with_context(|| format!("writing {}", host_path.display()))?;
     println!(
-        "zmq-arena: host {} ({} cpus, kernel {}){} -> {}",
+        "zmq-arena: host {} ({} cpus, {}) on {}, kernel {}{} -> {}",
         host.cpu,
         host.cpu_count,
+        host.arch,
+        host.os,
         host.kernel,
         if host.enforced {
             format!(" [{} enforced]", host::BENCH_HOST_ENV)
@@ -890,6 +892,29 @@ static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::n
 /// Build the command for a target, inside the run's network namespace when the
 /// cell asked for `tcp_netns` and one exists. Every target spawn goes through
 /// here so no path can quietly escape the isolation.
+/// Where the socket directory lives on the host, and the path the target will
+/// resolve. They differ for a target with a rootfs: it resolves the endpoint
+/// inside its chroot, so a directory created on the host is simply not there and
+/// bind fails with ENOENT. Create it where the target will look.
+///
+/// The guest path stays under /tmp rather than following TMPDIR, because /tmp is
+/// what exists inside an exported image and the 108-byte `sockaddr_un` cap
+/// leaves no room to be clever.
+fn ipc_paths(run_id: &str, rootfs: Option<&std::path::Path>) -> (PathBuf, PathBuf) {
+    rootfs.map_or_else(
+        || {
+            let d = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
+            (d.clone(), d)
+        },
+        |root| {
+            (
+                root.join(format!("tmp/zmq-arena-{run_id}")),
+                PathBuf::from(format!("/tmp/zmq-arena-{run_id}")),
+            )
+        },
+    )
+}
+
 /// Private directory for this run's unix sockets, created 0700.
 ///
 /// Sockets used to go straight into the shared temp dir. Two problems with
@@ -898,30 +923,6 @@ static NETNS: std::sync::OnceLock<Option<netns::NetNs>> = std::sync::OnceLock::n
 /// bind there at all, because the shared temp dir is world-writable. celerity
 /// does exactly that check and rejected every ipc cell. A directory owned by the
 /// run, readable only by it, satisfies both.
-///
-/// Kept under the temp dir rather than the scratch dir because a unix socket
-/// path is capped at 108 bytes and the scratch dir can be arbitrarily deep.
-/// Where the socket directory lives on the host, and the path the target will
-/// resolve. They differ for a target with a rootfs: it resolves the endpoint
-/// inside its chroot, so a directory created on the host is simply not there and
-/// bind fails with ENOENT. Create it where the target will look.
-///
-/// The guest path stays under /tmp rather than following TMPDIR, because /tmp is
-/// what exists inside an exported image and the 108-byte sockaddr_un cap leaves
-/// no room to be clever.
-fn ipc_paths(run_id: &str, rootfs: Option<&std::path::Path>) -> (PathBuf, PathBuf) {
-    match rootfs {
-        Some(root) => (
-            root.join(format!("tmp/zmq-arena-{run_id}")),
-            PathBuf::from(format!("/tmp/zmq-arena-{run_id}")),
-        ),
-        None => {
-            let d = std::env::temp_dir().join(format!("zmq-arena-{run_id}"));
-            (d.clone(), d)
-        }
-    }
-}
-
 fn prepare_ipc_dir(dir: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir).with_context(|| format!("creating ipc dir {}", dir.display()))?;
     #[cfg(unix)]
