@@ -20,6 +20,32 @@
     justify-content:space-between; gap:8px 24px; flex-wrap:wrap; }
   h1.logo { margin:0; line-height:0; flex:0 0 auto; }
   h1.logo img { height:104px; width:auto; max-width:100%; display:block; }
+  /* Column picker. Thirteen implementations side by side is a lot to read when
+     the question is usually about two or three of them, so the table narrows to
+     whatever is selected. Grouped by language, because that is how the choice is
+     usually framed ("the Rust ones", "what can I use from Python"). */
+  /* Same 24px gutter as .intro and main, so the bar lines up with the table it
+     filters instead of starting at the window edge. */
+  .picker { padding:16px 24px 2px; display:flex; flex-wrap:wrap; gap:8px 10px;
+    align-items:center; }
+  .picker .grp { display:flex; gap:5px; align-items:center; padding:3px 8px 3px 6px;
+    border:1px solid var(--line); border-radius:999px; }
+  .picker .glab { font-size:10px; text-transform:uppercase; letter-spacing:.6px;
+    color:var(--muted); padding-right:3px; }
+  .picker .pchip { cursor:pointer; user-select:none; font-size:12px; padding:3px 9px;
+    border-radius:999px; border:1px solid var(--line); background:var(--panel);
+    color:var(--muted); }
+  .picker .pchip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .picker .pact { cursor:pointer; font-size:11px; color:var(--accent); background:none;
+    border:none; padding:3px 5px; }
+  /* Kept in the flow next to the buttons it belongs with. Pushed to the far edge
+     with margin-left:auto it stranded itself a screen-width away from them, and
+     clipped once the row filled. */
+  .picker .pcount { font-size:11px; color:var(--muted); padding-left:2px; }
+  @media (max-width:640px){ .picker{ padding:12px 8px 2px; } }
+
+  /* The stable+draft breakdown next to a socket-type total. */
+  .dft { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
   .sub { color:var(--muted); flex:1 1 300px; text-align:right; min-width:0; }
   .sub code { color:var(--fg); }
   .topnav { display:flex; gap:2px; padding:0 24px; border-bottom:1px solid var(--line); }
@@ -148,6 +174,7 @@
 <div class="banner hidden" id="sampleBanner"></div>
 
 <div class="intro" id="intro"></div>
+<div class="picker" id="picker" hidden></div>
 <main id="main" hidden></main>
 <div class="err" id="err" hidden></div>
 <footer id="footer"></footer>
@@ -169,9 +196,16 @@ function cap(v){
   return `<span class="${cls}">${esc(v)}</span>`;
 }
 
+// Stable and draft counted separately. A single number made the libraries that
+// implement the draft types look narrower than libzmq when they are wider, since
+// only the stable set was ever counted. The draft half is dimmed because those
+// types are not yet stable in the RFC, not because they are less implemented.
 function socketCount(i){
   const first = String(i.socket_types[0] || "");
-  return first.startsWith("declared") ? cap("declared") : `${i.socket_types.length}`;
+  if(first.startsWith("declared")) return cap("declared");
+  const st = i.socket_types.length, dr = (i.socket_types_draft || []).length;
+  return dr ? `${st + dr} <span class="dft" title="${st} stable + ${dr} draft">${st}+${dr}</span>`
+            : `${st}`;
 }
 
 const ROWS = [
@@ -204,6 +238,8 @@ const ROWS = [
 function details(i){
   const rows = [
     ["Socket types", i.socket_types.join(", ")],
+    (i.socket_types_draft || []).length
+      ? ["Draft socket types", i.socket_types_draft.join(", ")] : null,
     ["Runtime", i.runtime_note],
     i.notes ? ["Notes", i.notes] : null,
     ["Source", i.source],
@@ -225,6 +261,59 @@ function matrix(impls){
   return h + `</tbody></table></div>`;
 }
 
+// Which columns are on. Stored as the set of HIDDEN ids, so a selection made
+// today still means the same thing after the arena gains an implementation:
+// storing the visible list would silently hide every new one.
+const PKEY = "zmq-arena.features.hidden.v1";
+let hidden = new Set();
+let ALL = [];
+
+function loadHidden(){
+  try { const r = JSON.parse(localStorage.getItem(PKEY)); if(Array.isArray(r)) return new Set(r); }
+  catch(e){ /* unavailable or corrupt storage: show everything */ }
+  return new Set();
+}
+function saveHidden(){
+  try { localStorage.setItem(PKEY, JSON.stringify([...hidden])); } catch(e){ /* private mode */ }
+}
+const shown = () => ALL.filter(i => !hidden.has(i.id));
+
+function renderPicker(){
+  const byLang = new Map();
+  for(const i of ALL){
+    if(!byLang.has(i.language)) byLang.set(i.language, []);
+    byLang.get(i.language).push(i);
+  }
+  let h = "";
+  for(const [lang, list] of byLang){
+    h += `<span class="grp"><span class="glab">${esc(lang)}</span>` +
+      list.map(i => `<span class="pchip${hidden.has(i.id) ? "" : " on"}" data-id="${esc(i.id)}">` +
+        `${esc(i.label)}</span>`).join("") + `</span>`;
+  }
+  h += `<button class="pact" data-act="all">all</button>` +
+       `<button class="pact" data-act="none">none</button>` +
+       `<span class="pcount">${shown().length} of ${ALL.length} shown</span>`;
+  const box = el("picker");
+  box.innerHTML = h;
+  box.hidden = false;
+  box.querySelectorAll(".pchip").forEach(c => c.addEventListener("click", () => {
+    const id = c.dataset.id;
+    if(hidden.has(id)) hidden.delete(id); else hidden.add(id);
+    // Never leave the table with no columns: the last one stays on.
+    if(!shown().length) hidden.delete(id);
+    saveHidden(); renderPicker(); renderMatrix();
+  }));
+  box.querySelectorAll(".pact").forEach(b => b.addEventListener("click", () => {
+    hidden = b.dataset.act === "all" ? new Set() : new Set(ALL.slice(1).map(i => i.id));
+    saveHidden(); renderPicker(); renderMatrix();
+  }));
+}
+
+function renderMatrix(){
+  el("main").innerHTML = matrix(shown());
+  el("main").hidden = false;
+}
+
 async function load(){
   const r = await fetch("features.json?_=" + Date.now(), {cache:"no-store"});
   if(!r.ok) throw new Error("features.json -> " + r.status);
@@ -242,8 +331,13 @@ async function load(){
     `project's claim and have not tested it. Edit <code>features.json</code> and run ` +
     `<code>scripts/render_features.py</code> to change it.`;
 
-  el("main").innerHTML = matrix(impls);
-  el("main").hidden = false;
+  ALL = impls;
+  hidden = loadHidden();
+  // An id that vanished from the data should not keep filtering.
+  for(const id of [...hidden]) if(!ALL.some(i => i.id === id)) hidden.delete(id);
+  if(!shown().length) hidden.clear();
+  renderPicker();
+  renderMatrix();
 }
 
 el("footer").innerHTML =

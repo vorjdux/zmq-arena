@@ -1,13 +1,14 @@
 {
-  "_comment": "Capability matrix for the implementations zmq-arena knows about. IMPORTANT: unlike everything else in this repo, these rows are CURATED, not measured. Each row records where it was read from and when. A capability the arena has not exercised is a claim by its project, not a result, and is marked accordingly. Regenerate FEATURES.md with: python3 scripts/render_features.py Each entry carries source_urls, so a capability claim points at the document it came from. A null there means the project documents nothing on that axis and the row is inherited or left unknown, rather than asserted by this repo.",
-  "verified_on": "2026-08-26",
+  "_comment": "Capability matrix for the implementations zmq-arena knows about. IMPORTANT: unlike everything else in this repo, these rows are CURATED, not measured. Each row records where it was read from and when. A capability the arena has not exercised is a claim by its project, not a result, and is marked accordingly. Regenerate FEATURES.md with: python3 scripts/render_features.py Each entry carries source_urls, so a capability claim points at the document it came from. A null there means the project documents nothing on that axis and the row is inherited or left unknown, rather than asserted by this repo. Socket types are split into stable and draft. Counting only the stable set made implementations that carry the draft types look narrower than libzmq when they are wider, which is the misreading this split exists to prevent.",
+  "verified_on": "2026-08-27",
   "legend": {
     "yes": "the project documents it and zmq-arena has exercised it",
     "declared": "the project documents it; zmq-arena does not exercise it",
     "no": "documented as absent, or absent from the API",
     "partial": "present with caveats, see the note",
     "unknown": "the project does not document it either way; not asserted here",
-    "binds": "for a binding, the engine it calls into"
+    "binds": "for a binding, the engine it calls into",
+    "draft": "a ZMTP draft socket type: implemented, but the type itself is not yet stable in the RFC"
   },
   "implementations": [
     {
@@ -60,7 +61,9 @@
         "socket_types": "https://github.com/zeromq/libzmq/blob/v4.3.5/doc/zmq_socket.txt",
         "transports": "https://github.com/zeromq/libzmq/blob/v4.3.5/doc/zmq_tcp.txt",
         "security": "https://github.com/zeromq/libzmq/blob/v4.3.5/doc/zmq_curve.txt"
-      }
+      },
+      "socket_types_draft": [],
+      "notes": "Ubuntu's libzmq3-dev/libzmq5 are built without the DRAFT API, so the nine draft socket types libzmq can be compiled with (SERVER, CLIENT, RADIO, DISH, SCATTER, GATHER, DGRAM, PEER, CHANNEL) are absent from the binary the arena measures. The count here is the build under test, not libzmq's ceiling."
     },
     {
       "id": "rust_zmq",
@@ -111,7 +114,8 @@
         "security": "https://docs.rs/zmq/0.10.0/zmq/enum.Mechanism.html"
       },
       "binds": "libzmq",
-      "notes": "zmq-sys 0.12 builds libzmq from source through zeromq-src and links it statically, so this target runs libzmq 4.3.4 even on a host with 4.3.5 installed, and LIBZMQ_PREFIX does not override it. That is what `cargo add zmq` gives you, so it is what is measured, and it means the libzmq family is not all on one engine version."
+      "notes": "zmq-sys 0.12 builds libzmq from source through zeromq-src and links it statically, so this target runs libzmq 4.3.4 even on a host with 4.3.5 installed, and LIBZMQ_PREFIX does not override it. That is what `cargo add zmq` gives you, so it is what is measured, and it means the libzmq family is not all on one engine version.",
+      "socket_types_draft": []
     },
     {
       "id": "tmq",
@@ -122,16 +126,12 @@
       "socket_types": [
         "REQ",
         "REP",
-        "DEALER",
-        "ROUTER",
         "PUB",
         "SUB",
-        "XPUB",
-        "XSUB",
+        "DEALER",
+        "ROUTER",
         "PUSH",
-        "PULL",
-        "PAIR",
-        "STREAM"
+        "PULL"
       ],
       "transports": [
         "tcp",
@@ -155,14 +155,15 @@
       ],
       "bindings": "Is itself an async Rust binding, layered on rust-zmq.",
       "arena_tier": "headline + extended",
-      "notes": "Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself. Layered on rust-zmq, so it inherits the vendored libzmq 4.3.4 rather than the system library.",
+      "notes": "Not an engine: an async facade over rust-zmq, which binds libzmq. Capability therefore follows the linked libzmq, and the series exists to isolate binding and async-wrapper overhead against the libzmq and rust-zmq targets. Socket construction matches the tmq peer in the omq.rs comparison harness, which sets no socket options. tmq documents neither transports nor security mechanisms of its own; both follow the linked libzmq, so nothing here is cited to tmq itself. Layered on rust-zmq, so it inherits the vendored libzmq 4.3.4 rather than the system library. tmq wraps only four pattern pairs of the libzmq underneath it; the rest of libzmq's socket types have no tmq API. Previously recorded as libzmq's full stable set, which credited tmq with sockets it does not expose.",
       "source": "cetra3/tmq README and crates.io; capability is the linked libzmq's",
       "source_urls": {
         "socket_types": "https://github.com/cetra3/tmq#currently-implemented-sockets",
         "transports": null,
         "security": null
       },
-      "binds": "libzmq"
+      "binds": "libzmq",
+      "socket_types_draft": []
     },
     {
       "id": "zeromq_rs",
@@ -178,6 +179,7 @@
         "PUB",
         "SUB",
         "XPUB",
+        "XSUB",
         "PUSH",
         "PULL"
       ],
@@ -199,13 +201,14 @@
       ],
       "bindings": "None.",
       "arena_tier": "headline",
-      "notes": "Its PUSH/PULL does not multiplex several peers on the bound side, so it cannot fan out or fan in. The project's own README opens by stating it does not implement all of ZeroMQ's feature set. All three of its runtimes are benchmarked as separate variants. inproc is recorded as absent rather than undocumented: it appears neither in the README's transport list nor among the crate's transport features.",
+      "notes": "Its PUSH/PULL does not multiplex several peers on the bound side, so it cannot fan out or fan in. The project's own README opens by stating it does not implement all of ZeroMQ's feature set. All three of its runtimes are benchmarked as separate variants. inproc is recorded as absent rather than undocumented: it appears neither in the README's transport list nor among the crate's transport features. XSUB was missing from the earlier count; the README lists it alongside XPUB.",
       "source": "zeromq/zmq.rs README",
       "source_urls": {
         "socket_types": "https://github.com/zeromq/zmq.rs#current-status",
         "transports": "https://github.com/zeromq/zmq.rs#current-status",
         "security": null
-      }
+      },
+      "socket_types_draft": []
     },
     {
       "id": "omq_tokio",
@@ -224,7 +227,8 @@
         "XSUB",
         "PUSH",
         "PULL",
-        "PAIR"
+        "PAIR",
+        "STREAM"
       ],
       "transports": [
         "tcp",
@@ -250,13 +254,23 @@
       ],
       "bindings": "C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby.",
       "arena_tier": "headline",
-      "notes": "All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set. Bindings list corrected by the OMQ maintainer. OMQ.ts targets the browser over ZWS, which is outside a native-transport comparison and is not benchmarked here.",
+      "notes": "All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set. Bindings list corrected by the OMQ maintainer. OMQ.ts targets the browser over ZWS, which is outside a native-transport comparison and is not benchmarked here. docs.rs states \"All 20 ZMTP socket types\". Only the stable subset was counted before, which understated omq against libzmq.",
       "source": "paddor/omq.rs README (8 stable transports; NULL/PLAIN/CURVE)",
       "source_urls": {
         "socket_types": "https://docs.rs/omq-tokio/latest/omq_tokio/enum.SocketType.html",
         "transports": "https://github.com/paddor/omq.rs#readme",
         "security": "https://github.com/paddor/omq.rs#cargo-features"
-      }
+      },
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL"
+      ]
     },
     {
       "id": "monocoque",
@@ -275,8 +289,7 @@
         "XSUB",
         "PUSH",
         "PULL",
-        "PAIR",
-        "STREAM"
+        "PAIR"
       ],
       "transports": [
         "tcp",
@@ -295,13 +308,14 @@
       ],
       "bindings": "None.",
       "arena_tier": "headline + extended",
-      "notes": "All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 0.4.0 replaced the CURVE message cipher with the real RFC-26 construction and verified live interop against a CURVE-enabled libzmq, so CURVE moved from present-but-broken to working. PUB is the one socket that takes no SocketOptions: its broadcast path ignores buffer sizes and write coalescing, so only its worker count can be tuned.",
+      "notes": "All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 0.4.0 replaced the CURVE message cipher with the real RFC-26 construction and verified live interop against a CURVE-enabled libzmq, so CURVE moved from present-but-broken to working. PUB is the one socket that takes no SocketOptions: its broadcast path ignores buffer sizes and write coalescing, so only its worker count can be tuned. COMPATIBILITY.md lists eleven and does not include STREAM, which the earlier count credited it with.",
       "source": "vorjdux/monocoque README and CHANGELOG 0.4.0",
       "source_urls": {
         "socket_types": "https://github.com/vorjdux/monocoque/blob/main/docs/COMPATIBILITY.md",
         "transports": "https://github.com/vorjdux/monocoque#features",
         "security": "https://github.com/vorjdux/monocoque/blob/main/docs/COMPATIBILITY.md"
-      }
+      },
+      "socket_types_draft": []
     },
     {
       "id": "rzmq",
@@ -312,12 +326,12 @@
       "socket_types": [
         "REQ",
         "REP",
-        "DEALER",
-        "ROUTER",
         "PUB",
         "SUB",
         "PUSH",
-        "PULL"
+        "PULL",
+        "DEALER",
+        "ROUTER"
       ],
       "transports": [
         "tcp",
@@ -342,7 +356,8 @@
         "socket_types": "https://github.com/excsn/rzmq/blob/main/core/README.md#supported-socket-types",
         "transports": "https://github.com/excsn/rzmq/blob/main/core/README.md",
         "security": "https://github.com/excsn/rzmq/blob/main/core/API_REFERENCE.md#11-security-model"
-      }
+      },
+      "socket_types_draft": []
     },
     {
       "id": "celerity",
@@ -374,13 +389,14 @@
       ],
       "bindings": "None.",
       "arena_tier": "latency and pub/sub only",
-      "notes": "celerity 0.1.1 has no pipeline pattern: the crate ships PubCore, SubCore, ReqCore and RepCore and no PUSH/PULL, so throughput, fan-out and fan-in have nothing to drive and are not scheduled. The wrapper rejects them rather than substituting a different pattern. Re-checked against the project's own docs on 2026-08-26: ipc is available behind an `ipc` feature, and PLAIN is not mentioned anywhere in the README or FEATURES.md, so it is recorded as undocumented rather than as supported.",
+      "notes": "celerity 0.1.1 has no pipeline pattern: the crate ships PubCore, SubCore, ReqCore and RepCore and no PUSH/PULL, so throughput, fan-out and fan-in have nothing to drive and are not scheduled. The wrapper rejects them rather than substituting a different pattern. Re-checked against the project's own docs on 2026-08-26: ipc is available behind an `ipc` feature, and PLAIN is not mentioned anywhere in the README or FEATURES.md, so it is recorded as undocumented rather than as supported. Sourced from the README. The FEATURES.md cited before is a self-described brainstorming backlog, \"intentionally not a promise\", so the socket types in it are aspirations rather than support.",
       "source": "crates.io/celerity; socket loop verified against the running engine",
       "source_urls": {
-        "socket_types": "https://github.com/ShemShadrack/celerity/blob/master/FEATURES.md",
+        "socket_types": "https://github.com/ShemShadrack/celerity#readme",
         "transports": "https://github.com/ShemShadrack/celerity#feature-flags",
         "security": "https://github.com/ShemShadrack/celerity#feature-flags"
-      }
+      },
+      "socket_types_draft": []
     },
     {
       "id": "pyzmq",
@@ -424,14 +440,15 @@
       ],
       "bindings": "Is itself the Python binding to libzmq.",
       "arena_tier": "headline + extended",
-      "notes": "A binding, not an implementation: the engine is the same libzmq the C++ target runs, so its numbers answer what ZeroMQ costs from Python rather than how good a ZMTP implementation it is. Capability follows the linked libzmq; the wheels bundle their own build.",
+      "notes": "A binding, not an implementation: the engine is the same libzmq the C++ target runs, so its numbers answer what ZeroMQ costs from Python rather than how good a ZMTP implementation it is. Capability follows the linked libzmq; the wheels bundle their own build. pyzmq exposes whatever the linked libzmq has; the arena links Ubuntu's build, which carries no draft types.",
       "source": "pyzmq API docs (constants re-exported from libzmq); capability is the linked libzmq's",
       "source_urls": {
         "socket_types": "https://pyzmq.readthedocs.io/en/latest/api/zmq.html",
         "transports": "https://github.com/zeromq/libzmq/blob/v4.3.5/doc/zmq_tcp.txt",
         "security": "https://pyzmq.readthedocs.io/en/latest/api/zmq.auth.html"
       },
-      "binds": "libzmq"
+      "binds": "libzmq",
+      "socket_types_draft": []
     },
     {
       "id": "pyomq",
@@ -450,7 +467,8 @@
         "XSUB",
         "PUSH",
         "PULL",
-        "PAIR"
+        "PAIR",
+        "STREAM"
       ],
       "transports": [
         "tcp",
@@ -472,14 +490,24 @@
       ],
       "bindings": "Is itself a Python binding, to the omq Rust core rather than to libzmq.",
       "arena_tier": "headline + extended",
-      "notes": "Presented as a drop-in pyzmq replacement, which is what makes the pair useful: identical Python and identical socket calls, libzmq under one and omq's Rust core under the other, so the difference is the engine alone. Its udp support is RADIO/DISH only.",
+      "notes": "Presented as a drop-in pyzmq replacement, which is what makes the pair useful: identical Python and identical socket calls, libzmq under one and omq's Rust core under the other, so the difference is the engine alone. Its udp support is RADIO/DISH only. The README states \"all 20 ZMTP socket types\" and enumerates both sets.",
       "source": "pyomq README in the omq.rs tree",
       "source_urls": {
         "socket_types": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#highlights",
         "transports": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#highlights",
         "security": "https://github.com/paddor/omq.rs/blob/main/bindings/pyomq/README.md#curve-authentication"
       },
-      "binds": "omq"
+      "binds": "omq",
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL"
+      ]
     },
     {
       "id": "omq_rb",
@@ -519,13 +547,23 @@
       ],
       "bindings": "None; it is the implementation.",
       "arena_tier": "headline + extended",
-      "notes": "Pure Ruby: no libzmq, no FFI, no C extension for the protocol itself, which makes it the arena's first look at what an interpreted implementation costs. Requires Ruby >= 3.3. Measured with YJIT enabled and inside an Async reactor, which are the two configurations its README names as the fast path; the wrapper originally used neither, and read as forty times slower than a Python binding as a result. inproc is `ruby://` and aliased.",
+      "notes": "Pure Ruby: no libzmq, no FFI, no C extension for the protocol itself, which makes it the arena's first look at what an interpreted implementation costs. Requires Ruby >= 3.3. Measured with YJIT enabled and inside an Async reactor, which are the two configurations its README names as the fast path; the wrapper originally used neither, and read as forty times slower than a Python binding as a result. inproc is `ruby://` and aliased. Eleven standard plus eight draft, the draft ones bundled but behind an opt-in require. STREAM is not among them.",
       "source": "zeromq/omq.rb README",
       "source_urls": {
         "socket_types": "https://github.com/zeromq/omq.rb#socket-types",
         "transports": "https://github.com/zeromq/omq.rb#highlights",
         "security": null
-      }
+      },
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL"
+      ]
     },
     {
       "id": "netmq",
@@ -568,13 +606,22 @@
       ],
       "bindings": "None; it is the implementation.",
       "arena_tier": "headline + extended",
-      "notes": "Pure C#, no libzmq: its README calls it \"a 100% native C# port\" of ZeroMQ, so like JeroMQ it reimplements the protocol rather than binding it. PLAIN is recorded as absent on the evidence of the source tree rather than the docs: src/NetMQ/Core/Mechanisms contains only Null and Curve mechanisms. The prose transport page is also stale, listing neither IPC nor UDP while both exist in the source, so the transport row is cited to the source tree.",
+      "notes": "Pure C#, no libzmq: its README calls it \"a 100% native C# port\" of ZeroMQ, so like JeroMQ it reimplements the protocol rather than binding it. PLAIN is recorded as absent on the evidence of the source tree rather than the docs: src/NetMQ/Core/Mechanisms contains only Null and Curve mechanisms. The prose transport page is also stale, listing neither IPC nor UDP while both exist in the source, so the transport row is cited to the source tree. Nineteen socket classes ship in src/NetMQ/Sockets; CHANNEL is the one draft type NetMQ does not have.",
       "source": "NetMQ docs and source tree; the docs and the tree disagree, see notes",
       "source_urls": {
-        "socket_types": "https://netmq.readthedocs.io/en/latest/introduction/",
+        "socket_types": "https://github.com/zeromq/netmq/tree/master/src/NetMQ/Sockets",
         "transports": "https://github.com/zeromq/netmq/tree/master/src/NetMQ/Core/Transports",
         "security": "https://github.com/zeromq/netmq/tree/master/src/NetMQ/Core/Mechanisms"
-      }
+      },
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER"
+      ]
     },
     {
       "id": "jeromq",
@@ -593,7 +640,8 @@
         "XSUB",
         "PUSH",
         "PULL",
-        "PAIR"
+        "PAIR",
+        "STREAM"
       ],
       "transports": [
         "tcp",
@@ -614,13 +662,23 @@
       ],
       "bindings": "None; it is the implementation.",
       "arena_tier": "headline + extended",
-      "notes": "Pure Java, no JNI and no libzmq: its own README calls it a \"pure Java implementation of libzmq\", based on libzmq 4.1.7, so it tracks libzmq's behaviour without running any of its code. Pure Java, no JNI and no libzmq. Its ipc:// is emulated over tcp://127.0.0.1 and interoperates only with other JeroMQ peers, so an ipc cell measures a loopback TCP socket rather than a unix socket and is not comparable with the other targets' ipc numbers. 0.6.0 is from February 2024 and the project has been quiet since; the version travels with every record so a reader can weigh that.",
+      "notes": "Pure Java, no JNI and no libzmq: its own README calls it a \"pure Java implementation of libzmq\", based on libzmq 4.1.7, so it tracks libzmq's behaviour without running any of its code. Pure Java, no JNI and no libzmq. Its ipc:// is emulated over tcp://127.0.0.1 and interoperates only with other JeroMQ peers, so an ipc cell measures a loopback TCP socket rather than a unix socket and is not comparable with the other targets' ipc numbers. 0.6.0 is from February 2024 and the project has been quiet since; the version travels with every record so a reader can weigh that. The v0.6.0 SocketType enum carries 21 constants: the twelve stable, the eight draft, and JeroMQ's own RAW, which is not a ZMTP type and is not counted here.",
       "source": "zeromq/jeromq README, Features and Unsupported sections",
       "source_urls": {
-        "socket_types": "https://github.com/zeromq/jeromq#features",
+        "socket_types": "https://github.com/zeromq/jeromq/blob/v0.6.0/src/main/java/org/zeromq/SocketType.java",
         "transports": "https://github.com/zeromq/jeromq#features",
         "security": "https://github.com/zeromq/jeromq#features"
-      }
+      },
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL"
+      ]
     }
   ]
 }
