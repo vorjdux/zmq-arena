@@ -9,7 +9,8 @@
     "rzmq": "#22c55e",
     "celerity": "#ec4899",
     "netmq": "#38bdf8",
-    "jeromq": "#fb923c"
+    "jeromq": "#fb923c",
+    "zmq-rs": "#a3e635"
   },
   "_engines_note": "Engine hue, used where a swatch identifies the engine rather than the exact series (the ranking and table pages). Per-variant colours below are shades of their engine's hue, so one engine's runtimes read as a family.",
   "variants": [
@@ -374,6 +375,22 @@
       "dash": null,
       "derived_from": "libzmq",
       "concurrency": "sync"
+    },
+    {
+      "key": "zmq_rs",
+      "label": "zmq-rs (trevorbernard)",
+      "note": "pure Rust, blocking",
+      "color": "#a3e635",
+      "color_light": "#4d7c0f",
+      "engine": "zmq-rs",
+      "family": "zmq-rs",
+      "language": "Rust",
+      "impl": "native",
+      "io": "epoll",
+      "threading": "native",
+      "dash": null,
+      "derived_from": "libzmq",
+      "concurrency": "sync"
     }
   ],
   "_dash_note": "Line dash pattern, as an ECharts lineStyle.type array; null is solid. Colour alone could not separate three runtimes of one engine: the shades within a family are deliberately close, which is what makes the family readable and the members hard to tell apart. Dash carries the runtime so hue can keep carrying the engine.",
@@ -386,6 +403,7 @@
     "rzmq": "#178640",
     "celerity": "#e0177a",
     "netmq": "#075985",
-    "jeromq": "#9a3412"
+    "jeromq": "#9a3412",
+    "zmq-rs": "#4d7c0f"
   }
 }

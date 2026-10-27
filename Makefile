@@ -41,7 +41,8 @@ IMAGES = libzmq:libzmq_cpp_target monocoque:monocoque_target \
          rzmq:rzmq_target celerity:celerity_target \
          rust_zmq:rust_zmq_target tmq:tmq_target \
          pyzmq:pyzmq_target omq_rb:omq_rb_target omq_cr:omq_cr_target \
-         netmq:netmq_target jeromq:jeromq_target
+         netmq:netmq_target jeromq:jeromq_target \
+         zmq_rs:zmq_rs_target
 
 images:                   ## build and export every target image
 	@for pair in $(IMAGES); do \
@@ -91,7 +92,7 @@ clean:                    ## remove scratch and all build artifacts
 		targets/zeromq_rs_target/target-async-dispatcher \
 		targets/rust_zmq_target/target targets/tmq_target/target \
 		targets/rzmq_target/target targets/celerity_target/target \
-		targets/omq_tokio_target/target
+		targets/omq_tokio_target/target targets/zmq_rs_target/target
 
 help:                     ## list these targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) \

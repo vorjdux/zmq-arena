@@ -117,6 +117,7 @@ the same binary in different runtime modes.
 | `omq_tokio` | omq_tokio_target | omq | mio/epoll | current-thread | `--variant default` |
 | `omq_tokio_mt` | omq_tokio_target | omq | mio/epoll | multi-thread | `--variant multi_thread` |
 | `omq_blocking` | omq_tokio_target | omq | mio/epoll | sync API, omq-owned IO threads | `--variant blocking` |
+| `zmq_rs` | zmq_rs_target | zmq-rs | mio/epoll | sync API, zmq-rs-owned IO threads | single variant |
 | `monocoque` | monocoque_target | monocoque | io_uring (compio) | thread-per-core | default build |
 | `monocoque_tokio` | monocoque_target | monocoque | epoll (tokio) | thread-per-core | separate build, see below |
 | `monocoque_smol` | monocoque_target | monocoque | epoll (smol) | thread-per-core | separate build, see below |

@@ -1,0 +1,48 @@
+# Standalone project. NOT a member of the orchestrator workspace.
+# Build: `cd targets/zmq_rs_target && cargo build --release`.
+#
+# Engine: zmq-rs (trevorbernard/zmq-rs), a pure-Rust port of libzmq: its own
+# mio/epoll IO threads, a blocking API, no async runtime. Not zmq.rs
+# (zeromq/zmq.rs, zeromq_rs_target), which is a different engine.
+#
+# Pinned to a git rev because the crate is unpublished (`publish = false`). A
+# branch would float to whatever main is at resolve time, so two grid runs could
+# measure two engines with the lockfile as the only record of which.
+[workspace]
+
+[package]
+name = "zmq-rs-target"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "zmq-arena target wrapper: zmq-rs (pure-Rust libzmq port, blocking API)."
+
+[[bin]]
+name = "zmq-rs-target"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+zmq = { git = "https://github.com/trevorbernard/zmq-rs", rev = "bb3c52cb4cc3915665fc81c94ca659caafea411b" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Strict lints, matching the control plane's policy in the root Cargo.toml. A
+# target is measured code: a subtle mistake here shows up as a benchmark number
+# rather than a crash, so it gets the same scrutiny as the harness. The allows
+# are the same justified set (numeric conversions between counters, byte sizes
+# and f64; benchmark vocabulary that is genuinely repetitive).
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"

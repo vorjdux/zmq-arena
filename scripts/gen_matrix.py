@@ -238,6 +238,18 @@ TARGETS = [
         "kinds": ALL_FIVE,
     },
     {
+        # Pure Rust: zmq-rs (trevorbernard/zmq-rs) is a port of libzmq with its
+        # own IO threads and a blocking API, no async runtime. Not zmq.rs, which
+        # is the zeromq_rs entries below. It ships one execution model, so one
+        # series; knobs as libzmq's because it takes the same ones.
+        "id": "zmq_rs",
+        "rootfs": "targets/zmq_rs_target/rootfs",
+        "binary": "/app/target",
+        "count_knobs": {"sndhwm": "1000", "rcvhwm": "1000", "io_threads": "1"},
+        "mp_knobs": {"io_threads": "1"},
+        "kinds": ALL_FIVE,
+    },
+    {
         # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only        # celerity implements PUB/SUB and REQ/REP only: the crate has no
         # pipeline core, so there is no PUSH/PULL to drive and the pipeline
         # kinds are simply not scheduled for it.

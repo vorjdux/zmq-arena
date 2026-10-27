@@ -1,0 +1,6 @@
+# zmq-rs requires Rust 1.99 (its workspace rust-version) and pins 1.99.1 in its
+# own rust-toolchain.toml. Independent pin; the orchestrator's toolchain does not
+# apply (not a workspace member).
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"

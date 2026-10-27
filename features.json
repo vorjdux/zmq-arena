@@ -736,6 +736,61 @@
         "PEER",
         "CHANNEL"
       ]
+    },
+    {
+      "id": "zmq_rs",
+      "label": "zmq-rs (trevorbernard)",
+      "language": "Rust",
+      "impl": "native",
+      "version": "0.1.0-dev (bb3c52c)",
+      "socket_types": [
+        "REQ",
+        "REP",
+        "DEALER",
+        "ROUTER",
+        "PUB",
+        "SUB",
+        "XPUB",
+        "XSUB",
+        "PUSH",
+        "PULL",
+        "PAIR"
+      ],
+      "transports": [
+        "tcp",
+        "ipc",
+        "inproc"
+      ],
+      "security": {
+        "null": "yes",
+        "plain": "declared",
+        "curve": "declared"
+      },
+      "runtime_free": "yes",
+      "runtime_note": "Blocking API over zmq-rs's own mio IO threads; the _async methods poll the same functions under any executor the caller brings, so no runtime is required.",
+      "platforms": [
+        "Linux",
+        "macOS"
+      ],
+      "bindings": "None; it is the implementation.",
+      "arena_tier": "headline + extended",
+      "notes": "Pure Rust, no libzmq and no FFI: its README calls it a \"Rust port of libzmq\" and tests it against libzmq 4.3.5, 3.2 and 2.2 on the wire. Not zmq.rs (zeromq/zmq.rs), which is a separate engine. Unpublished on crates.io, so the arena pins a git rev and records the commit with the version. Every libzmq socket type but STREAM; the eight draft types sit behind its `draft` feature, which the arena does not enable. Platforms are the ones its CI and benchmarks run on; Windows is not documented either way.",
+      "source": "trevorbernard/zmq-rs README and docs/rfc-compliance.md",
+      "source_urls": {
+        "socket_types": "https://github.com/trevorbernard/zmq-rs/blob/bb3c52cb4cc3915665fc81c94ca659caafea411b/crates/zmq/src/lib.rs",
+        "transports": "https://github.com/trevorbernard/zmq-rs/blob/bb3c52cb4cc3915665fc81c94ca659caafea411b/README.md",
+        "security": "https://github.com/trevorbernard/zmq-rs/blob/bb3c52cb4cc3915665fc81c94ca659caafea411b/docs/rfc-compliance.md"
+      },
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "PEER",
+        "CHANNEL"
+      ]
     }
   ]
 }
