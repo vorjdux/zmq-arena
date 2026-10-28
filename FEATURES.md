@@ -8,20 +8,20 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 ## Matrix
 
-| capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity | pyzmq | pyomq | omq.rb | omq.cr | NetMQ | JeroMQ |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 0.2.0 | 4.0.4.3 | 0.6.0 |
-| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | Crystal | C# | Java |
-| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native | native |
-| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 11 | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 20 (11+9 draft) | 19 (12+7 draft) | 20 (12+8 draft) |
-| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, udp | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc |
-| NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| PLAIN | declared | declared | declared | no | declared | declared | declared | unknown | declared | declared | unknown | declared | no | declared |
-| CURVE | declared | declared | declared | no | declared | declared | partial | declared | declared | declared | unknown | declared | declared | declared |
-| usable without an async runtime | yes | yes | no | no | yes | no | no | partial | yes | yes | yes | yes | yes | yes |
-| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS | Linux, macOS, Windows | Linux, macOS, Windows |
-| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. | Is itself the Python binding to libzmq. | Is itself a Python binding, to the omq Rust core rather than to libzmq. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. |
-| benchmarked here | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline: latency, pubsub; extended | headline + extended | not benchmarked | headline + extended | headline + extended | headline + extended | headline + extended |
+| capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity | pyzmq | pyomq | omq.rb | omq.cr | NetMQ | JeroMQ | zmq-rs (trevorbernard) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 0.2.0 | 4.0.4.3 | 0.6.0 | 0.1.0-dev (bb3c52c) |
+| language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | Crystal | C# | Java | Rust |
+| implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native | native | native |
+| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 11 | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 20 (11+9 draft) | 19 (12+7 draft) | 20 (12+8 draft) | 19 (11+8 draft) |
+| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, udp | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc | tcp, ipc, inproc |
+| NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| PLAIN | declared | declared | declared | no | declared | declared | declared | unknown | declared | declared | unknown | declared | no | declared | declared |
+| CURVE | declared | declared | declared | no | declared | declared | partial | declared | declared | declared | unknown | declared | declared | declared | declared |
+| usable without an async runtime | yes | yes | no | no | yes | no | no | partial | yes | yes | yes | yes | yes | yes | yes |
+| platforms | Linux, macOS, Windows, BSD | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows (tcp only; ipc is unix-only) | Linux, macOS, Windows | Linux (io_uring, 5.6+ for the compio backend), portable via the tokio/smol backends | Linux | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS | Linux, macOS, Windows | Linux, macOS, Windows | Linux, macOS |
+| bindings | Reference implementation; bindings exist for most languages. | Is itself the Rust binding to libzmq. | Is itself an async Rust binding, layered on rust-zmq. | None. | C/C++ ABI, .NET, Go, Java, Lua, Node, Python, Ruby. | None. | None. | None. | Is itself the Python binding to libzmq. | Is itself a Python binding, to the omq Rust core rather than to libzmq. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. | None; it is the implementation. |
+| benchmarked here | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended | headline: latency, pubsub; extended | headline + extended | not benchmarked | headline + extended | headline + extended | headline + extended | headline + extended | headline + extended |
 
 ## Notes
 
@@ -128,4 +128,12 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 - Runtime: Synchronous API over JeroMQ's own IO threads; no async framework required.
 - Pure Java, no JNI and no libzmq: its own README calls it a "pure Java implementation of libzmq", based on libzmq 4.1.7, so it tracks libzmq's behaviour without running any of its code. Pure Java, no JNI and no libzmq. Its ipc:// is emulated over tcp://127.0.0.1 and interoperates only with other JeroMQ peers, so an ipc cell measures a loopback TCP socket rather than a unix socket and is not comparable with the other targets' ipc numbers. 0.6.0 is from February 2024 and the project has been quiet since; the version travels with every record so a reader can weigh that. The v0.6.0 SocketType enum carries 21 constants: the twelve stable, the eight draft, and JeroMQ's own RAW, which is not a ZMTP type and is not counted here.
 - Source: zeromq/jeromq README, Features and Unsupported sections
+
+### zmq-rs (trevorbernard) 0.1.0-dev (bb3c52c)
+
+- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
+- Draft socket types: SERVER, CLIENT, RADIO, DISH, SCATTER, GATHER, PEER, CHANNEL
+- Runtime: Blocking API over zmq-rs's own mio IO threads; the _async methods poll the same functions under any executor the caller brings, so no runtime is required.
+- Pure Rust, no libzmq and no FFI: its README calls it a "Rust port of libzmq" and tests it against libzmq 4.3.5, 3.2 and 2.2 on the wire. Not zmq.rs (zeromq/zmq.rs), which is a separate engine. Unpublished on crates.io, so the arena pins a git rev and records the commit with the version. Every libzmq socket type but STREAM; the eight draft types sit behind its `draft` feature, which the arena does not enable. Platforms are the ones its CI and benchmarks run on; Windows is not documented either way.
+- Source: trevorbernard/zmq-rs README and docs/rfc-compliance.md
 

@@ -225,6 +225,7 @@ libraries had been let into the extra cells.
 | `celerity_target` | celerity | Rust | implementation | tokio; REQ/REP and PUB/SUB only |
 | `netmq_target` | netmq | C# | implementation | epoll, a port of libzmq |
 | `jeromq_target` | jeromq | Java | implementation | epoll, a port of libzmq |
+| `zmq_rs_target` | zmq-rs | Rust | implementation | mio/epoll, a port of libzmq, blocking API |
 
 An **implementation** speaks ZMTP itself. A **binding** calls into someone
 else's engine, so its row answers what a language costs rather than how good an
