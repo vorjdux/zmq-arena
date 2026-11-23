@@ -248,6 +248,32 @@ fn bulk_recv_opts() -> SocketOptions {
 /// the default.
 const FAN_IN_HWM: usize = 64;
 
+/// Body size from which the multi-peer senders (PUB, and PUSH in fan-out) hand
+/// the payload to the kernel as an iovec instead of copying it into the send
+/// buffer. The engine's default is 16 KiB.
+///
+/// A PUB copies a smaller body once per subscriber, so at 4 KiB and 32
+/// subscribers the copies were most of the publisher's work. With 4 KiB against
+/// the default, at a 4 KiB payload:
+///
+/// | kind      | compio      | tokio       | smol        |
+/// |-----------|-------------|-------------|-------------|
+/// | PUB/SUB   | 1.06 → 1.39 | 1.22 → 1.67 | 1.15 → 1.44 |
+/// | fan-out   | 1.21 → 1.60 | 1.73 → 1.66 | 1.18 → 1.19 |
+/// | PUSH/PULL | 2.22 → 2.08 | 2.06 → 2.04 | 1.99 → 1.91 |
+///
+/// (M msg/s.) PUB at 64 B, 1 KiB and 16 KiB was within spread of the default
+/// on all three runtimes, and 2 KiB did no better than 4 KiB. At 1 KiB a
+/// 1 KiB threshold cost tokio's PUB a third (4.9 M against 3.2 M), so it goes
+/// no lower. The single-peer PUSH keeps the default because compio lost 7%
+/// there, and fan-in keeps it because nothing moved.
+const MULTI_PEER_VECTORED_BYTES: usize = 4096;
+
+/// [`bulk_send_opts`] for a sender with several peers.
+fn multi_peer_send_opts() -> SocketOptions {
+    bulk_send_opts().with_vectored_write_threshold(MULTI_PEER_VECTORED_BYTES)
+}
+
 /// Request/reply profile. Coalescing is off by default and stated here for the
 /// intent: a request has to leave as soon as it is sent. A 4 KiB read buffer,
 /// the "low latency" setting, left p50 where it was (5.4 against 5.5 µs at
@@ -368,7 +394,7 @@ impl Run {
     /// Each SUB counts for `duration` from its first message.
     async fn pubsub(self) -> Result<()> {
         if self.role == Role::Pub {
-            let mut publisher = PubSocket::with_options(bulk_send_opts());
+            let mut publisher = PubSocket::with_options(multi_peer_send_opts());
             publisher.bind(&self.endpoint).await?;
             // Publishing to subscribers whose subscription has not landed yet
             // would only drop messages, so wait until every one is counted.
@@ -398,7 +424,7 @@ impl Run {
     /// counts its share for the window.
     async fn fanout(self) -> Result<()> {
         if self.role == Role::Pub {
-            let mut push = PushSocket::with_options(bulk_send_opts());
+            let mut push = PushSocket::with_options(multi_peer_send_opts());
             push.bind(&self.endpoint).await?;
             while push.peer_count() < self.peers {
                 monocoque::rt::sleep(Duration::from_millis(1)).await;
