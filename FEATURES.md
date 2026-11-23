@@ -10,11 +10,11 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 
 | capability | libzmq | rust-zmq | tmq | zmq.rs | omq | monocoque | rzmq | celerity | pyzmq | pyomq | omq.rb | omq.cr | NetMQ | JeroMQ | zmq-rs (trevorbernard) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 0.4.1 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 0.2.0 | 4.0.4.3 | 0.6.0 | 0.1.0-dev (bb3c52c) |
+| version | 4.3.5 | 0.10 (libzmq 4.3.4) | 0.5.0 (libzmq 4.3.4) | 0.6.0 | 0.21.4 | 1.0.0 | 0.5.25 | 0.1.1 | 27.2.0 | 0.20.1 | 0.28.10 | 0.2.0 | 4.0.4.3 | 0.6.0 | 0.1.0-dev (bb3c52c) |
 | language | C++ | Rust | Rust | Rust | Rust | Rust | Rust | Rust | Python | Python | Ruby | Crystal | C# | Java | Rust |
 | implementation | native | FFI to libzmq | FFI to libzmq | native | native | native | native | native | FFI to libzmq | FFI to omq | native | native | native | native | native |
-| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 11 | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 20 (11+9 draft) | 19 (12+7 draft) | 20 (12+8 draft) | 19 (11+8 draft) |
-| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, udp | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc | tcp, ipc, inproc |
+| socket types | 12 | 12 | 8 | 10 | 20 (12+8 draft) | 19 (12+7 draft) | 8 | 4 | 12 | 20 (12+8 draft) | 19 (11+8 draft) | 20 (11+9 draft) | 19 (12+7 draft) | 20 (12+8 draft) | 19 (11+8 draft) |
+| transports | tcp, ipc, inproc, udp, pgm, epgm, tipc, vmci | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc | tcp, ipc, inproc, udp, ws, wss, lz4+tcp, zstd+tcp | tcp, ipc, inproc | tcp, ipc, inproc | tcp, ipc | tcp, ipc, inproc, udp, pgm, epgm | tcp, ipc, inproc, udp | tcp, ipc, inproc | tcp, ipc, inproc, udp | tcp, ipc, inproc, pgm, udp | tcp, inproc, ipc | tcp, ipc, inproc |
 | NULL | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | PLAIN | declared | declared | declared | no | declared | declared | declared | unknown | declared | declared | unknown | declared | no | declared | declared |
 | CURVE | declared | declared | declared | no | declared | declared | partial | declared | declared | declared | unknown | declared | declared | declared | declared |
@@ -61,12 +61,13 @@ Regenerate with `python3 scripts/render_features.py` after editing `features.jso
 - All three execution models are benchmarked as separate variants: tokio current-thread, tokio multi-thread, and the synchronous blocking API over library-owned IO threads. That last one is libzmq's model, which makes the pair a direct comparison. Compression transports (lz4, zstd) are an OMQ extension with no libzmq counterpart, so they are outside a comparison benchmark. Note omq documents on_mute as ignored by PUB/XPUB: those sockets are always lossy on mute unless xpub_nodrop is set. Bindings list corrected by the OMQ maintainer. OMQ.ts targets the browser over ZWS, which is outside a native-transport comparison and is not benchmarked here. docs.rs states "All 20 ZMTP socket types". Only the stable subset was counted before, which understated omq against libzmq.
 - Source: paddor/omq.rs README (8 stable transports; NULL/PLAIN/CURVE)
 
-### monocoque 0.4.1
+### monocoque 1.0.0
 
-- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR
-- Runtime: Requires a runtime, chosen at compile time: compio (io_uring, default), tokio, or smol. Sockets are !Send and the runtime is thread-per-core.
-- All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 0.4.0 replaced the CURVE message cipher with the real RFC-26 construction and verified live interop against a CURVE-enabled libzmq, so CURVE moved from present-but-broken to working. PUB is the one socket that takes no SocketOptions: its broadcast path ignores buffer sizes and write coalescing, so only its worker count can be tuned. COMPATIBILITY.md lists eleven and does not include STREAM, which the earlier count credited it with.
-- Source: vorjdux/monocoque README and CHANGELOG 0.4.0
+- Socket types: REQ, REP, DEALER, ROUTER, PUB, SUB, XPUB, XSUB, PUSH, PULL, PAIR, STREAM
+- Draft socket types: SERVER, CLIENT, RADIO, DISH, SCATTER, GATHER, CHANNEL
+- Runtime: Requires a runtime, chosen at compile time: compio (io_uring, default), tokio, or smol. A socket has no background IO thread: it does its work on the runtime thread that owns it.
+- All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 1.0.0 rebuilt every socket on one per-socket multiplexer: each socket type binds and connects any number of tcp, ipc and inproc endpoints, and PUB takes the same SocketOptions as the rest, write coalescing included, where 0.4 gave it only a worker count. STREAM and the draft types (behind the `draft` feature) are new in 1.0.0. CURVE is the RFC-26 construction, which the project tests against libzmq in both roles; the arena does not exercise it, so it stays declared.
+- Source: vorjdux/monocoque docs/COMPATIBILITY.md and CHANGELOG 1.0.0
 
 ### rzmq 0.5.25
 

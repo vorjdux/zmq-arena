@@ -1,66 +1,44 @@
-//! zmq-arena target wrapper: monocoque (monocoque-rs 0.4.0, ZMTP 3.1).
+//! zmq-arena target wrapper: monocoque (monocoque-rs 1.0, ZMTP 3.1).
 //!
-//! All five kinds over TCP and IPC, tuned against monocoque's own bench peer in
-//! the omq.rs comparison harness (`scripts/monocoque_bench_peer`) so the numbers
-//! reflect a competently configured engine rather than the untuned defaults:
-//!   - bulk streams (throughput, fan-out, fan-in) read a full 64 KiB slab carve
-//!     and write coalesced, which is monocoque's main throughput lever;
-//!   - REQ/REP disables coalescing so a request leaves eagerly instead of
-//!     waiting to batch, and leaves the read carve at the default;
-//!   - every receive path uses the allocation-free `recv_into` family into one
-//!     reused buffer; PUSH sends via `send_one` and PUB via `send_frames`, both
-//!     of which avoid the per-message `Vec` that plain `send` allocates. REQ is
-//!     the exception: its `send` takes the frames by value with no single-frame
-//!     form, so the latency loop still clones one Vec per round trip;
-//!   - REQ times each round-trip and prints the quantiles the orchestrator
-//!     parses; REP echoes.
+//! All five kinds over TCP and IPC, and the two count-based kinds over inproc.
+//! 1.0 has one message type and sockets that bind or connect any number of
+//! endpoints themselves, so the fan patterns are plain PUSH and PULL sockets
+//! and every kind runs on every transport the socket accepts.
 //!
-//! The orchestrator spawns the consumer (binds) first, then the producer
-//! (connects). monocoque's runtime is a compile-time choice, so this wrapper
-//! builds once per runtime the engine ships and reports each as its own variant:
-//! `compio` (`io_uring`, the default), `tokio` (epoll) and `smol` (epoll). The
-//! socket loops below are identical across all three because they go through
-//! monocoque's `rt` facade, so the only thing that differs between the series is
-//! the IO model, which is the comparison worth having.
+//! Tuning follows the engine's documented levers (`docs/performance.md` and the
+//! `coalesced_push_pull` example in the monocoque repository) and nothing else:
+//!   - bulk senders (throughput, fan-out, fan-in, PUB) turn write coalescing on
+//!     and let the buffer write itself out at its threshold;
+//!   - REQ/REP leaves coalescing off, so a request leaves as soon as it is sent;
+//!   - everything else is the engine's default, each one checked against the
+//!     alternatives (see the socket setup section below);
+//!   - every receive borrows the socket's receive slot, so counting a message
+//!     allocates nothing, and every send passes a refcounted clone of one
+//!     payload (PUB publishes it by reference).
+//!
+//! The orchestrator spawns the consumer (`--role sub`, binds) first, then the
+//! producer (`--role pub`, connects). monocoque's runtime is a compile-time
+//! choice, so this wrapper builds once per runtime the engine ships and reports
+//! each as its own variant: `compio` (`io_uring`, the default), `tokio` (epoll)
+//! and `smol` (epoll). The socket loops are identical across all three, so the
+//! only thing that differs between the series is the IO model.
 
-use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use bytes::Bytes;
 use clap::{Parser, ValueEnum};
-use compio_io::{AsyncRead, AsyncWrite};
-use monocoque::SocketOptions;
-use monocoque::rt::{LocalRuntime, TcpListener, TcpStream, UnixListener, UnixStream};
+use monocoque::rt::LocalRuntime;
 use monocoque::zmq::{
-    PubSocket, PullFanIn, PullSocket, PushFanOut, PushSocket, RepSocket, ReqSocket, SubSocket,
+    Msg, PubSocket, PullSocket, PushSocket, RepSocket, ReqSocket, SocketOptions, SubSocket,
 };
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum Role {
     Pub,
     Sub,
 }
 
-enum Endpoint {
-    Tcp(SocketAddr),
-    Ipc(PathBuf),
-}
-
-fn parse_endpoint(ep: &str) -> Result<Endpoint> {
-    if let Some(a) = ep.strip_prefix("tcp://") {
-        Ok(Endpoint::Tcp(a.parse().map_err(|e| {
-            anyhow::anyhow!("parsing tcp address {a}: {e}")
-        })?))
-    } else if let Some(p) = ep.strip_prefix("ipc://") {
-        Ok(Endpoint::Ipc(PathBuf::from(p)))
-    } else {
-        bail!("unsupported endpoint (need tcp:// or ipc://): {ep}")
-    }
-}
-
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     name = "monocoque-target",
     version,
@@ -91,8 +69,10 @@ struct Cli {
     /// Measurement window for duration-based kinds (pubsub/fanout/fanin).
     #[arg(long, default_value_t = 0.0)]
     duration_secs: f64,
-    /// `key=value` tuning knobs, recorded in the matrix so a configuration is
-    /// reproducible from the run file. Recognised: `pub_workers=<n>`.
+    /// `key=value` knobs. None are read: a 1.0 socket is one multiplexer on the
+    /// thread that owns it, so there is no worker or IO-thread count to set.
+    /// Unknown keys are ignored so a shared matrix entry does not break this
+    /// target.
     #[arg(long = "knob")]
     knobs: Vec<String>,
 }
@@ -100,13 +80,12 @@ struct Cli {
 /// One-line JSON classification the orchestrator captures into each record. The
 /// runtime is a compile-time choice (`runtime-compio` / `runtime-tokio` /
 /// `runtime-smol`), so `describe` reports whichever backend this binary was
-/// built with. All three are single-threaded: monocoque's sockets are !Send and
-/// its runtime is thread-per-core, so the tokio backend runs current-thread in a
-/// `LocalSet` and smol drives a thread-local executor. The engine version is
-/// read from Cargo.lock at build time (build.rs).
+/// built with. All three are single-threaded: a socket does its IO on the
+/// runtime thread that owns it. The engine version is read from Cargo.lock at
+/// build time (build.rs).
 fn describe() -> String {
-    // One backend is selected at compile time. compio drives io_uring; tokio and
-    // smol both drive epoll on Linux, through mio and polling respectively.
+    // compio drives io_uring; tokio and smol both drive epoll on Linux, through
+    // mio and polling respectively.
     #[cfg(feature = "compio")]
     let io = "io_uring";
     #[cfg(any(feature = "tokio", feature = "smol"))]
@@ -120,16 +99,6 @@ fn describe() -> String {
         env!("ENGINE_VERSION"),
         io
     )
-}
-
-/// Look up a `key=value` knob. Unknown keys are ignored rather than rejected, so
-/// a matrix can carry a knob for one engine without breaking the others.
-fn knob<'a>(knobs: &'a [String], key: &str) -> Option<&'a str> {
-    knobs
-        .iter()
-        .filter_map(|k| k.split_once('='))
-        .find(|(k, _)| *k == key)
-        .map(|(_, v)| v)
 }
 
 fn main() -> Result<()> {
@@ -149,266 +118,353 @@ fn main() -> Result<()> {
         cli.warmup,
         cli.variant
     );
+    if cli.transport == "inproc" {
+        return run_inproc(&cli);
+    }
+    run_role(&cli, cli.role, None)
+}
 
-    let ep = parse_endpoint(&cli.endpoint)?;
-    let payload = Bytes::from(vec![b'x'; cli.payload_bytes as usize]);
-    let role = cli.role;
+/// Inproc runs in one process: the orchestrator spawns only the measured end
+/// (the consumer for throughput, the REQ client for latency), and the other end
+/// runs here on a second thread with its own runtime, so messages cross threads
+/// as they would between two sockets of one application. The binding end comes
+/// up first, since an inproc connect needs a bound peer.
+fn run_inproc(cli: &Cli) -> Result<()> {
+    let measured = cli.role;
+    let other = if measured == Role::Pub {
+        Role::Sub
+    } else {
+        Role::Pub
+    };
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let thread_cli = cli.clone();
+    if other == Role::Sub {
+        std::thread::spawn(move || run_role(&thread_cli, other, Some(ready_tx)));
+        ready_rx.recv()?;
+        run_role(cli, measured, None)
+    } else {
+        let main_cli = cli.clone();
+        let measured = std::thread::spawn(move || run_role(&main_cli, measured, Some(ready_tx)));
+        ready_rx.recv()?;
+        std::thread::spawn(move || run_role(&thread_cli, other, None));
+        measured
+            .join()
+            .map_err(|_| anyhow::anyhow!("measured thread panicked"))?
+    }
+}
+
+/// Run one end of the cell on this thread. `ready` is signalled once a binding
+/// end has bound.
+fn run_role(cli: &Cli, role: Role, ready: Option<std::sync::mpsc::Sender<()>>) -> Result<()> {
+    let run = Run {
+        role,
+        endpoint: cli.endpoint.clone(),
+        messages: cli.messages,
+        warmup: cli.warmup,
+        peers: cli.peers.unwrap_or(1).max(1) as usize,
+        duration: Duration::from_secs_f64(cli.duration_secs),
+        // One payload for the whole run. A send clones it, which copies nothing:
+        // up to 64 B it lives inline in the `Msg`, above that it is one
+        // refcounted buffer. A `'static` payload, which also drops the
+        // refcount, measured no faster.
+        payload: Msg::from(vec![b'x'; cli.payload_bytes as usize]),
+        ready,
+    };
     let kind = cli.kind.clone();
-    let (messages, warmup) = (cli.messages, cli.warmup);
-    let peers = cli.peers.unwrap_or(1).max(1);
-    let duration = Duration::from_secs_f64(cli.duration_secs);
-    // PUB fans out from a pool of worker threads. The library default is the CPU
-    // count clamped to [2, 16], which on a pinned cpuset oversubscribes the cell
-    // and makes the number depend on the host rather than the engine, so the
-    // matrix pins it. `pub_workers=0` asks for the library default instead.
-    let pub_workers = knob(&cli.knobs, "pub_workers")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(1);
-
-    // monocoque::rt::LocalRuntime is the runtime-agnostic driver: compio's
-    // io_uring runtime or tokio's current-thread runtime, per the compiled
-    // feature. The socket loops below are identical across backends because they
-    // use monocoque's rt net types.
+    // The runtime-agnostic driver: compio's io_uring runtime, tokio's
+    // current-thread runtime or smol's local executor, per the compiled feature.
+    // Its spin before sleeping stays at the engine's default. Turning it off
+    // cost REQ/REP two microseconds of p50 (5.4 to 7.6 at 64 B on compio) and
+    // moved the bulk kinds in both directions.
     LocalRuntime::new()?.block_on(async move {
         match kind.as_str() {
-            "throughput" => run_throughput(role, ep, messages, warmup, &payload).await,
-            "latency" => run_latency(role, ep, messages, warmup, &payload).await,
-            "pubsub" => run_pubsub(role, ep, peers, duration, &payload, pub_workers).await,
-            "fanout" => run_fanout(role, ep, peers, duration, &payload).await,
-            "fanin" => run_fanin(role, ep, peers, duration, &payload).await,
+            "throughput" => run.throughput().await,
+            "latency" => run.latency().await,
+            "pubsub" => run.pubsub().await,
+            "fanout" => run.fanout().await,
+            "fanin" => run.fanin().await,
             other => bail!("monocoque: kind '{other}' not implemented"),
         }
-    })?;
-    Ok(())
+    })
 }
 
 // ── per-workload socket setup ───────────────────────────────────────────────
 //
-// monocoque does not infer a buffer/coalescing profile from the workload; it
-// exposes the knobs and expects the caller to set them for the traffic. These
-// profiles match the tuned monocoque peer in the omq.rs comparison harness, so
-// zmq-arena and OMQ configure the engine the same way and the two sets of
-// numbers can be read against each other.
-//
-// A note on read buffers, because the obvious tuning is wrong here. In 0.4.0 the
-// read buffer is not an allocation: it is the size of the carve taken from a
-// shared 64 KiB read slab, values are clamped into `64..=65536`, and a no-timeout
-// read trims the carve to the bytes actually read and hands the tail back. The
-// default is already 32 KiB. So asking for a 1 MiB "payload-sized" buffer, as
-// this target did, silently clamps to 64 KiB, and asking for 16 KiB is *below*
-// the default and halves the read batch. There is exactly one useful bulk value,
-// the full slab, and no reason to scale it with the payload.
+// Each value below was measured with this wrapper against monocoque-rs 1.0.0
+// on an i7-1355U, both ends in cpuset 0-3 on host loopback, median of three
+// to five runs per runtime. That is a dev host with two physical cores in the
+// cpuset: the figures justify the choices and are not results.
 
-/// monocoque's shared read slab, and therefore the ceiling on `read_buffer_size`.
-/// A bulk receiver wants the whole thing: it is the largest batch a single read
-/// can carve, and the trim-and-return behaviour means an idle receiver does not
-/// pay for asking.
-const READ_SLAB: usize = 64 * 1024;
-
-/// Write buffer for the bulk streams. Unlike the read side this is a real
-/// `BytesMut` capacity, and it doubles as the coalesce threshold, so it sets how
-/// many frames pack into one write submission.
-const BULK_WRITE_BUF: usize = 64 * 1024;
-
-/// Sender profile for the bulk streams (throughput, fan-out, fan-in producers):
-/// full-slab reads, a 64 KiB coalescing write buffer, and write coalescing on.
-/// Coalescing is the single biggest throughput lever monocoque exposes; 0.4.0
-/// extended it from PUSH to every connected socket type.
+/// Sender profile for the bulk streams (PUSH in throughput, fan-out and fan-in,
+/// and PUB): write coalescing on, and nothing else.
+///
+/// Coalescing is the engine's documented throughput setting and its largest
+/// lever. A coalescing PUB delivered 25 to 30 M msg/s to 32 subscribers at
+/// 64 B; an eager one, which pays one write per subscriber per message,
+/// 0.2 to 0.3 M.
+///
+/// The threshold stays at its 64 KiB default: 16 KiB and 32 KiB were slower
+/// from 64 B up (7.9 M msg/s at 1 KiB on compio against 3.8 M and 5.3 M), and
+/// 128 KiB was no faster.
+///
+/// The senders do not call `flush()` on a count. The buffer is written out
+/// whenever it reaches the threshold, and flushing every 64 messages, as this
+/// target did for 0.4, cuts a 64 KiB write down to the size of the batch: on
+/// PUSH/PULL it halved the rate at 16 B and 64 B (15 M msg/s against 30 M) and
+/// on fan-out it cost a factor of five (4 M against 21 M at 64 B).
 fn bulk_send_opts() -> SocketOptions {
-    SocketOptions::default()
-        .with_buffer_sizes(READ_SLAB, BULK_WRITE_BUF)
-        .with_write_coalescing(true)
-        .with_write_coalesce_threshold(BULK_WRITE_BUF)
+    SocketOptions::default().with_write_coalescing(true)
 }
 
-/// Receiver profile for the bulk streams: full-slab read carves, default write
-/// buffer (a bulk receiver sends nothing but the handshake).
+/// Receiver profile for the bulk streams: the defaults.
+///
+/// The read buffer starts at 32 KiB and grows to 64 KiB by itself while reads
+/// keep filling it, so asking for 4 KiB, 16 KiB or the full 64 KiB up front
+/// moved no payload size beyond run-to-run spread. The HWM stays at 1000 in
+/// both directions, as libzmq's, everywhere but fan-in.
 fn bulk_recv_opts() -> SocketOptions {
-    SocketOptions::default().with_buffer_sizes(READ_SLAB, 8 * 1024)
+    SocketOptions::default()
 }
 
-/// Request/reply profile. Coalescing is explicitly off (it is off by default, but
-/// stating it documents the intent): a REQ that waits to batch would be measuring
-/// the batch timer, not the round-trip. Buffers stay at the defaults, since the
-/// read carve is trimmed to what arrives and a one-message write needs no room.
+/// Queue bound for both ends of fan-in, in messages per peer.
+///
+/// Fan-in is the one kind where several producers feed a consumer that cannot
+/// keep up with them, so the queues are always full, and at the default of
+/// 1000 that is megabytes of messages copied ahead of a consumer with no room
+/// for them. With 64 on both ends, against 1000, at 4 producers:
+///
+/// | payload | compio      | tokio       | smol        |
+/// |---------|-------------|-------------|-------------|
+/// | 1 KiB   | 4.39 → 4.54 | 4.83 → 7.05 | 4.11 → 4.99 |
+/// | 4 KiB   | 1.20 → 1.50 | 1.04 → 2.10 | 1.01 → 1.54 |
+/// | 16 KiB  | 0.41 → 0.39 | 0.39 → 0.60 | 0.31 → 0.36 |
+///
+/// (M msg/s.) At 16 B to 256 B the two settings were within spread on compio
+/// and smol; on tokio the cell is bimodal at 16 B and 64 B with either
+/// setting (18 or 24 M msg/s), so the bound is not shown to be free there. It
+/// has to be on both ends: on the consumer alone it moved nothing on compio.
+/// Lowering the send HWM on the other kinds traded one payload size against
+/// another (fan-out on compio gained at 4 KiB and lost at 1 KiB), so they keep
+/// the default.
+const FAN_IN_HWM: usize = 64;
+
+/// Body size from which the multi-peer senders (PUB, and PUSH in fan-out) hand
+/// the payload to the kernel as an iovec instead of copying it into the send
+/// buffer. The engine's default is 16 KiB.
+///
+/// A PUB copies a smaller body once per subscriber, so at 4 KiB and 32
+/// subscribers the copies were most of the publisher's work. With 4 KiB against
+/// the default, at a 4 KiB payload:
+///
+/// | kind      | compio      | tokio       | smol        |
+/// |-----------|-------------|-------------|-------------|
+/// | PUB/SUB   | 1.06 → 1.39 | 1.22 → 1.67 | 1.15 → 1.44 |
+/// | fan-out   | 1.21 → 1.60 | 1.73 → 1.66 | 1.18 → 1.19 |
+/// | PUSH/PULL | 2.22 → 2.08 | 2.06 → 2.04 | 1.99 → 1.91 |
+///
+/// (M msg/s.) PUB at 64 B, 1 KiB and 16 KiB was within spread of the default
+/// on all three runtimes, and 2 KiB did no better than 4 KiB. At 1 KiB a
+/// 1 KiB threshold cost tokio's PUB a third (4.9 M against 3.2 M), so it goes
+/// no lower. The single-peer PUSH keeps the default because compio lost 7%
+/// there, and fan-in keeps it because nothing moved.
+const MULTI_PEER_VECTORED_BYTES: usize = 4096;
+
+/// [`bulk_send_opts`] for a sender with several peers.
+fn multi_peer_send_opts() -> SocketOptions {
+    bulk_send_opts().with_vectored_write_threshold(MULTI_PEER_VECTORED_BYTES)
+}
+
+/// Request/reply profile. Coalescing is off by default and stated here for the
+/// intent: a request has to leave as soon as it is sent. A 4 KiB read buffer,
+/// the "low latency" setting, left p50 where it was (5.4 against 5.5 µs at
+/// 64 B on compio), so the read buffer stays at its default too.
 fn latency_opts() -> SocketOptions {
     SocketOptions::default().with_write_coalescing(false)
 }
 
-// ── throughput (PUSH/PULL) ──────────────────────────────────────────────────
+/// Count messages received on `$sock` for `$window`, starting the clock at the
+/// first one so the connection ramp is not in the rate, and print
+/// `THROUGHPUT <n> <secs>`. A macro because each socket type has its own
+/// borrowed `recv`.
+macro_rules! count_window {
+    ($window:expr, $sock:ident) => {{
+        if $sock.recv().await.is_err() {
+            println!("THROUGHPUT 0 0.000001");
+            return Ok(());
+        }
+        let mut count = 1u64;
+        let t0 = Instant::now();
+        let deadline = t0 + $window;
+        while Instant::now() < deadline {
+            if $sock.recv().await.is_err() {
+                break;
+            }
+            count += 1;
+        }
+        println!("THROUGHPUT {count} {:.6}", t0.elapsed().as_secs_f64());
+        Ok(())
+    }};
+}
 
-/// PUSH/PULL throughput. PUB sends `messages + warmup` messages; SUB receives the
-/// `warmup` prefix untimed, then times only the `messages` steady-state block and
-/// prints `THROUGHPUT <messages> <elapsed_secs>`. Timing the measured block inside
-/// the target (not the orchestrator's wall clock) keeps process spawn, the
-/// connection handshake, and the warmup transfer out of the rate.
-async fn run_throughput(
+struct Run {
     role: Role,
-    ep: Endpoint,
+    endpoint: String,
     messages: u64,
     warmup: u64,
-    payload: &Bytes,
-) -> Result<()> {
-    let total = messages + warmup;
-    match (role, ep) {
-        (Role::Pub, Endpoint::Tcp(addr)) => {
-            let mut push = PushSocket::connect_with_options(addr, bulk_send_opts()).await?;
-            send_block(&mut push, total, payload).await?;
-        }
-        (Role::Pub, Endpoint::Ipc(path)) => {
-            let stream = UnixStream::connect(&path).await?;
-            let mut push =
-                PushSocket::from_unix_stream_with_options(stream, bulk_send_opts()).await?;
-            send_block(&mut push, total, payload).await?;
-        }
-        (Role::Sub, Endpoint::Tcp(addr)) => {
-            let listener = TcpListener::bind(addr).await?;
-            let (stream, _) = listener.accept().await?;
-            let mut pull = PullSocket::from_tcp_with_options(stream, bulk_recv_opts()).await?;
-            recv_measured(&mut pull, warmup, messages).await?;
-        }
-        (Role::Sub, Endpoint::Ipc(path)) => {
-            let listener = UnixListener::bind(&path).await?;
-            let (stream, _) = listener.accept().await?;
-            let mut pull =
-                PullSocket::from_unix_stream_with_options(stream, bulk_recv_opts()).await?;
-            recv_measured(&mut pull, warmup, messages).await?;
-        }
-    }
-    Ok(())
+    peers: usize,
+    duration: Duration,
+    payload: Msg,
+    ready: Option<std::sync::mpsc::Sender<()>>,
 }
 
-async fn send_block<S>(push: &mut PushSocket<S>, total: u64, payload: &Bytes) -> Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut i = 0u64;
-    while i < total {
-        // send_one takes a single frame by value: no per-message Vec. `send`
-        // allocates a one-element Vec on every call, which at these rates is a
-        // measurable share of the loop.
-        push.send_one(payload.clone()).await?;
-        i += 1;
-        if i.is_multiple_of(64) {
-            push.flush().await?;
+impl Run {
+    /// Tell an inproc peer thread that this end has bound.
+    fn bound(&self) {
+        if let Some(tx) = &self.ready {
+            let _ = tx.send(());
         }
     }
-    push.flush().await?; // flush the last partial batch
-    Ok(())
-}
 
-/// Receive `warmup` messages untimed, then time the receipt of `messages` and
-/// print `THROUGHPUT <messages> <elapsed_secs>`. The timer starts only once the
-/// warmup prefix has drained, so the reported rate is the steady-state window.
-async fn recv_measured<S>(pull: &mut PullSocket<S>, warmup: u64, messages: u64) -> Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut buf: Vec<Bytes> = Vec::with_capacity(4);
-    let total = warmup + messages;
-    let mut count = 0u64;
-    let mut t0: Option<Instant> = None;
-    while count < total {
-        if pull.recv_into(&mut buf).await? {
-            count += 1;
-            if t0.is_none() && count >= warmup {
-                t0 = Some(Instant::now()); // warmup drained; start the clock
+    /// PUSH sends `warmup + messages`; PULL drains the warmup untimed, then
+    /// times the `messages` block and prints `THROUGHPUT <n> <secs>`. Timing
+    /// the measured block here (not the orchestrator's wall clock) keeps
+    /// process spawn, the handshake and the warmup transfer out of the rate.
+    async fn throughput(self) -> Result<()> {
+        let total = self.warmup + self.messages;
+        if self.role == Role::Pub {
+            let mut push = PushSocket::with_options(bulk_send_opts());
+            push.connect(&self.endpoint).await?;
+            for _ in 0..total {
+                push.send(self.payload.clone()).await?;
             }
-            while count < total {
-                if pull.try_recv_into(&mut buf)? {
-                    count += 1;
-                    if t0.is_none() && count >= warmup {
-                        t0 = Some(Instant::now());
-                    }
-                } else {
-                    break;
+            // The burst is over: write out what did not reach the threshold.
+            // `close` then waits for the queued bytes to leave.
+            push.flush().await?;
+            push.close().await?;
+            return Ok(());
+        }
+        let mut pull = PullSocket::with_options(bulk_recv_opts());
+        pull.bind(&self.endpoint).await?;
+        self.bound();
+        for _ in 0..self.warmup {
+            pull.recv().await?;
+        }
+        let t0 = Instant::now();
+        for _ in 0..self.messages {
+            pull.recv().await?;
+        }
+        let elapsed = t0.elapsed().as_secs_f64().max(1e-9);
+        println!("THROUGHPUT {} {elapsed:.6}", self.messages);
+        Ok(())
+    }
+
+    /// REP echoes until the peer goes away; REQ times each round trip and
+    /// prints `LATENCY <n> <min> <p50> <p90> <p99> <p99.9> <max>` in ns.
+    async fn latency(self) -> Result<()> {
+        if self.role == Role::Sub {
+            let mut rep = RepSocket::with_options(latency_opts());
+            rep.bind(&self.endpoint).await?;
+            self.bound();
+            loop {
+                let Ok(msg) = rep.recv().await else {
+                    return Ok(());
+                };
+                let msg = msg.take();
+                rep.send(msg).await?;
+            }
+        }
+        let mut req = ReqSocket::with_options(latency_opts());
+        req.connect(&self.endpoint).await?;
+        for _ in 0..self.warmup {
+            req.send(self.payload.clone()).await?;
+            req.recv().await?;
+        }
+        let mut rtts: Vec<u64> = Vec::with_capacity(self.messages as usize);
+        for _ in 0..self.messages {
+            let t = Instant::now();
+            req.send(self.payload.clone()).await?;
+            req.recv().await?;
+            rtts.push(t.elapsed().as_nanos() as u64);
+        }
+        print_latency(&mut rtts);
+        Ok(())
+    }
+
+    /// PUB binds, waits for `peers` subscribers, then publishes until killed.
+    /// Each SUB counts for `duration` from its first message.
+    async fn pubsub(self) -> Result<()> {
+        if self.role == Role::Pub {
+            let mut publisher = PubSocket::with_options(multi_peer_send_opts());
+            publisher.bind(&self.endpoint).await?;
+            // Publishing to subscribers whose subscription has not landed yet
+            // would only drop messages, so wait until every one is counted.
+            while publisher.send_ref(&self.payload).await? < self.peers {
+                monocoque::rt::sleep(Duration::from_millis(1)).await;
+            }
+            loop {
+                // PUB never waits on a send. When a subscriber's queue is full
+                // the message reaches fewer peers than are connected, and
+                // waiting for the queued bytes to be written is what lets that
+                // subscriber catch up. The count is the live one, not `peers`:
+                // subscribers leave as their windows end, and against the
+                // starting count every send after the first departure would
+                // look short and flush.
+                if publisher.send_ref(&self.payload).await? < publisher.peer_count() {
+                    publisher.flush().await?;
                 }
             }
+        }
+        let mut sub = SubSocket::with_options(bulk_recv_opts());
+        sub.subscribe(b"").await?;
+        sub.connect(&self.endpoint).await?;
+        count_window!(self.duration, sub)
+    }
+
+    /// One PUSH binds and round-robins to `peers` PULLs until killed; each PULL
+    /// counts its share for the window.
+    async fn fanout(self) -> Result<()> {
+        if self.role == Role::Pub {
+            let mut push = PushSocket::with_options(multi_peer_send_opts());
+            push.bind(&self.endpoint).await?;
+            while push.peer_count() < self.peers {
+                monocoque::rt::sleep(Duration::from_millis(1)).await;
+            }
+            self.send_forever(push).await
         } else {
-            break;
+            let mut pull = PullSocket::with_options(bulk_recv_opts());
+            pull.connect(&self.endpoint).await?;
+            count_window!(self.duration, pull)
         }
     }
-    let elapsed = t0.map_or(1e-6, |t| t.elapsed().as_secs_f64()).max(1e-9);
-    let measured = count.saturating_sub(warmup);
-    println!("THROUGHPUT {measured} {elapsed:.6}");
-    Ok(())
+
+    /// `peers` PUSH sockets connect and send until killed; the bound PULL
+    /// counts the merged stream for the window.
+    async fn fanin(self) -> Result<()> {
+        if self.role == Role::Pub {
+            let mut push = PushSocket::with_options(bulk_send_opts().with_send_hwm(FAN_IN_HWM));
+            push.connect(&self.endpoint).await?;
+            self.send_forever(push).await
+        } else {
+            let mut pull = PullSocket::with_options(bulk_recv_opts().with_recv_hwm(FAN_IN_HWM));
+            pull.bind(&self.endpoint).await?;
+            count_window!(self.duration, pull)
+        }
+    }
+
+    async fn send_forever(&self, mut push: PushSocket) -> Result<()> {
+        loop {
+            push.send(self.payload.clone()).await?;
+        }
+    }
 }
 
-// ── latency (REQ/REP) ───────────────────────────────────────────────────────
-
-async fn run_latency(
-    role: Role,
-    ep: Endpoint,
-    messages: u64,
-    warmup: u64,
-    payload: &Bytes,
-) -> Result<()> {
-    match (role, ep) {
-        (Role::Sub, Endpoint::Tcp(addr)) => {
-            let listener = TcpListener::bind(addr).await?;
-            let (stream, _) = listener.accept().await?;
-            let mut rep = RepSocket::from_tcp_with_options(stream, latency_opts()).await?;
-            echo_loop(&mut rep).await?;
-        }
-        (Role::Sub, Endpoint::Ipc(path)) => {
-            let listener = UnixListener::bind(&path).await?;
-            let (stream, _) = listener.accept().await?;
-            let mut rep = RepSocket::from_unix_stream_with_options(stream, latency_opts()).await?;
-            echo_loop(&mut rep).await?;
-        }
-        (Role::Pub, Endpoint::Tcp(addr)) => {
-            let stream = TcpStream::connect(addr).await?;
-            let mut req = ReqSocket::from_tcp_with_options(stream, latency_opts()).await?;
-            req_measure(&mut req, messages, warmup, payload).await?;
-        }
-        (Role::Pub, Endpoint::Ipc(path)) => {
-            let stream = UnixStream::connect(&path).await?;
-            let mut req = ReqSocket::from_unix_stream_with_options(stream, latency_opts()).await?;
-            req_measure(&mut req, messages, warmup, payload).await?;
-        }
-    }
-    Ok(())
-}
-
-async fn echo_loop<S>(rep: &mut RepSocket<S>) -> Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    while let Some(msg) = rep.recv().await? {
-        rep.send(msg).await?;
-    }
-    Ok(())
-}
-
-async fn req_measure<S>(
-    req: &mut ReqSocket<S>,
-    messages: u64,
-    warmup: u64,
-    payload: &Bytes,
-) -> Result<()>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    for _ in 0..warmup {
-        req.send(vec![payload.clone()]).await?;
-        req.recv().await?;
-    }
-    let mut rtts: Vec<u64> = Vec::with_capacity(messages as usize);
-    for _ in 0..messages {
-        let t = Instant::now();
-        req.send(vec![payload.clone()]).await?;
-        req.recv().await?;
-        rtts.push(t.elapsed().as_nanos() as u64);
-    }
+fn print_latency(rtts: &mut [u64]) {
     if rtts.is_empty() {
         println!("LATENCY 0 0 0 0 0 0 0");
-        return Ok(());
+        return;
     }
     rtts.sort_unstable();
-    let q = |p: f64| -> u64 {
-        let idx = ((rtts.len() as f64 * p) as usize).min(rtts.len() - 1);
-        rtts[idx]
-    };
+    let q = |p: f64| rtts[((rtts.len() as f64 * p) as usize).min(rtts.len() - 1)];
     println!(
         "LATENCY {} {} {} {} {} {} {}",
         rtts.len(),
@@ -419,207 +475,4 @@ where
         q(0.999),
         rtts[rtts.len() - 1]
     );
-    Ok(())
-}
-
-// ── pub/sub (PUB/SUB) ───────────────────────────────────────────────────────
-
-/// PUB binds, accepts `peers` subscribers, then broadcasts forever (killed by
-/// the orchestrator). SUB connects, subscribes, and counts for `duration`,
-/// starting the timer on the first message to skip the accept ramp, then prints
-/// `THROUGHPUT <count> <elapsed>`. TCP only for now.
-async fn run_pubsub(
-    role: Role,
-    ep: Endpoint,
-    peers: u32,
-    duration: Duration,
-    payload: &Bytes,
-    pub_workers: usize,
-) -> Result<()> {
-    let addr = match ep {
-        Endpoint::Tcp(a) => a,
-        Endpoint::Ipc(_) => bail!("monocoque pubsub: tcp only for now"),
-    };
-    match role {
-        Role::Pub => {
-            // 0.4.0 gives PUB no way to set write coalescing or buffer sizes
-            // (the broadcast path does not read those options at all), so the
-            // worker count is the only publisher-side lever there is. Say so
-            // plainly rather than pretending the PUB side is tuned like PUSH.
-            let mut publisher = if pub_workers == 0 {
-                PubSocket::bind(&addr.to_string()).await?
-            } else {
-                PubSocket::bind_with_workers(&addr.to_string(), pub_workers).await?
-            };
-            for _ in 0..peers {
-                publisher.accept_subscriber().await?;
-            }
-            // Let every subscription propagate before oversending, so the stream is
-            // live and the PUB is not publishing into a not-yet-subscribed peer.
-            // Blocking sleep, matching the library's own pub/sub bench: this is a
-            // one-time settle before the send loop, and the async runtime timer is
-            // not guaranteed to be driven here.
-            std::thread::sleep(Duration::from_millis(200));
-            loop {
-                // send_frames publishes from a borrowed slice: no per-message
-                // Vec allocation or Bytes clone. `send(vec![payload.clone()])`
-                // allocated and cloned on every broadcast, which the library's
-                // benchmark avoids.
-                let _ = publisher.send_frames(std::slice::from_ref(payload)).await;
-            }
-        }
-        Role::Sub => {
-            // Build the SUB over a raw TCP stream so it gets the bulk receive
-            // profile. The bare SubSocket::connect path takes the default carve,
-            // which reads the broadcast stream in smaller chunks.
-            let stream = TcpStream::connect(addr).await?;
-            let mut sub = SubSocket::from_tcp_with_options(stream, bulk_recv_opts()).await?;
-            sub.subscribe(b"").await?;
-            // 0.4.0 ported the allocation-free receive path from PULL to every
-            // socket, SUB included, so the counting loop reuses one buffer.
-            let mut buf: Vec<Bytes> = Vec::with_capacity(4);
-            if !sub.recv_into(&mut buf).await.unwrap_or(false) {
-                println!("THROUGHPUT 0 0.000001");
-                return Ok(());
-            }
-            let mut count: u64 = 1;
-            let t0 = Instant::now();
-            let deadline = t0 + duration;
-            while Instant::now() < deadline {
-                match sub.recv_into(&mut buf).await {
-                    Ok(true) => count += 1,
-                    _ => break,
-                }
-            }
-            let elapsed = t0.elapsed().as_secs_f64();
-            println!("THROUGHPUT {count} {elapsed:.6}");
-        }
-    }
-    Ok(())
-}
-
-// ── fan-out (1 PUSH -> N PULL) ───────────────────────────────────────────────
-
-/// The producer binds a `PushFanOut` ventilator that accepts `peers` PULL workers
-/// and round-robins forever, flushing every 64 sends per worker. Each consumer
-/// connects a PULL and counts for the window. TCP only.
-async fn run_fanout(
-    role: Role,
-    ep: Endpoint,
-    peers: u32,
-    duration: Duration,
-    payload: &Bytes,
-) -> Result<()> {
-    let addr = match ep {
-        Endpoint::Tcp(a) => a,
-        Endpoint::Ipc(_) => bail!("monocoque fanout: tcp only for now"),
-    };
-    match role {
-        Role::Pub => {
-            let listener = TcpListener::bind(addr).await?;
-            let mut fanout =
-                PushFanOut::accept_workers(&listener, peers as usize, bulk_send_opts()).await?;
-            let flush_every = 64u64 * u64::from(peers.max(1));
-            let mut i = 0u64;
-            loop {
-                let _ = fanout.send_one(payload.clone()).await;
-                i += 1;
-                if i.is_multiple_of(flush_every) {
-                    let _ = fanout.flush().await;
-                }
-            }
-        }
-        Role::Sub => {
-            let stream = TcpStream::connect(addr).await?;
-            let mut pull = PullSocket::from_tcp_with_options(stream, bulk_recv_opts()).await?;
-            let mut buf: Vec<Bytes> = Vec::with_capacity(4);
-            if !pull.recv_into(&mut buf).await.unwrap_or(false) {
-                println!("THROUGHPUT 0 0.000001");
-                return Ok(());
-            }
-            let mut count: u64 = 1;
-            let t0 = Instant::now();
-            let deadline = t0 + duration;
-            while Instant::now() < deadline {
-                match pull.recv_into(&mut buf).await {
-                    Ok(true) => {
-                        count += 1;
-                        // Drain what already arrived without re-entering the
-                        // reactor, the same batch-drain the throughput path uses.
-                        while pull.try_recv_into(&mut buf).unwrap_or(false) {
-                            count += 1;
-                        }
-                    }
-                    _ => break,
-                }
-            }
-            let elapsed = t0.elapsed().as_secs_f64();
-            println!("THROUGHPUT {count} {elapsed:.6}");
-        }
-    }
-    Ok(())
-}
-
-// ── fan-in (N PUSH -> 1 PULL) ────────────────────────────────────────────────
-
-/// The sink binds a `PullFanIn` that accepts `peers` PUSH workers and counts the
-/// merged stream for the window. Each producer connects a coalesced PUSH and
-/// sends forever. TCP only.
-async fn run_fanin(
-    role: Role,
-    ep: Endpoint,
-    peers: u32,
-    duration: Duration,
-    payload: &Bytes,
-) -> Result<()> {
-    let addr = match ep {
-        Endpoint::Tcp(a) => a,
-        Endpoint::Ipc(_) => bail!("monocoque fanin: tcp only for now"),
-    };
-    match role {
-        Role::Sub => {
-            let listener = TcpListener::bind(addr).await?;
-            let mut sink =
-                PullFanIn::accept_workers(&listener, peers as usize, bulk_recv_opts()).await?;
-            let mut count: u64 = if let Ok(Some(_)) = sink.recv().await {
-                1
-            } else {
-                println!("THROUGHPUT 0 0.000001");
-                return Ok(());
-            };
-            let t0 = Instant::now();
-            let deadline = t0 + duration;
-            'outer: while Instant::now() < deadline {
-                match sink.recv().await {
-                    Ok(Some(_)) => {
-                        count += 1;
-                        loop {
-                            if Instant::now() >= deadline {
-                                break 'outer;
-                            }
-                            match sink.try_recv() {
-                                Ok(Some(_)) => count += 1,
-                                _ => break,
-                            }
-                        }
-                    }
-                    _ => break,
-                }
-            }
-            let elapsed = t0.elapsed().as_secs_f64();
-            println!("THROUGHPUT {count} {elapsed:.6}");
-        }
-        Role::Pub => {
-            let mut push = PushSocket::connect_with_options(addr, bulk_send_opts()).await?;
-            let mut i = 0u64;
-            loop {
-                let _ = push.send_one(payload.clone()).await;
-                i += 1;
-                if i.is_multiple_of(64) {
-                    let _ = push.flush().await;
-                }
-            }
-        }
-    }
-    Ok(())
 }

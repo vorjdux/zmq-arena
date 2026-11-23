@@ -114,10 +114,9 @@ TARGETS = [
         "rootfs": "targets/monocoque_target/rootfs",
         "binary": "/app/target",
         "count_knobs": {},
-        # PUB fans out from a worker pool that defaults to the host CPU count
-        # clamped to [2, 16]. Pinning it to 1 keeps the cell's process count a
-        # property of the matrix rather than of whatever machine ran it.
-        "mp_knobs": {"pub_workers": "1"},
+        # No knobs: a 1.0 socket is one multiplexer on the thread that owns it,
+        # so there is no worker pool or IO-thread count for the matrix to pin.
+        "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
@@ -129,7 +128,7 @@ TARGETS = [
         "binary": "/app/target-tokio",
         "variant": "tokio",
         "count_knobs": {},
-        "mp_knobs": {"pub_workers": "1"},
+        "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
@@ -139,7 +138,7 @@ TARGETS = [
         "binary": "/app/target-smol",
         "variant": "smol",
         "count_knobs": {},
-        "mp_knobs": {"pub_workers": "1"},
+        "mp_knobs": {},
         "kinds": ALL_FIVE,
     },
     {
