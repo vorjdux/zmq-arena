@@ -130,8 +130,8 @@ dir; where it is a run-time choice it is selected with `--variant`.
 
 The wrapper maps `--variant` to its engine's runtime configuration (for omq-tokio
 this is the tokio runtime flavor). Where an engine picks its runtime at compile
-time rather than at run time, as monocoque does, one wrapper is built twice into
-separate target directories and the two binaries are listed as separate variants
+time rather than at run time, as monocoque does, one wrapper is built once per
+runtime into separate target directories and the binaries are listed as separate variants
 in the matrix; `--variant` cannot express a choice the binary already made. Each
 variant carries category tags (engine, io model, threading) in the result
 record, so the dashboard can compare any subset of variants or group them by
@@ -145,10 +145,9 @@ socket option itself; it forwards whatever `--knob key=value` pairs the matrix
 declared. A wrapper applies the knobs it understands and ignores keys it does
 not, so the matrix can carry one superset of knobs across every implementation.
 
-Knobs in use today: `sndhwm`, `rcvhwm` and `io_threads` (libzmq and rust-zmq),
-and `pub_workers` (monocoque, which fans PUB out from a worker pool that would
-otherwise size itself from the host CPU count and make the cell's process count a
-property of the machine rather than of the matrix).
+Knobs in use today: `sndhwm`, `rcvhwm` and `io_threads` (libzmq and rust-zmq).
+monocoque takes none: since 1.0 a socket is one multiplexer on the thread that
+owns it, so the `pub_workers` knob its 0.4 PUB needed has nothing left to set.
 
 Recommended keys where the underlying library supports them:
 

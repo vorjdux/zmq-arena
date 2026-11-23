@@ -277,7 +277,7 @@
       "label": "monocoque",
       "language": "Rust",
       "impl": "native",
-      "version": "0.4.1",
+      "version": "1.0.0",
       "socket_types": [
         "REQ",
         "REP",
@@ -289,11 +289,13 @@
         "XSUB",
         "PUSH",
         "PULL",
-        "PAIR"
+        "PAIR",
+        "STREAM"
       ],
       "transports": [
         "tcp",
-        "ipc"
+        "ipc",
+        "inproc"
       ],
       "security": {
         "null": "yes",
@@ -301,21 +303,29 @@
         "curve": "declared"
       },
       "runtime_free": "no",
-      "runtime_note": "Requires a runtime, chosen at compile time: compio (io_uring, default), tokio, or smol. Sockets are !Send and the runtime is thread-per-core.",
+      "runtime_note": "Requires a runtime, chosen at compile time: compio (io_uring, default), tokio, or smol. A socket has no background IO thread: it does its work on the runtime thread that owns it.",
       "platforms": [
         "Linux (io_uring, 5.6+ for the compio backend)",
         "portable via the tokio/smol backends"
       ],
       "bindings": "None.",
       "arena_tier": "headline + extended",
-      "notes": "All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 0.4.0 replaced the CURVE message cipher with the real RFC-26 construction and verified live interop against a CURVE-enabled libzmq, so CURVE moved from present-but-broken to working. PUB is the one socket that takes no SocketOptions: its broadcast path ignores buffer sizes and write coalescing, so only its worker count can be tuned. COMPATIBILITY.md lists eleven and does not include STREAM, which the earlier count credited it with.",
-      "source": "vorjdux/monocoque README and CHANGELOG 0.4.0",
+      "notes": "All three runtimes are benchmarked as separate variants (compio/io_uring, tokio, smol). 1.0.0 rebuilt every socket on one per-socket multiplexer: each socket type binds and connects any number of tcp, ipc and inproc endpoints, and PUB takes the same SocketOptions as the rest, write coalescing included, where 0.4 gave it only a worker count. STREAM and the draft types (behind the `draft` feature) are new in 1.0.0. CURVE is the RFC-26 construction, which the project tests against libzmq in both roles; the arena does not exercise it, so it stays declared.",
+      "source": "vorjdux/monocoque docs/COMPATIBILITY.md and CHANGELOG 1.0.0",
       "source_urls": {
         "socket_types": "https://github.com/vorjdux/monocoque/blob/main/docs/COMPATIBILITY.md",
         "transports": "https://github.com/vorjdux/monocoque#features",
         "security": "https://github.com/vorjdux/monocoque/blob/main/docs/COMPATIBILITY.md"
       },
-      "socket_types_draft": []
+      "socket_types_draft": [
+        "SERVER",
+        "CLIENT",
+        "RADIO",
+        "DISH",
+        "SCATTER",
+        "GATHER",
+        "CHANNEL"
+      ]
     },
     {
       "id": "rzmq",
