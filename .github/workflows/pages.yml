@@ -39,11 +39,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Upload and deploy are separate jobs, as in weekly-arena.yml. In one job
+  # deploy-pages lists the run's artifacts a fraction of a second after the
+  # upload is finalized, and that listing can come back empty
+  # (actions/deploy-pages#451): two deploys in a row failed here with
+  # "No artifacts named github-pages". A job boundary puts seconds between them.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -72,5 +74,12 @@ jobs:
         with:
           path: docs
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - uses: actions/deploy-pages@v5
         id: deployment
