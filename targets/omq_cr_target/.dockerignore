@@ -1,0 +1,6 @@
+# Host build output must not enter the image: it is large, and a stale host
+# artifact could be copied instead of the one built inside.
+target/
+target-*/
+rootfs/
+build/
